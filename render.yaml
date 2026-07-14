@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: paysafe
+    runtime: node
+    plan: starter # free tier works too, but sleeps; nonce/replay state benefits from an always-on instance
+    buildCommand: npm install && npm run build
+    startCommand: node dist/src/index.js
+    healthCheckPath: /health
+    disk:
+      name: paysafe-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: PAYSAFE_MODE
+        value: live
+      - key: PAY_TO
+        sync: false # your receiving wallet address (0x...)
+      - key: X402_NETWORK
+        value: eip155:8453 # Base mainnet; use eip155:84532 for Base Sepolia
+      - key: X402_FACILITATOR
+        value: cdp
+      - key: CDP_API_KEY_ID
+        sync: false
+      - key: CDP_API_KEY_SECRET
+        sync: false
+      - key: PRICE_SCAN
+        value: "$0.01"
+      - key: PRICE_REPUTATION
+        value: "$0.01"
+      - key: FREE_CALLS
+        value: "100"
+      - key: DATA_DIR
+        value: /data
+      - key: PUBLIC_BASE_URL
+        sync: false # e.g. https://paysafe.onrender.com
