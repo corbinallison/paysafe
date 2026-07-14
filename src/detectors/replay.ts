@@ -23,8 +23,9 @@ export function checkReplay(
     };
   }
 
-  store.pruneNonces(ttlHours);
-
+  // Nonce TTL pruning runs on the Store's maintenance timer, not here, so the
+  // hot path stays O(1) instead of O(nonces) per request (audit H-4).
+  void ttlHours;
   const key = `${payment.network ?? "?"}:${(payment.payer ?? "").toLowerCase()}:${payment.nonce}`;
   const existing = store.nonces.get(key);
 
