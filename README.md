@@ -120,7 +120,7 @@ POST /v1/scan/outgoing
 ## Quick start
 
 ```bash
-git clone https://github.com/<you>/paysafe && cd paysafe
+git clone https://github.com/corbinallison/paysafe && cd paysafe
 npm install
 
 npm run dev            # dev server — payments off, no wallet needed
@@ -140,10 +140,10 @@ Measured on the zero-dependency dev server (same handlers as production): **2,00
 4. Verify:
 
 ```bash
-curl https://<your-app>.onrender.com/health
-curl https://<your-app>.onrender.com/.well-known/x402
+curl https://paysafe-agent.com/health
+curl https://paysafe-agent.com/.well-known/x402
 # Unpaid scan → 402 with payment instructions:
-curl -i -X POST https://<your-app>.onrender.com/v1/scan/outgoing \
+curl -i -X POST https://paysafe-agent.com/v1/scan/outgoing \
   -H 'content-type: application/json' -d '{"payment":{}}'
 ```
 
@@ -174,7 +174,7 @@ Indexing is asynchronous (~10 min). If a route doesn't appear, inspect the `EXTE
       "command": "node",
       "args": ["/path/to/paysafe/dist/mcp/server.js"],
       "env": {
-        "PAYSAFE_URL": "https://<your-app>.onrender.com",
+        "PAYSAFE_URL": "https://paysafe-agent.com",
         "PAYSAFE_API_KEY": "psk_..."   // from POST /v1/keys
       }
     }

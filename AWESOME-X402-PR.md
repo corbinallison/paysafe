@@ -9,7 +9,7 @@ Add PaySafe — payment security firewall for x402 traffic
 Add under a **Security** (or **Tools & Infrastructure**) section, keeping alphabetical order:
 
 ```markdown
-- [PaySafe](https://paysafe.onrender.com) - Payment security firewall for x402 traffic. Screens outgoing/incoming payments for PII & secret leakage in payment metadata, nonce replay, overpayment, and prompt-injection-triggered payments; includes a shared counterparty report registry and MCP tools. Advisory & non-custodial — wraps your existing wallet/facilitator. $0.01/scan via x402 (CDP facilitator, Base), first 100 calls free. ([manifest](https://paysafe.onrender.com/.well-known/x402))
+- [PaySafe](https://paysafe-agent.com) - Payment security firewall for x402 traffic. Screens outgoing/incoming payments for PII & secret leakage in payment metadata, nonce replay, overpayment, and prompt-injection-triggered payments; includes a shared counterparty report registry and MCP tools. Advisory & non-custodial — wraps your existing wallet/facilitator. $0.01/scan via x402 (CDP facilitator, Base), first 100 calls free. ([manifest](https://paysafe-agent.com/.well-known/x402))
 ```
 
 ## PR description

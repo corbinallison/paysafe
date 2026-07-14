@@ -1,6 +1,6 @@
 # PaySafe — submission-ready listing copy
 
-Replace `https://paysafe.onrender.com` with your deployed URL before submitting.
+Service URL: `https://paysafe-agent.com` (custom domain). Ensure the domain is pointed at the deployment and live before submitting these listings.
 
 ---
 
@@ -29,10 +29,10 @@ PaySafe is a drop-in security layer for agents that pay (or get paid) over x402.
 **Payment:** x402 (exact scheme), USDC on Base mainnet, settled via Coinbase CDP facilitator.
 
 **Links:**
-- Base URL: `https://paysafe.onrender.com`
-- Manifest: `https://paysafe.onrender.com/.well-known/x402`
-- Agent card: `https://paysafe.onrender.com/.well-known/agent-card.json`
-- Docs: `https://paysafe.onrender.com/` (self-documenting) + repo README
+- Base URL: `https://paysafe-agent.com`
+- Manifest: `https://paysafe-agent.com/.well-known/x402`
+- Agent card: `https://paysafe-agent.com/.well-known/agent-card.json`
+- Docs: `https://paysafe-agent.com/` (self-documenting) + repo README
 
 ---
 
@@ -41,9 +41,9 @@ PaySafe is a drop-in security layer for agents that pay (or get paid) over x402.
 Submit at: https://www.x402scan.com/resources/register — paste each paid resource URL; x402scan validates the 402 schema automatically.
 
 **Resource URLs to submit:**
-1. `https://paysafe.onrender.com/v1/scan/outgoing`
-2. `https://paysafe.onrender.com/v1/scan/incoming`
-3. `https://paysafe.onrender.com/v1/reputation/0x0000000000000000000000000000000000000000` (path-parameterized)
+1. `https://paysafe-agent.com/v1/scan/outgoing`
+2. `https://paysafe-agent.com/v1/scan/incoming`
+3. `https://paysafe-agent.com/v1/reputation/0x0000000000000000000000000000000000000000` (path-parameterized)
 
 **Name:** PaySafe — x402 Payment Security Firewall
 
@@ -58,4 +58,4 @@ Advisory firewall for x402 payment traffic. POST a payment (or a 402 offer you r
 
 ## One-liner (for directories that want a single sentence)
 
-PaySafe is a non-custodial payment security firewall for x402: one API call screens any payment for PII/secret leaks, nonce replay, overpayment, and prompt-injection-triggered spending before your agent settles it — $0.01/scan, first 100 free.
+PaySafe is a non-custodial payment security firewall for x402: one API call screens any payment for PII/secret leaks, nonce replay, overpayment, and prompt-injection-triggered spe

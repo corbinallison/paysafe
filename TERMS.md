@@ -33,7 +33,7 @@ The Service includes a shared registry where users may report wallet addresses a
 - **Reports are user-generated content.** They are self-asserted, unauthenticated, and are **not** verified by us. We do not endorse, adopt, or vouch for any report, and a report does not represent our opinion about any address or person.
 - Reports are provided for informational purposes only and must be independently verified before you rely on them. Unverified reports never cause the Service to hard-`block`; they raise a `flag` at most.
 - **If you submit a report,** you represent that it is truthful, based on your own genuine experience, not defamatory, and not submitted to harass, defraud, or gain competitive advantage. You are solely responsible for the content of your reports and you indemnify us against claims arising from them (see §9).
-- **Disputes / removal:** if you believe an address has been reported inaccurately or maliciously, contact **[DISPUTE EMAIL, e.g. abuse@yourdomain]**. We may, at our discretion, remove, annotate, or decline to act on reports, but we are under no obligation to monitor, verify, or curate the registry.
+- **Disputes / removal:** if you believe an address has been reported inaccurately or maliciously, contact **abuse@paysafe-agent.com**. We may, at our discretion, remove, annotate, or decline to act on reports, but we are under no obligation to monitor, verify, or curate the registry.
 
 ## 6. Acceptable use
 
@@ -41,7 +41,7 @@ You agree not to: use the Service to facilitate illegal activity; submit another
 
 ## 7. Data handling
 
-When you submit a payment for scanning, its content is processed **in memory** to produce a verdict and is not retained in plaintext. For accountability we keep a tamper-evident audit record of each **decision** that stores a cryptographic hash of the payment and non-sensitive transaction facts (network, recipient address, verdict, timestamp) — **not** the plaintext descriptions, reasons, metadata, or other content you submit. Do not submit secrets or personal data you are not authorized to share. See our Privacy Policy at **[PRIVACY URL]** for details. Audit records are retained for **[RETENTION PERIOD, e.g. 24 months]**.
+When you submit a payment for scanning, its content is processed **in memory** to produce a verdict and is not retained in plaintext. For accountability we keep a tamper-evident audit record of each **decision** that stores a cryptographic hash of the payment and non-sensitive transaction facts (network, recipient address, verdict, timestamp) — **not** the plaintext descriptions, reasons, metadata, or other content you submit. Do not submit secrets or personal data you are not authorized to share. See our Privacy Policy at **https://paysafe-agent.com/privacy** for details. Audit records are retained for **24 months** (adjust to your compliance needs).
 
 ## 8. Fees
 
@@ -61,5 +61,5 @@ We may modify these Terms or the Service at any time; material changes take effe
 
 ## 11. Contact
 
-**PaySafe, LLC** (Colorado) — corbinjallison@gmail.com
-Service: **[https://your-service-url]**
+**PaySafe, LLC** (Colorado) — **contact@paysafe-agent.com**
+Service: **https://paysafe-agent.com**
