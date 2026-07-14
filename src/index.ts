@@ -122,8 +122,11 @@ function buildX402Layer() {
       ? new HTTPFacilitatorClient(cdpFacilitator) // uses CDP_API_KEY_ID / CDP_API_KEY_SECRET env vars
       : new HTTPFacilitatorClient({ url: "https://x402.org/facilitator" });
 
+  // The SDK types CAIP-2 network ids as a template-literal type.
+  const network = cfg.network as `${string}:${string}`;
+
   const server = new x402ResourceServer(facilitatorClient).register(
-    cfg.network,
+    network,
     new ExactEvmScheme(),
   );
 
@@ -142,10 +145,14 @@ function buildX402Layer() {
   }
 
   const scanAccepts = [
-    { scheme: "exact", price: cfg.priceScan, network: cfg.network, payTo: cfg.payTo },
+    { scheme: "exact", price: cfg.priceScan, network, payTo: cfg.payTo },
   ];
 
-  const routes = {
+  // Typed loosely: the SDK's RoutesConfig uses branded/template-literal types
+  // that vary across minor versions; the runtime shape below follows the
+  // official seller quickstart exactly.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const routes: any = {
     "POST /v1/scan/outgoing": {
       accepts: scanAccepts,
       description:
@@ -176,7 +183,7 @@ function buildX402Layer() {
     },
     "GET /v1/reputation/:address": {
       accepts: [
-        { scheme: "exact", price: cfg.priceReputation, network: cfg.network, payTo: cfg.payTo },
+        { scheme: "exact", price: cfg.priceReputation, network, payTo: cfg.payTo },
       ],
       description:
         "Counterparty reputation lookup for x402 payments: aggregated post-hoc reports (scam, non-delivery, prompt injection, overcharge, impersonation, replay abuse) filed by other agents, with distinct-reporter counts and risk level.",
