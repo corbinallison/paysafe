@@ -1,0 +1,95 @@
+/**
+ * Zero-dependency dev server (node:http only). Same API surface as index.ts
+ * but with x402 payments disabled — for local development, CI, and the
+ * examples/ scripts. Run: npm run dev
+ */
+import { createServer } from "node:http";
+import { join } from "node:path";
+import { loadConfig } from "./config.ts";
+import { Store } from "./store.ts";
+import { VerdictSigner } from "./verdictsign.ts";
+import { RateLimiter } from "./ratelimit.ts";
+import {
+  createApiKey,
+  handleReputationLookup,
+  handleReputationReport,
+  handleScan,
+  serviceInfo,
+} from "./api.ts";
+import { x402Manifest, agentCard } from "./manifest.ts";
+import type { ApiResult } from "./api.ts";
+
+const cfg = { ...loadConfig(), mode: "dev" as const };
+const ephemeral = process.env.DATA_DIR === "none";
+const store = new Store(ephemeral ? null : cfg.dataDir);
+store.loadBadlist(cfg.badlistPath ?? join(cfg.dataDir, "badlist.json"));
+const signer = cfg.verdictSigning ? new VerdictSigner(ephemeral ? null : cfg.dataDir) : null;
+
+const keyLimiter = new RateLimiter(cfg.keysPerIpPerDay, 24 * 3600_000);
+const reportLimiter = new RateLimiter(cfg.reportsPerIpPerHour, 3600_000);
+const LIMITED: ApiResult = { status: 429, body: { error: "Rate limit exceeded for this endpoint. Try again later." } };
+
+function readBody(req: import("node:http").IncomingMessage): Promise<unknown> {
+  return new Promise((resolve) => {
+    let data = "";
+    req.on("data", (c) => {
+      data += c;
+      if (data.length > 512 * 1024) req.destroy();
+    });
+    req.on("end", () => {
+      try {
+        resolve(data ? JSON.parse(data) : undefined);
+      } catch {
+        resolve(undefined);
+      }
+    });
+  });
+}
+
+const server = createServer(async (req, res) => {
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const path = url.pathname;
+  const method = req.method ?? "GET";
+  const ip = req.socket.remoteAddress ?? "unknown";
+
+  let out: ApiResult;
+  try {
+    if (method === "GET" && path === "/") out = serviceInfo(cfg);
+    else if (method === "GET" && path === "/health")
+      out = { status: 200, body: { ok: true, mode: cfg.mode, time: new Date().toISOString() } };
+    else if (method === "GET" && path === "/.well-known/x402")
+      out = { status: 200, body: x402Manifest(cfg) };
+    else if (method === "GET" && path === "/.well-known/agent-card.json")
+      out = { status: 200, body: agentCard(cfg) };
+    else if (method === "GET" && path === "/.well-known/paysafe-verdict-key")
+      out = signer
+        ? { status: 200, body: signer.publicKeyInfo() }
+        : { status: 404, body: { error: "Verdict signing disabled (VERDICT_SIGNING=off)" } };
+    else if (method === "POST" && path === "/v1/keys") {
+      if (!keyLimiter.allow(ip)) out = LIMITED;
+      else {
+        const body = (await readBody(req)) as { agent_id?: string } | undefined;
+        out = createApiKey(store, cfg, body?.agent_id);
+      }
+    } else if (method === "POST" && path === "/v1/scan/outgoing")
+      out = handleScan("outgoing", await readBody(req), cfg, store, signer);
+    else if (method === "POST" && path === "/v1/scan/incoming")
+      out = handleScan("incoming", await readBody(req), cfg, store, signer);
+    else if (method === "POST" && path === "/v1/reputation/report") {
+      if (!reportLimiter.allow(ip)) out = LIMITED;
+      else out = handleReputationReport(await readBody(req), store);
+    } else if (method === "GET" && /^\/v1\/reputation\/[^/]+$/.test(path))
+      out = handleReputationLookup(decodeURIComponent(path.split("/").pop() ?? ""), store);
+    else out = { status: 404, body: { error: `No route: ${method} ${path}` } };
+  } catch (err) {
+    console.error("handler error:", err);
+    out = { status: 500, body: { error: "internal error" } };
+  }
+
+  res.writeHead(out.status, { "content-type": "application/json" });
+  res.end(JSON.stringify(out.body, null, 2));
+});
+
+server.listen(cfg.port, () => {
+  console.log(`PaySafe DEV server (no payments) listening on :${cfg.port}`);
+});

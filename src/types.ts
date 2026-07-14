@@ -1,0 +1,125 @@
+/** PaySafe core types. Zero runtime dependencies. */
+
+export type Verdict = "allow" | "flag" | "block";
+export type Severity = "info" | "low" | "medium" | "high" | "critical";
+export type Direction = "outgoing" | "incoming";
+
+export type PaymentOrigin =
+  | "planning"          // agent's own planning/deliberation step
+  | "user_instruction"  // explicit human instruction
+  | "tool_result"       // decision was formed after reading a tool result
+  | "fetched_content"   // decision was formed after reading a fetched page/doc
+  | "unknown";
+
+export interface PaymentDetails {
+  /** x402 scheme, e.g. "exact" */
+  scheme?: string;
+  /** CAIP-2 network id, e.g. "eip155:8453" */
+  network?: string;
+  /** Token contract address (e.g. USDC) */
+  asset?: string;
+  /** Amount in atomic token units (string), e.g. "10000" = $0.01 USDC */
+  amount?: string;
+  /** Alternative: decimal USD value */
+  amount_usd?: number;
+  /** Token decimals if amount is atomic units (default 6 = USDC) */
+  asset_decimals?: number;
+  /** Recipient address */
+  pay_to?: string;
+  /** Paying agent's address (optional, scopes replay + velocity tracking) */
+  payer?: string;
+  /** The resource being purchased */
+  resource_url?: string;
+  description?: string;
+  /** Free-text reason the agent recorded for making this payment */
+  reason?: string;
+  /** Payment nonce (from the signed payment payload) */
+  nonce?: string;
+  valid_until?: string;
+  metadata?: Record<string, string>;
+}
+
+export interface ScanContext {
+  /** Where the decision to pay originated */
+  origin?: PaymentOrigin;
+  /** The content the agent just read (tool result / fetched page), for injection analysis */
+  content?: string;
+  /** URL the content came from, if any */
+  content_source_url?: string;
+}
+
+export interface ScanPolicy {
+  /** Run the deep content-analysis tier even below the micropayment threshold */
+  force_deep?: boolean;
+  /** Skip the deep tier regardless of value (developer policy) */
+  skip_deep?: boolean;
+}
+
+export interface ScanRequest {
+  agent_id?: string;
+  payment: PaymentDetails;
+  /** What the agent expected this to cost, in USD (e.g. from the 402 quote or a catalog) */
+  expected_price_usd?: number;
+  context?: ScanContext;
+  policy?: ScanPolicy;
+}
+
+export interface CheckResult {
+  id: string;
+  name: string;
+  verdict: Verdict;
+  severity: Severity;
+  reason: string;
+  details?: Record<string, unknown>;
+}
+
+/** Ed25519 attestation over the verdict, so wallet policies can require a PaySafe allow-verdict. */
+export interface VerdictAttestation {
+  alg: "ed25519";
+  /** SPKI DER, hex-encoded. Also served at /.well-known/paysafe-verdict-key */
+  public_key_spki_hex: string;
+  /** The exact signed message: scan_id|direction|verdict|risk_score|scanned_at */
+  message: string;
+  signature_hex: string;
+}
+
+export interface ScanResponse {
+  scan_id: string;
+  direction: Direction;
+  verdict: Verdict;
+  /** 0 (clean) – 100 (maximum risk) */
+  risk_score: number;
+  checks: CheckResult[];
+  scanned_at: string;
+  advisory: string;
+  attestation?: VerdictAttestation;
+}
+
+export type ReportCategory =
+  | "scam"
+  | "non_delivery"
+  | "prompt_injection"
+  | "overcharge"
+  | "impersonation"
+  | "replay_abuse"
+  | "other";
+
+export interface ReputationReport {
+  address: string;
+  category: ReportCategory;
+  reason: string;
+  reporter_agent_id: string;
+  evidence_url?: string;
+  reported_at: string;
+}
+
+export interface ReputationSummary {
+  address: string;
+  status: "clean" | "reported";
+  risk: "none" | "low" | "medium" | "high";
+  report_count: number;
+  distinct_reporters: number;
+  categories: Record<string, number>;
+  first_reported?: string;
+  last_reported?: string;
+}
