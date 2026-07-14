@@ -4,7 +4,7 @@
 
 [![x402](https://img.shields.io/badge/x402-v2-blue)](https://github.com/x402-foundation/x402)
 [![network](https://img.shields.io/badge/settles%20on-Base%20(USDC)-0052FF)](https://docs.cdp.coinbase.com/x402/quickstart-for-sellers)
-[![tests](https://img.shields.io/badge/tests-48%2F48-brightgreen)](test/run-tests.ts)
+[![tests](https://img.shields.io/badge/tests-66%2F66-brightgreen)](test/run-tests.ts)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 Agents that pay over x402 get drained in predictable ways: secrets leak through payment metadata, captured authorizations get replayed, quoted prices get inflated, and poisoned web content tricks agents into paying addresses they never planned to pay. PaySafe is one `POST` before settlement that checks for all of it and returns **allow / flag / block** with machine-readable, per-check reasons — in **~0.6 ms**.
@@ -42,7 +42,9 @@ Agent decides to pay ──► POST /v1/scan/outgoing ──► allow ──► 
 | Known-bad list | O(1) membership against a curated/synced badlist |
 | Deep content analysis | Base64-encoded and zero-width/homoglyph-obfuscated injection payloads, decoded/normalized and rescanned — bypassed below `MICRO_BYPASS_USD` (default $0.005), overridable per request via `policy.force_deep` |
 
-**Signed verdicts.** Every response carries an Ed25519 `attestation` (`scan_id|direction|verdict|risk_score|scanned_at`, public key at `/.well-known/paysafe-verdict-key`). Wallet policies can require a fresh signed allow-verdict before signing a payment — turning the firewall from advisory into enforceable, still without PaySafe touching funds.
+**Signed verdicts.** Every response carries an Ed25519 `attestation` over `scan_id|direction|verdict|risk_score|scanned_at|payment_commitment|expires_at` (public key at `/.well-known/paysafe-verdict-key`). The `payment_commitment` is `sha256(network|pay_to|asset|amount|nonce)`, so a wallet can confirm an allow-verdict belongs to *this* payment and hasn't been replayed onto another, and reject it after `expires_at`. Wallet policies can require a fresh signed allow-verdict before signing — turning the firewall from advisory into enforceable, still without PaySafe touching funds.
+
+**Tamper-evident audit log.** Every scan decision is appended to a hash-chained log (`AUDIT_LOG=on`) that stores a SHA-256 of the payment plus non-sensitive transaction facts — never the plaintext PII/secrets it scans. `GET /v1/audit/verify` recomputes the chain and reports any tampering; `GET /v1/audit/head` returns the current head hash for external anchoring. See `SECURITY-AUDIT.md`.
 
 ## API
 
@@ -56,6 +58,8 @@ Agent decides to pay ──► POST /v1/scan/outgoing ──► allow ──► 
 | `GET /.well-known/x402` | free | x402 manifest |
 | `GET /.well-known/agent-card.json` | free | Agent card |
 | `GET /.well-known/paysafe-verdict-key` | free | Ed25519 public key for verdict attestations |
+| `GET /v1/audit/verify` | free | Verify the audit-log hash chain (integrity check) |
+| `GET /v1/audit/head` | free | Current audit-log head hash + sequence |
 | `GET /` · `GET /health` | free | Self-documenting schema / liveness |
 
 Send the key from `POST /v1/keys` in the `X-API-Key` header; the first `FREE_CALLS` (default 100) calls bypass payment. After that, unpaid calls get a standard x402 `402 Payment Required` — any x402 client (`@x402/fetch`, `x402-requests`, …) handles pay-and-retry automatically.
@@ -111,8 +115,10 @@ POST /v1/scan/outgoing
   "attestation": {
     "alg": "ed25519",
     "public_key_spki_hex": "302a3005...",
-    "message": "b7911f8b-...|outgoing|block|95|2026-07-14T09:33:12Z",
-    "signature_hex": "..."
+    "message": "b7911f8b-...|outgoing|block|95|2026-07-14T09:33:12Z|<payment_commitment>|2026-07-14T09:38:12Z",
+    "signature_hex": "...",
+    "payment_commitment": "sha256(network|pay_to|asset|amount|nonce)",
+    "expires_at": "2026-07-14T09:38:12Z"
   }
 }
 ```
@@ -125,7 +131,7 @@ npm install
 
 npm run dev            # dev server — payments off, no wallet needed
 npm run demo:replay    # replay-attack demo: fresh nonce ALLOW → reused nonce BLOCK
-npm test               # 48-test detector suite
+npm test               # 66-test detector + hardening + audit-log suite
 ```
 
 ## Performance
@@ -223,7 +229,9 @@ src/
   store.ts        JSON-file-backed state (tiny interface — swap for Redis/Postgres at scale)
 mcp/server.ts     MCP wrapper (4 tools)
 examples/         replay-demo.ts — reused-nonce attack blocked end-to-end
-test/             48-test detector suite (npm test)
+auditlog.ts       Tamper-evident hash-chained decision log
+  commitment.ts     Payment hashing (attestation binding + audit digest)
+test/             66-test suite (detectors, hardening, crypto, audit — npm test)
 ```
 
 Design notes: verdicts aggregate worst-first (any block ⇒ block); `risk_score` is severity-based with compounding for multiple independent findings; the detection core has **zero runtime dependencies**, so the full suite runs with `node --experimental-strip-types` and no install. State is a debounced JSON snapshot — single-instance by design; porting to Vercel/serverless means swapping `store.ts` for a KV/Redis implementation and `@x402/express` for `@x402/next`.
