@@ -2,12 +2,13 @@
  * Framework-agnostic API handlers. Both the production Express app (index.ts)
  * and the zero-dependency dev server (devserver.ts) route into these.
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { PaySafeConfig } from "./config.ts";
 import type { Store } from "./store.ts";
 import type { VerdictSigner } from "./verdictsign.ts";
 import { runScan } from "./scanner.ts";
 import { sanitizeScanRequest } from "./sanitize.ts";
+import { paymentCommitment, paymentDigest } from "./commitment.ts";
 import { addReport, summarize } from "./reputation.ts";
 
 export interface ApiResult {
@@ -15,9 +16,15 @@ export interface ApiResult {
   body: unknown;
 }
 
+/** API keys are stored hashed at rest (audit M-3): disk/backup disclosure of
+ * the store never reveals a usable key. The raw key is shown once, on issue. */
+function hashKey(raw: string): string {
+  return createHash("sha256").update(raw, "utf8").digest("hex");
+}
+
 export function createApiKey(store: Store, cfg: PaySafeConfig, agentId?: string): ApiResult {
   const key = `psk_${randomUUID().replace(/-/g, "")}`;
-  store.keys.set(key, {
+  store.keys.set(hashKey(key), {
     created_at: new Date().toISOString(),
     agent_id: typeof agentId === "string" ? agentId.slice(0, 200) : undefined,
     calls_used: 0,
@@ -28,7 +35,7 @@ export function createApiKey(store: Store, cfg: PaySafeConfig, agentId?: string)
     body: {
       api_key: key,
       free_calls_remaining: cfg.freeCalls,
-      note: `Send this key in the X-API-Key header. Your first ${cfg.freeCalls} calls are free; after that, calls are paid via x402 (${cfg.priceScan}/scan).`,
+      note: `Send this key in the X-API-Key header. Your first ${cfg.freeCalls} calls are free; after that, calls are paid via x402 (${cfg.priceScan}/scan). Store it now — it is not recoverable.`,
     },
   };
 }
@@ -39,7 +46,7 @@ export function createApiKey(store: Store, cfg: PaySafeConfig, agentId?: string)
  */
 export function consumeFreeCall(store: Store, cfg: PaySafeConfig, apiKey: string | undefined): boolean {
   if (!apiKey) return false;
-  const rec = store.keys.get(apiKey);
+  const rec = store.keys.get(hashKey(apiKey));
   if (!rec) return false;
   if (rec.calls_used >= cfg.freeCalls) return false;
   rec.calls_used += 1;
@@ -49,7 +56,7 @@ export function consumeFreeCall(store: Store, cfg: PaySafeConfig, apiKey: string
 
 export function freeCallsRemaining(store: Store, cfg: PaySafeConfig, apiKey: string | undefined): number | null {
   if (!apiKey) return null;
-  const rec = store.keys.get(apiKey);
+  const rec = store.keys.get(hashKey(apiKey));
   if (!rec) return null;
   return Math.max(0, cfg.freeCalls - rec.calls_used);
 }
@@ -71,7 +78,25 @@ export function handleScan(
     };
   }
   const scan = runScan(direction, req, cfg, store);
-  if (signer) scan.attestation = signer.attest(scan);
+  if (signer) scan.attestation = signer.attest(scan, paymentCommitment(req.payment));
+
+  // Tamper-evident audit record of the DECISION. Stores only a hash of the
+  // payment — never the plaintext PII/secrets that were scanned.
+  store.auditLog?.append({
+    ts: scan.scanned_at,
+    scan_id: scan.scan_id,
+    direction: scan.direction,
+    verdict: scan.verdict,
+    risk_score: scan.risk_score,
+    agent_id: req.agent_id,
+    payment_sha256: paymentDigest(req.payment),
+    network: req.payment.network,
+    pay_to: req.payment.pay_to,
+    amount_usd: req.expected_price_usd ?? req.payment.amount_usd ?? null,
+    fired: scan.checks.filter((c) => c.verdict !== "allow").map((c) => c.id),
+    attestation_sig: scan.attestation?.signature_hex,
+  });
+
   return { status: 200, body: scan };
 }
 

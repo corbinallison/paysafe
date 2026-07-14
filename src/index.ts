@@ -24,6 +24,7 @@ import {
 
 import { loadConfig } from "./config.ts";
 import { Store } from "./store.ts";
+import { AuditLog } from "./auditlog.ts";
 import { VerdictSigner } from "./verdictsign.ts";
 import { RateLimiter } from "./ratelimit.ts";
 import {
@@ -38,8 +39,12 @@ import {
 import { x402Manifest, agentCard } from "./manifest.ts";
 
 const cfg = loadConfig();
-const store = new Store(cfg.dataDir);
+const store = new Store(cfg.dataDir, {
+  nonceTtlHours: cfg.nonceTtlHours,
+  maxEntries: cfg.maxStoreEntries,
+});
 store.loadBadlist(cfg.badlistPath ?? join(cfg.dataDir, "badlist.json"));
+if (cfg.auditLog) store.auditLog = new AuditLog(join(cfg.dataDir, "audit.log"));
 const signer = cfg.verdictSigning ? new VerdictSigner(cfg.dataDir) : null;
 
 const keyLimiter = new RateLimiter(cfg.keysPerIpPerDay, 24 * 3600_000);
@@ -52,6 +57,11 @@ if (cfg.mode === "live" && !cfg.payTo) {
 
 const app = express();
 app.set("trust proxy", 1); // Render/most PaaS terminate TLS at a proxy; req.ip = client IP
+// Audit C-1: make the router reject path variants (trailing slash, case) rather
+// than route them to a handler that the payment gate's exact-string matcher
+// would then let through for free. Combined with the normalized matcher below.
+app.set("strict routing", true);
+app.set("case sensitive routing", true);
 app.use(express.json({ limit: "512kb" }));
 
 // ---------------------------------------------------------------------------
@@ -218,9 +228,15 @@ function buildX402Layer() {
 if (cfg.mode === "live") {
   const paid = buildX402Layer();
 
-  const isPaidRoute = (req: express.Request): boolean =>
-    (req.method === "POST" && (req.path === "/v1/scan/outgoing" || req.path === "/v1/scan/incoming")) ||
-    (req.method === "GET" && /^\/v1\/reputation\/[^/]+$/.test(req.path));
+  // Normalize before matching so a trailing slash or different case can never
+  // route a request AROUND the payment gate (audit C-1).
+  const isPaidRoute = (req: express.Request): boolean => {
+    const p = req.path.replace(/\/+$/, "").toLowerCase();
+    return (
+      (req.method === "POST" && (p === "/v1/scan/outgoing" || p === "/v1/scan/incoming")) ||
+      (req.method === "GET" && /^\/v1\/reputation\/[^/]+$/.test(p))
+    );
+  };
 
   app.use((req, res, next) => {
     if (!isPaidRoute(req)) return next();
@@ -295,6 +311,24 @@ app.post("/v1/reputation/report", (req, res) => {
   }
   const r = handleReputationReport(req.body, store);
   res.status(r.status).json(r.body);
+});
+
+// Audit trail integrity (no record contents exposed — only chain head + a
+// verification result). Useful for external monitoring / anchoring.
+app.get("/v1/audit/head", (_req, res) => {
+  if (!store.auditLog) {
+    res.status(404).json({ error: "Audit log disabled (AUDIT_LOG=off)" });
+    return;
+  }
+  res.json(store.auditLog.head());
+});
+
+app.get("/v1/audit/verify", (_req, res) => {
+  if (!store.auditLog) {
+    res.status(404).json({ error: "Audit log disabled (AUDIT_LOG=off)" });
+    return;
+  }
+  res.json(store.auditLog.verify());
 });
 
 // JSON error handler: never leak stack traces.

@@ -2,10 +2,17 @@
  * Lightweight JSON-file-backed store. Zero dependencies.
  * Suitable for a single-instance advisory service; swap for Redis/Postgres at scale
  * (the interface is intentionally tiny).
+ *
+ * Hardening (audit H-3/H-4/M-1):
+ *  - every unbounded Map is size-capped with oldest-first eviction, swept on a timer
+ *  - nonce TTL pruning runs on the timer, NOT on the per-request hot path
+ *  - reports are indexed by address so lookups are O(bucket), not O(all reports)
+ *  - snapshot flush writes to a temp file then renames (atomic, no torn reads)
  */
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import type { ReputationReport } from "./types.ts";
+import type { AuditLog } from "./auditlog.ts";
 
 export interface NonceRecord {
   first_seen: string;
@@ -41,30 +48,37 @@ interface Snapshot {
   pins: Record<string, PinRecord>;
 }
 
+export interface StoreLimits {
+  nonceTtlHours: number;
+  maxEntries: number; // per-Map cap
+}
+
 export class Store {
   nonces: Map<string, NonceRecord> = new Map();
   reports: ReputationReport[] = [];
+  reportsByAddress: Map<string, ReputationReport[]> = new Map();
   keys: Map<string, KeyRecord> = new Map();
-  /** agent key -> recent scan events (sliding windows for rate/spend caps) */
   velocity: Map<string, VelocityEvent[]> = new Map();
-  /** agent key -> counterparty addresses it has paid before */
   counterparties: Map<string, string[]> = new Map();
-  /** resource domain -> pinned pay_to (TOFU) */
   pins: Map<string, PinRecord> = new Map();
-  /** known-bad addresses (loaded from badlist file; not part of the snapshot) */
   badlist: Set<string> = new Set();
+
+  /** Attached by the server; every scan decision is appended here. */
+  auditLog: AuditLog | null = null;
 
   private file: string | null = null;
   private dirty = false;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private limits: StoreLimits = { nonceTtlHours: 24, maxEntries: 100_000 };
 
   /** In-memory only (tests / ephemeral) when dataDir is null. */
-  constructor(dataDir: string | null) {
+  constructor(dataDir: string | null, limits?: Partial<StoreLimits>) {
+    if (limits) this.limits = { ...this.limits, ...limits };
     if (dataDir) {
       mkdirSync(dataDir, { recursive: true });
       this.file = join(dataDir, "paysafe-store.json");
       this.load();
-      this.timer = setInterval(() => this.flush(), 5000);
+      this.timer = setInterval(() => this.maintain(), 5000);
       this.timer.unref?.();
     }
   }
@@ -79,8 +93,18 @@ export class Store {
       this.velocity = new Map(Object.entries(snap.velocity ?? {}));
       this.counterparties = new Map(Object.entries(snap.counterparties ?? {}));
       this.pins = new Map(Object.entries(snap.pins ?? {}));
+      this.reindexReports();
     } catch {
       // Corrupt snapshot: start fresh rather than crash an advisory service.
+    }
+  }
+
+  private reindexReports(): void {
+    this.reportsByAddress = new Map();
+    for (const r of this.reports) {
+      const list = this.reportsByAddress.get(r.address) ?? [];
+      list.push(r);
+      this.reportsByAddress.set(r.address, list);
     }
   }
 
@@ -102,6 +126,36 @@ export class Store {
     this.dirty = true;
   }
 
+  /** Timer job: prune, cap, flush. Keeps all of this off the request path. */
+  private maintain(): void {
+    this.pruneNonces(this.limits.nonceTtlHours);
+    this.capMaps(this.limits.maxEntries);
+    this.flush();
+  }
+
+  private static evict<K, V>(map: Map<K, V>, max: number): void {
+    if (map.size <= max) return;
+    let toRemove = map.size - max;
+    for (const k of map.keys()) {
+      if (toRemove-- <= 0) break;
+      map.delete(k); // Maps iterate in insertion order → oldest first
+    }
+  }
+
+  /** Bound every attacker-keyable Map so no client can exhaust memory/disk. */
+  capMaps(max: number): void {
+    Store.evict(this.nonces, max);
+    Store.evict(this.velocity, max);
+    Store.evict(this.counterparties, max);
+    Store.evict(this.pins, max);
+    Store.evict(this.keys, max);
+    if (this.reports.length > max) {
+      this.reports = this.reports.slice(this.reports.length - max);
+      this.reindexReports();
+    }
+    this.markDirty();
+  }
+
   flush(): void {
     if (!this.file || !this.dirty) return;
     const snap: Snapshot = {
@@ -113,20 +167,26 @@ export class Store {
       pins: Object.fromEntries(this.pins),
     };
     try {
-      writeFileSync(this.file, JSON.stringify(snap));
+      const tmp = `${this.file}.tmp`;
+      writeFileSync(tmp, JSON.stringify(snap));
+      renameSync(tmp, this.file); // atomic replace
       this.dirty = false;
     } catch {
       // best-effort persistence
     }
   }
 
-  /** Remove nonce records older than ttlHours. */
+  /** Remove nonce records older than ttlHours. Called on the timer. */
   pruneNonces(ttlHours: number): void {
     const cutoff = Date.now() - ttlHours * 3600_000;
+    let changed = false;
     for (const [k, v] of this.nonces) {
-      if (Date.parse(v.first_seen) < cutoff) this.nonces.delete(k);
+      if (Date.parse(v.first_seen) < cutoff) {
+        this.nonces.delete(k);
+        changed = true;
+      }
     }
-    this.markDirty();
+    if (changed) this.markDirty();
   }
 
   close(): void {

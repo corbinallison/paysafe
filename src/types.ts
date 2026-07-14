@@ -78,9 +78,13 @@ export interface VerdictAttestation {
   alg: "ed25519";
   /** SPKI DER, hex-encoded. Also served at /.well-known/paysafe-verdict-key */
   public_key_spki_hex: string;
-  /** The exact signed message: scan_id|direction|verdict|risk_score|scanned_at */
+  /** Signed message: scan_id|direction|verdict|risk_score|scanned_at|payment_commitment|expires_at */
   message: string;
   signature_hex: string;
+  /** sha256(network|pay_to|asset|amount|nonce) — binds the verdict to this payment */
+  payment_commitment: string;
+  /** ISO time after which the attestation must be rejected */
+  expires_at: string;
 }
 
 export interface ScanResponse {

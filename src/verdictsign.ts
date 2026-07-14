@@ -63,14 +63,32 @@ export class VerdictSigner {
     this.publicKeySpkiHex = (pub.export({ format: "der", type: "spki" }) as Buffer).toString("hex");
   }
 
-  attest(scan: ScanResponse): VerdictAttestation {
-    const message = [scan.scan_id, scan.direction, scan.verdict, scan.risk_score, scan.scanned_at].join("|");
+  /**
+   * Sign the verdict, BINDING it to the specific payment via `commitment`
+   * (sha256 of network|pay_to|asset|amount|nonce) and to a short expiry
+   * (audit H-1). A verifier must recompute the commitment from the payment it
+   * is about to sign and confirm it matches — this prevents replaying an
+   * allow-attestation issued for a benign payment against a different one.
+   */
+  attest(scan: ScanResponse, commitment: string, ttlSeconds = 300): VerdictAttestation {
+    const expiresAt = new Date(Date.parse(scan.scanned_at) + ttlSeconds * 1000).toISOString();
+    const message = [
+      scan.scan_id,
+      scan.direction,
+      scan.verdict,
+      scan.risk_score,
+      scan.scanned_at,
+      commitment,
+      expiresAt,
+    ].join("|");
     const signature = edSign(null, Buffer.from(message, "utf8"), this.privateKey);
     return {
       alg: "ed25519",
       public_key_spki_hex: this.publicKeySpkiHex,
       message,
       signature_hex: signature.toString("hex"),
+      payment_commitment: commitment,
+      expires_at: expiresAt,
     };
   }
 
@@ -79,9 +97,10 @@ export class VerdictSigner {
       alg: "ed25519",
       public_key_spki_hex: this.publicKeySpkiHex,
       created_at: this.createdAt,
-      message_format: "scan_id|direction|verdict|risk_score|scanned_at",
+      message_format: "scan_id|direction|verdict|risk_score|scanned_at|payment_commitment|expires_at",
+      payment_commitment: "sha256(network|pay_to(lowercased)|asset(lowercased)|amount|nonce)",
       usage:
-        "Wallet policies can require a PaySafe attestation with verdict=allow and a recent scanned_at before signing a payment.",
+        "Before signing a payment, a wallet policy should: (1) verify the Ed25519 signature over `message` with this key, (2) recompute payment_commitment from the payment and confirm it equals the attested value, (3) confirm verdict=allow and now < expires_at.",
     };
   }
 }

@@ -7,6 +7,7 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 import { loadConfig } from "./config.ts";
 import { Store } from "./store.ts";
+import { AuditLog } from "./auditlog.ts";
 import { VerdictSigner } from "./verdictsign.ts";
 import { RateLimiter } from "./ratelimit.ts";
 import {
@@ -21,8 +22,12 @@ import type { ApiResult } from "./api.ts";
 
 const cfg = { ...loadConfig(), mode: "dev" as const };
 const ephemeral = process.env.DATA_DIR === "none";
-const store = new Store(ephemeral ? null : cfg.dataDir);
+const store = new Store(ephemeral ? null : cfg.dataDir, {
+  nonceTtlHours: cfg.nonceTtlHours,
+  maxEntries: cfg.maxStoreEntries,
+});
 store.loadBadlist(cfg.badlistPath ?? join(cfg.dataDir, "badlist.json"));
+if (cfg.auditLog) store.auditLog = new AuditLog(ephemeral ? null : join(cfg.dataDir, "audit.log"));
 const signer = cfg.verdictSigning ? new VerdictSigner(ephemeral ? null : cfg.dataDir) : null;
 
 const keyLimiter = new RateLimiter(cfg.keysPerIpPerDay, 24 * 3600_000);
@@ -80,6 +85,14 @@ const server = createServer(async (req, res) => {
       else out = handleReputationReport(await readBody(req), store);
     } else if (method === "GET" && /^\/v1\/reputation\/[^/]+$/.test(path))
       out = handleReputationLookup(decodeURIComponent(path.split("/").pop() ?? ""), store);
+    else if (method === "GET" && path === "/v1/audit/head")
+      out = store.auditLog
+        ? { status: 200, body: store.auditLog.head() }
+        : { status: 404, body: { error: "Audit log disabled (AUDIT_LOG=off)" } };
+    else if (method === "GET" && path === "/v1/audit/verify")
+      out = store.auditLog
+        ? { status: 200, body: store.auditLog.verify() }
+        : { status: 404, body: { error: "Audit log disabled (AUDIT_LOG=off)" } };
     else out = { status: 404, body: { error: `No route: ${method} ${path}` } };
   } catch (err) {
     console.error("handler error:", err);

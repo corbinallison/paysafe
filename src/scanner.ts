@@ -74,9 +74,13 @@ export function runScan(
   checks.push(...checkInjection(payment, req.context));
 
   // Deep content tier: bypassed for micropayments unless forced (developer policy).
+  // NOTE (audit M-2): a missing/unparseable amount does NOT unlock the deep
+  // tier — otherwise an attacker omits `amount` to force the expensive path for
+  // free. Unknown value is treated as below-threshold; use policy.force_deep to
+  // opt in explicitly.
   const deepEligible =
     req.policy?.skip_deep !== true &&
-    (req.policy?.force_deep === true || usd === null || usd >= cfg.microBypassUsd);
+    (req.policy?.force_deep === true || (usd !== null && usd >= cfg.microBypassUsd));
   if (deepEligible) {
     checks.push(...deepContentAnalysis(payment, req.context));
   } else if (req.context?.content) {
@@ -85,7 +89,7 @@ export function runScan(
       name: "Scan tiering",
       verdict: "allow",
       severity: "info",
-      reason: `Deep content analysis bypassed by micropayment policy ($${usd?.toFixed(4)} < $${cfg.microBypassUsd} MICRO_BYPASS_USD). Set policy.force_deep to override.`,
+      reason: `Deep content analysis bypassed (value ${usd === null ? "unknown" : `$${usd.toFixed(4)}`} < $${cfg.microBypassUsd} MICRO_BYPASS_USD). Set policy.force_deep to override.`,
     });
   }
 

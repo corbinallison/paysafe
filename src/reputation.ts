@@ -1,6 +1,12 @@
 /**
  * Counterparty reputation: shared post-hoc reporting + lookup.
  * Purely observational — a report registry, not a trust score.
+ *
+ * SECURITY NOTE (audit H-2): reporter_agent_id is self-asserted and
+ * unauthenticated, so the registry is inherently spoofable. Therefore an
+ * unverified report set NEVER produces a hard "block" inside a scan — the
+ * worst it yields is "flag". Hard blocks come only from the operator-curated
+ * badlist. Reports are a signal for humans/agents to weigh, not a kill switch.
  */
 import type { CheckResult, ReportCategory, ReputationReport, ReputationSummary } from "./types.ts";
 import type { Store } from "./store.ts";
@@ -27,12 +33,12 @@ export function addReport(
     return { ok: false, error: "reason must be at least 10 characters" };
   }
 
-  // One report per (reporter, address, category)
-  const dup = store.reports.find(
-    (r) =>
-      r.address === address &&
-      r.category === input.category &&
-      r.reporter_agent_id === input.reporter_agent_id,
+  const existing = store.reportsByAddress.get(address) ?? [];
+
+  // One report per (reporter, address, category) — dedup against the
+  // per-address bucket (O(bucket), not O(all reports)).
+  const dup = existing.find(
+    (r) => r.category === input.category && r.reporter_agent_id === input.reporter_agent_id,
   );
   if (dup) return { ok: true, report: dup };
 
@@ -40,20 +46,22 @@ export function addReport(
     address,
     category: input.category,
     reason: input.reason.slice(0, 1000),
-    reporter_agent_id: input.reporter_agent_id,
+    reporter_agent_id: input.reporter_agent_id.slice(0, 200),
     evidence_url: input.evidence_url,
     reported_at: new Date().toISOString(),
   };
   store.reports.push(report);
+  existing.push(report);
+  store.reportsByAddress.set(address, existing);
   store.markDirty();
   return { ok: true, report };
 }
 
 export function summarize(store: Store, addressRaw: string): ReputationSummary {
   const address = addressRaw.trim().toLowerCase();
-  const reports = store.reports.filter((r) => r.address === address);
+  const reports = store.reportsByAddress.get(address) ?? [];
   const reporters = new Set(reports.map((r) => r.reporter_agent_id));
-  const categories: Record<string, number> = {};
+  const categories: Record<string, number> = Object.create(null);
   for (const r of reports) categories[r.category] = (categories[r.category] ?? 0) + 1;
 
   let risk: ReputationSummary["risk"] = "none";
@@ -95,13 +103,16 @@ export function checkReputation(store: Store, payTo: string | undefined): CheckR
       reason: `No reports on record for ${payTo}.`,
     };
   }
-  const verdict = s.risk === "high" ? "block" : "flag";
+  // Unverified reports cap out at "flag" (never "block"): a spoofable registry
+  // must not be able to hard-block an honest counterparty. Higher report
+  // density raises severity but not the verdict.
+  const severity = s.risk === "high" ? "high" : s.risk === "medium" ? "medium" : "low";
   return {
     id: "reputation.reported",
     name: "Counterparty reputation",
-    verdict,
-    severity: s.risk === "high" ? "critical" : "medium",
-    reason: `Counterparty ${payTo} has ${s.report_count} report(s) from ${s.distinct_reporters} distinct agent(s): ${Object.entries(s.categories).map(([k, v]) => `${k}×${v}`).join(", ")}.`,
+    verdict: "flag",
+    severity,
+    reason: `Counterparty ${payTo} has ${s.report_count} unverified report(s) from ${s.distinct_reporters} distinct reporter(s): ${Object.entries(s.categories).map(([k, v]) => `${k}×${v}`).join(", ")}. Reports are self-asserted — verify out-of-band before deciding.`,
     details: { ...s },
   };
 }

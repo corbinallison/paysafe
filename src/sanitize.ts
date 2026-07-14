@@ -33,10 +33,14 @@ export function sanitizeScanRequest(raw: unknown): ScanRequest | null {
   if (!isPlainObject(raw) || !isPlainObject(raw.payment)) return null;
   const p = raw.payment;
 
+  const DANGEROUS_KEYS = new Set(["__proto__", "constructor", "prototype"]);
   let metadata: Record<string, string> | undefined;
   if (isPlainObject(p.metadata)) {
-    const md: Record<string, string> = {};
+    // Null-prototype object + explicit dangerous-key skip: belt-and-suspenders
+    // against prototype pollution (audit L-2).
+    const md: Record<string, string> = Object.create(null);
     for (const [k, v] of Object.entries(p.metadata)) {
+      if (DANGEROUS_KEYS.has(k)) continue;
       if (typeof v === "string") md[k.slice(0, 200)] = v.slice(0, 10_000);
     }
     if (Object.keys(md).length > 0) metadata = md;
