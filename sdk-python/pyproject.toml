@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "paysafe-x402"
+version = "0.1.0"
+description = "Official Python SDK for PaySafe — the payment security firewall for x402 micropayments. Scan payments before settlement, auto-tag provenance for prompt-injection detection, verify Ed25519 verdict attestations, subscribe to plans autonomously."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "PaySafe", email = "contact@paysafe-agent.com" }]
+keywords = ["x402", "payments", "security", "firewall", "ai-agents", "prompt-injection", "usdc", "base", "micropayments"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Security",
+  "Topic :: Office/Business :: Financial",
+]
+dependencies = ["cryptography>=41"]
+
+[project.urls]
+Homepage = "https://paysafe-agent.com"
+Repository = "https://github.com/corbinallison/paysafe"
+Documentation = "https://github.com/corbinallison/paysafe/tree/main/sdk-python"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/paysafe_x402"]

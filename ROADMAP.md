@@ -37,9 +37,9 @@ Implemented as designed: `src/plans.ts` (catalog: Pro $4.99/30d, Scale $19.99/30
 The product surface now exceeds distribution. Cheapest-first:
 
 - **Update discovery surfaces with the SDK** — README/LISTINGS done; add the npm link to the awesome-x402 PR (#848) if maintainers haven't merged; mention in the x402scan/Poncho merchant page.
-- **MCP registry listing** — `mcp/server.ts` already exists; add plan/verify tools and publish to the Anthropic MCP registry + npm (`npx paysafe-mcp`). Every Claude/MCP agent becomes a potential caller with zero integration work.
+- ✅ **MCP registry listing** — BUILT 2026-07-15: server now has 9 tools (added `mint_api_key`, `get_plans`, `subscribe_plan`, `verify_verdict_attestation` with local crypto), defaults to production URL, ships as `npx paysafe-x402` (bin added to root package). `server.json` registry metadata written. **Pending [You]:** `npm publish` from repo root (v1.1.0), then `mcp-publisher` flow (DNS TXT verification of paysafe-agent.com for the `com.paysafe-agent/paysafe` namespace).
 - **Quickstart tutorial** — one page: "Protect your x402 agent in 5 minutes" (SDK install → observe → guard → what a block looks like). Post to dev.to #x402, the x402 builders Telegram/Discord, r/x402.
-- **Python SDK** — the agent ecosystem is heavily Python (LangChain/CrewAI); port the TS client (it's ~400 lines, zero-dep; `pip install paysafe-x402`).
+- ✅ **Python SDK** — BUILT 2026-07-15: `sdk-python/` (`paysafe-x402`, Python 3.9+, single dep `cryptography`). Full parity with the TS client; verifier cross-validated against a fixture signed by the real Node signer (34/34 tests). PyPI name confirmed free. **Pending [You]:** `pip install build twine && python -m build && twine upload dist/*` from `sdk-python/`.
 - **Customer usage dashboard** — per-key scan history, verdict breakdown, plan status. Plan subscribers will ask for this; also the natural home for reputation rebuttals later.
 
 ## 6. Registry network effects

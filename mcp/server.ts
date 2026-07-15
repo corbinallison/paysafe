@@ -1,20 +1,24 @@
+#!/usr/bin/env node
 /**
- * PaySafe MCP server — exposes the scans as MCP tools over stdio.
+ * PaySafe MCP server — exposes the payment firewall as MCP tools over stdio.
+ *
+ * Run against production with zero config:  npx paysafe-x402
  *
  * Env:
- *   PAYSAFE_URL      Base URL of a running PaySafe instance (default http://localhost:4021)
- *   PAYSAFE_API_KEY  API key from POST /v1/keys (free tier). Without it, paid
- *                    endpoints will 402 — pair this server with an x402-aware
- *                    fetch (e.g. @x402/fetch) or stay within the free tier.
+ *   PAYSAFE_URL      Base URL of a PaySafe instance (default https://paysafe-agent.com)
+ *   PAYSAFE_API_KEY  API key from POST /v1/keys or the mint_api_key tool.
+ *                    Without it, paid endpoints 402 after the free tier —
+ *                    pair with an x402-aware fetch or stay within free quota.
  *
  * Register in an MCP client config:
- *   { "command": "node", "args": ["dist/mcp/server.js"], "env": { "PAYSAFE_URL": "...", "PAYSAFE_API_KEY": "..." } }
+ *   { "command": "npx", "args": ["-y", "paysafe-x402"], "env": { "PAYSAFE_API_KEY": "..." } }
  */
+import { createPublicKey, createHash, verify as edVerify } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-const BASE = process.env.PAYSAFE_URL ?? "http://localhost:4021";
+const BASE = process.env.PAYSAFE_URL ?? "https://paysafe-agent.com";
 const API_KEY = process.env.PAYSAFE_API_KEY;
 
 async function call(method: string, path: string, body?: unknown): Promise<string> {
@@ -127,6 +131,94 @@ server.tool(
   async (args) => ({
     content: [{ type: "text", text: await call("POST", "/v1/reputation/report", args) }],
   }),
+);
+
+server.tool(
+  "mint_api_key",
+  "Issue a free PaySafe API key (first 100 calls free). Returns the key ONCE — store it and set it as PAYSAFE_API_KEY (or pass to other tools) for future sessions. Rate-limited per IP.",
+  { agent_id: z.string().optional().describe("Stable identifier for your agent — scopes velocity limits") },
+  async (args) => ({
+    content: [{ type: "text", text: await call("POST", "/v1/keys", args) }],
+  }),
+);
+
+server.tool(
+  "get_plans",
+  "Machine-readable PaySafe plan catalog: tiers (Starter/Pro/Scale) with per-scan pricing, velocity and spend limits, hard ceilings, and how to subscribe. Free.",
+  {},
+  async () => ({
+    content: [{ type: "text", text: await call("GET", "/v1/plans") }],
+  }),
+);
+
+server.tool(
+  "subscribe_plan",
+  "Subscribe/renew the current API key on a PaySafe plan (pro: $4.99/30d at $0.005/scan; scale: $19.99/30d at $0.002/scan). This endpoint is itself x402-paid at the plan's price: without an x402-paying transport the response is the 402 payment challenge to settle. Renewal extends from the current expiry.",
+  { plan: z.enum(["pro", "scale"]) },
+  async (args) => ({
+    content: [{ type: "text", text: await call("POST", "/v1/plans/subscribe", args) }],
+  }),
+);
+
+server.tool(
+  "verify_verdict_attestation",
+  "LOCALLY verify a PaySafe scan's Ed25519 attestation before trusting an allow-verdict: checks the signature against the pinned server key (fetched from /.well-known/paysafe-verdict-key unless trusted_key_hex is supplied), recomputes the payment commitment from the payment YOU are about to settle (rejects attestations issued for a different payment — replay defense), and enforces expiry. Runs no network calls except the one-time key fetch; the verdict itself is never sent anywhere.",
+  {
+    scan: z.object({
+      scan_id: z.string(),
+      direction: z.string(),
+      verdict: z.string(),
+      risk_score: z.number(),
+      scanned_at: z.string(),
+      attestation: z.object({
+        message: z.string(),
+        signature_hex: z.string(),
+        payment_commitment: z.string(),
+        expires_at: z.string(),
+      }),
+    }),
+    payment: paymentSchema.describe("The payment you are about to settle — commitment is recomputed from this"),
+    trusted_key_hex: z.string().optional().describe("Pin the server verdict key (SPKI DER hex); fetched once when omitted"),
+  },
+  async ({ scan, payment, trusted_key_hex }) => {
+    const fail = (reason: string) => ({
+      content: [{ type: "text" as const, text: JSON.stringify({ valid: false, reason }) }],
+    });
+    try {
+      let keyHex = trusted_key_hex;
+      if (!keyHex) {
+        const r = await fetch(`${BASE}/.well-known/paysafe-verdict-key`);
+        keyHex = ((await r.json()) as { public_key_spki_hex?: string }).public_key_spki_hex;
+      }
+      if (!keyHex) return fail("no trusted key available");
+      const key = createPublicKey({ key: Buffer.from(keyHex, "hex"), format: "der", type: "spki" });
+      const att = scan.attestation;
+      if (!edVerify(null, Buffer.from(att.message, "utf8"), key, Buffer.from(att.signature_hex, "hex"))) {
+        return fail("Ed25519 signature invalid under the pinned server key");
+      }
+      const [scanId, direction, verdict, risk, scannedAt, commitment, expiresAt] = att.message.split("|");
+      if (scanId !== scan.scan_id || direction !== scan.direction || verdict !== scan.verdict ||
+          Number(risk) !== scan.risk_score || scannedAt !== scan.scanned_at) {
+        return fail("attested message does not match the scan fields");
+      }
+      const amount =
+        payment.amount !== undefined ? String(payment.amount)
+        : payment.amount_usd !== undefined ? `usd:${payment.amount_usd}`
+        : "";
+      const recomputed = createHash("sha256")
+        .update([payment.network ?? "", (payment.pay_to ?? "").toLowerCase(), (payment.asset ?? "").toLowerCase(), amount, payment.nonce ?? ""].join("|"), "utf8")
+        .digest("hex");
+      if (commitment !== recomputed) {
+        return fail("payment commitment mismatch — attestation was issued for a DIFFERENT payment (possible replay)");
+      }
+      if (Date.parse(expiresAt) <= Date.now()) return fail(`attestation expired at ${expiresAt}`);
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify({ valid: true, verdict: scan.verdict, expires_at: expiresAt }) }],
+      };
+    } catch (e) {
+      return fail(`verification error: ${(e as Error).message}`);
+    }
+  },
 );
 
 const transport = new StdioServerTransport();

@@ -1,0 +1,37 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "name": "com.paysafe-agent/paysafe",
+  "description": "Payment security firewall for x402 micropayments. Scan outgoing/incoming payments for PII & secret leakage, nonce replay, overpayment, and prompt-injection-triggered payments; check/file counterparty reputation reports; verify Ed25519 verdict attestations locally; browse and subscribe to plans. Advisory and non-custodial.",
+  "status": "active",
+  "repository": {
+    "url": "https://github.com/corbinallison/paysafe",
+    "source": "github"
+  },
+  "version": "1.1.0",
+  "websiteUrl": "https://paysafe-agent.com",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "paysafe-x402",
+      "version": "1.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "PAYSAFE_API_KEY",
+          "description": "PaySafe API key (mint one free with the mint_api_key tool or POST /v1/keys — first 100 calls free). Optional.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "PAYSAFE_URL",
+          "description": "PaySafe instance URL. Defaults to https://paysafe-agent.com.",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}
