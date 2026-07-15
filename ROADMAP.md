@@ -11,7 +11,7 @@ The registry records accusations, not verdicts, and reports can only ever `flag`
 - **Reporter credibility weighting** — reports from agents with long, observed payment history count more than fresh anonymous `reporter_agent_id`s. Possible inputs: age of first sighting, scan volume, distinct counterparties. (Never let credibility make a report block — it only scales flag confidence.)
 - **Remediation path** — documented process for compromised-then-rotated keys: mark address as "historical compromise, rotated on <date>" after signed proof from the new key.
 
-## 2. Plan / tier structures (monetization) — ✅ BUILT 2026-07-14 (pending deploy)
+## 2. Plan / tier structures (monetization) — ✅ BUILT 2026-07-14
 
 Implemented as designed: `src/plans.ts` (catalog: Pro $4.99/30d, Scale $19.99/30d + hard ceilings), `GET /v1/plans`, x402-paid `POST /v1/plans/subscribe` with autonomous renewal, per-key policy resolution in the scan path, per-plan scan pricing via one payment layer per distinct price, manifest/agent-card/OpenAPI updates. 21 new tests (87/87 passing); dev-server e2e verified (Pro key absorbs a 15-scan burst that flags a Starter key). Original design sketch:
 
@@ -32,7 +32,7 @@ Implemented as designed: `src/plans.ts` (catalog: Pro $4.99/30d, Scale $19.99/30
 - **Multi-instance readiness** — shared state + signing key to Redis/Postgres/KMS before running >1 instance (SECURITY-AUDIT.md M-3).
 - **Status page + changelog** — public uptime/incident page; builds counterparty trust for a security product.
 
-## 5. Adoption & distribution (added 2026-07-15 — likely next)
+## 5. Adoption & distribution
 
 The product surface now exceeds distribution. Cheapest-first:
 
