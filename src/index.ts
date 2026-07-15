@@ -32,11 +32,14 @@ import {
   consumeFreeCall,
   createApiKey,
   freeCallsRemaining,
+  handlePlansCatalog,
+  handlePlanSubscribe,
   handleReputationLookup,
   handleReputationReport,
   handleScan,
   serviceInfo,
 } from "./api.ts";
+import { PLANS, resolveEffectiveConfig, type Plan } from "./plans.ts";
 import { x402Manifest, agentCard } from "./manifest.ts";
 import { openApiDoc } from "./openapi.ts";
 
@@ -128,17 +131,17 @@ const SCAN_OUTPUT_EXAMPLE = {
   },
 };
 
-function buildX402Layer() {
+// The SDK types CAIP-2 network ids as a template-literal type.
+const x402Network = cfg.network as `${string}:${string}`;
+
+function makeResourceServer() {
   const facilitatorClient =
     cfg.facilitator === "cdp"
       ? new HTTPFacilitatorClient(cdpFacilitator) // uses CDP_API_KEY_ID / CDP_API_KEY_SECRET env vars
       : new HTTPFacilitatorClient({ url: "https://x402.org/facilitator" });
 
-  // The SDK types CAIP-2 network ids as a template-literal type.
-  const network = cfg.network as `${string}:${string}`;
-
   const server = new x402ResourceServer(facilitatorClient).register(
-    network,
+    x402Network,
     new ExactEvmScheme(),
   );
 
@@ -155,9 +158,18 @@ function buildX402Layer() {
   } catch (err) {
     console.warn("Bazaar extension registration failed (service still works, just not Bazaar-indexed):", err);
   }
+  return server;
+}
+
+/** x402 layer for the scan/reputation routes at a given per-scan price.
+ * One instance exists per distinct plan price; the payment gate picks the
+ * instance matching the caller's active plan. */
+function buildX402Layer(scanPrice: string) {
+  const server = makeResourceServer();
+  const network = x402Network;
 
   const scanAccepts = [
-    { scheme: "exact", price: cfg.priceScan, network, payTo: cfg.payTo },
+    { scheme: "exact", price: scanPrice, network, payTo: cfg.payTo },
   ];
 
   // Typed loosely: the SDK's RoutesConfig uses branded/template-literal types
@@ -227,13 +239,33 @@ function buildX402Layer() {
   return paymentMiddleware(routes, server);
 }
 
+/** x402 layer for POST /v1/plans/subscribe at a specific plan's price. */
+function buildSubscribeLayer(plan: Plan) {
+  const server = makeResourceServer();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const routes: any = {
+    "POST /v1/plans/subscribe": {
+      accepts: [{ scheme: "exact", price: plan.price, network: x402Network, payTo: cfg.payTo }],
+      description: `Subscribe your PaySafe API key to the ${plan.name} plan (${plan.price} / ${plan.duration_days} days): ${plan.description}`,
+      mimeType: "application/json",
+    },
+  };
+  return paymentMiddleware(routes, server);
+}
+
 if (cfg.mode === "live") {
-  const paid = buildX402Layer();
+  // One scan-price layer per distinct plan price (default + each plan).
+  const scanPrices = new Set<string>([cfg.priceScan, ...PLANS.map((p) => p.limits.price_per_scan)]);
+  const paidByScanPrice = new Map<string, ReturnType<typeof buildX402Layer>>();
+  for (const price of scanPrices) paidByScanPrice.set(price, buildX402Layer(price));
+  const subscribeByPlan = new Map<string, ReturnType<typeof buildSubscribeLayer>>();
+  for (const plan of PLANS) subscribeByPlan.set(plan.id, buildSubscribeLayer(plan));
 
   // Normalize before matching so a trailing slash or different case can never
   // route a request AROUND the payment gate (audit C-1).
+  const normPath = (req: express.Request): string => req.path.replace(/\/+$/, "").toLowerCase();
   const isPaidRoute = (req: express.Request): boolean => {
-    const p = req.path.replace(/\/+$/, "").toLowerCase();
+    const p = normPath(req);
     return (
       (req.method === "POST" && (p === "/v1/scan/outgoing" || p === "/v1/scan/incoming")) ||
       (req.method === "GET" && /^\/v1\/reputation\/[^/]+$/.test(p))
@@ -241,6 +273,15 @@ if (cfg.mode === "live") {
   };
 
   app.use((req, res, next) => {
+    // Plan subscriptions: always paid at the plan's price — the free-call
+    // quota never covers a subscription purchase. Unknown plan ids skip
+    // payment and fall through to the handler's 400 (nothing to quote).
+    if (req.method === "POST" && normPath(req) === "/v1/plans/subscribe") {
+      const planId = (req.body as { plan?: unknown } | undefined)?.plan;
+      const mw = typeof planId === "string" ? subscribeByPlan.get(planId) : undefined;
+      if (!mw) return next();
+      return mw(req, res, next);
+    }
     if (!isPaidRoute(req)) return next();
     const apiKey = req.header("x-api-key");
     if (consumeFreeCall(store, cfg, apiKey)) {
@@ -248,6 +289,9 @@ if (cfg.mode === "live") {
       if (remaining !== null) res.setHeader("X-Free-Calls-Remaining", String(remaining));
       return next(); // free-tier call: skip payment
     }
+    // Per-plan scan pricing: quote the caller's plan price (default otherwise).
+    const eff = resolveEffectiveConfig(cfg, store, apiKey);
+    const paid = paidByScanPrice.get(eff.priceScan) ?? paidByScanPrice.get(cfg.priceScan)!;
     return paid(req, res, next); // x402: 402 → pay → retry
   });
 } else {
@@ -297,12 +341,24 @@ app.post("/v1/keys", (req, res) => {
 });
 
 app.post("/v1/scan/outgoing", (req, res) => {
-  const r = handleScan("outgoing", req.body, cfg, store, signer);
+  const r = handleScan("outgoing", req.body, cfg, store, signer, req.header("x-api-key"));
   res.status(r.status).json(r.body);
 });
 
 app.post("/v1/scan/incoming", (req, res) => {
-  const r = handleScan("incoming", req.body, cfg, store, signer);
+  const r = handleScan("incoming", req.body, cfg, store, signer, req.header("x-api-key"));
+  res.status(r.status).json(r.body);
+});
+
+app.get("/v1/plans", (_req, res) => {
+  const r = handlePlansCatalog(cfg);
+  res.status(r.status).json(r.body);
+});
+
+// Payment for this route is enforced by the gate above (x402 at the plan's
+// price); in dev mode it activates directly.
+app.post("/v1/plans/subscribe", (req, res) => {
+  const r = handlePlanSubscribe(req.body, cfg, store, req.header("x-api-key"));
   res.status(r.status).json(r.body);
 });
 

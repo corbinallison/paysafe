@@ -61,6 +61,11 @@ export function x402Manifest(cfg: PaySafeConfig): object {
     free_tier: `First ${cfg.freeCalls} calls free per API key — POST /v1/keys (no payment) to get one.`,
     reporting: `POST /v1/reputation/report is always free, so agents can flag bad counterparties after the fact.`,
     custody: "non-custodial; advisory verdicts only",
+    plans: {
+      catalog: `${cfg.publicBaseUrl}/v1/plans`,
+      summary:
+        "Subscription tiers with lower per-scan pricing and higher velocity/spend headroom. Agents can subscribe and renew autonomously: POST /v1/plans/subscribe is itself x402-paid at the plan price. Safety-critical checks are identical on every tier.",
+    },
   };
 }
 
@@ -108,12 +113,15 @@ export function agentCard(cfg: PaySafeConfig): object {
       protocol: "x402",
       network: cfg.network,
       pricing: {
-        "POST /v1/scan/outgoing": cfg.priceScan,
-        "POST /v1/scan/incoming": cfg.priceScan,
+        "POST /v1/scan/outgoing": `${cfg.priceScan} (less on a plan — see /v1/plans)`,
+        "POST /v1/scan/incoming": `${cfg.priceScan} (less on a plan — see /v1/plans)`,
         "GET /v1/reputation/{address}": cfg.priceReputation,
         "POST /v1/reputation/report": "free",
+        "GET /v1/plans": "free",
+        "POST /v1/plans/subscribe": "x402-paid at the chosen plan's price",
       },
       freeTier: `first ${cfg.freeCalls} calls per API key`,
+      plansCatalog: `${cfg.publicBaseUrl}/v1/plans`,
       manifest: `${cfg.publicBaseUrl}/.well-known/x402`,
     },
   };

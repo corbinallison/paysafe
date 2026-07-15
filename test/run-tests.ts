@@ -2,14 +2,15 @@
  * Detector test-suite. Zero dependencies; runs with:
  *   node --experimental-strip-types test/run-tests.ts
  */
-import { createPublicKey, verify as edVerify } from "node:crypto";
+import { createHash, createPublicKey, verify as edVerify } from "node:crypto";
 import { runScan } from "../src/scanner.ts";
 import { Store } from "../src/store.ts";
 import { loadConfig } from "../src/config.ts";
 import { addReport, summarize } from "../src/reputation.ts";
 import { VerdictSigner } from "../src/verdictsign.ts";
 import { CANONICAL_USDC } from "../src/detectors/asset.ts";
-import { handleScan, createApiKey, consumeFreeCall, freeCallsRemaining } from "../src/api.ts";
+import { handleScan, createApiKey, consumeFreeCall, freeCallsRemaining, handlePlanSubscribe } from "../src/api.ts";
+import { PLANS, HARD_CEILINGS, activePlan, resolveEffectiveConfig, plansCatalog } from "../src/plans.ts";
 import { sanitizeScanRequest } from "../src/sanitize.ts";
 import { RateLimiter } from "../src/ratelimit.ts";
 import { AuditLog } from "../src/auditlog.ts";
@@ -498,6 +499,83 @@ console.log("\n— rate limiter —");
   const results = [rl.allow("ip1"), rl.allow("ip1"), rl.allow("ip1"), rl.allow("ip1")];
   check("allows up to limit then denies", results.join(",") === "true,true,true,false", results);
   check("independent keys unaffected", rl.allow("ip2") === true);
+}
+
+console.log("\n— plans / tiers —");
+{
+  const catalog = plansCatalog(cfg) as { plans: unknown[]; hard_ceilings: unknown; not_configurable: string };
+  check("catalog lists starter + paid plans", catalog.plans.length === PLANS.length + 1, catalog.plans.length);
+  check("catalog exposes hard ceilings", catalog.hard_ceilings !== undefined);
+  check("catalog states non-configurable checks", catalog.not_configurable.includes("always on"));
+}
+{
+  const store = new Store(null);
+  check("activePlan null for unknown key", activePlan(store, "psk_nope") === null);
+  check("resolveEffectiveConfig is identity without a plan", resolveEffectiveConfig(cfg, store, "psk_nope") === cfg);
+}
+{
+  const store = new Store(null);
+  const issued = createApiKey(store, cfg) as { body: { api_key: string } };
+  const key = issued.body.api_key;
+  const r = handlePlanSubscribe({ plan: "pro" }, cfg, store, key) as {
+    status: number;
+    body: { plan: string; expires_at: string; api_key?: string };
+  };
+  check("subscribe activates pro on existing key", r.status === 200 && r.body.plan === "pro");
+  check("subscribe does not re-mint an existing key", r.body.api_key === undefined);
+  const days = (new Date(r.body.expires_at).getTime() - Date.now()) / 86400_000;
+  check("pro expiry ≈ 30 days out", days > 29.9 && days < 30.1, days);
+
+  const eff = resolveEffectiveConfig(cfg, store, key);
+  check("plan overrides velocity limit", eff.maxPaymentsPerMinute === 60, eff.maxPaymentsPerMinute);
+  check("plan overrides scan price", eff.priceScan === "$0.005", eff.priceScan);
+  check("force_deep disables micro bypass", eff.microBypassUsd === 0, eff.microBypassUsd);
+  check("safety config untouched by plan (pinning)", eff.pinning === cfg.pinning);
+  check("safety config untouched by plan (replay TTL)", eff.nonceTtlHours === cfg.nonceTtlHours);
+  check("overpay thresholds untouched by plan", eff.overpayBlockMultiple === cfg.overpayBlockMultiple);
+
+  const r2 = handlePlanSubscribe({ plan: "pro" }, cfg, store, key) as { body: { expires_at: string } };
+  const days2 = (new Date(r2.body.expires_at).getTime() - Date.now()) / 86400_000;
+  check("renewal extends from current expiry (≈60 days)", days2 > 59.9 && days2 < 60.1, days2);
+}
+{
+  const store = new Store(null);
+  const r = handlePlanSubscribe({ plan: "scale" }, cfg, store) as {
+    status: number;
+    body: { api_key?: string; plan: string };
+  };
+  check("subscribe without key mints one", r.status === 200 && typeof r.body.api_key === "string");
+  const eff = resolveEffectiveConfig(cfg, store, r.body.api_key);
+  check(
+    "scale plan capped at hard ceilings",
+    eff.maxPaymentsPerMinute <= HARD_CEILINGS.max_payments_per_minute &&
+      eff.maxUsdPerHour <= HARD_CEILINGS.max_usd_per_hour,
+  );
+}
+{
+  const store = new Store(null);
+  const r = handlePlanSubscribe({ plan: "enterprise-mega" }, cfg, store) as { status: number };
+  check("unknown plan rejected with 400", r.status === 400);
+}
+{
+  // Expired plans silently fall back to defaults.
+  const store = new Store(null);
+  const r = handlePlanSubscribe({ plan: "pro" }, cfg, store) as { body: { api_key: string } };
+  const key = r.body.api_key;
+  const rec = store.keys.get(createHash("sha256").update(key, "utf8").digest("hex"))!;
+  rec.plan_expires_at = new Date(Date.now() - 1000).toISOString();
+  check("expired plan is inactive", activePlan(store, key) === null);
+  check("expired plan resolves to default config", resolveEffectiveConfig(cfg, store, key) === cfg);
+}
+{
+  // No plan may exceed the hard ceilings, even if someone edits the catalog.
+  const overLimit = PLANS.every(
+    (p) =>
+      p.limits.max_payments_per_minute <= HARD_CEILINGS.max_payments_per_minute &&
+      p.limits.max_usd_per_hour <= HARD_CEILINGS.max_usd_per_hour &&
+      p.limits.first_payment_max_usd <= HARD_CEILINGS.first_payment_max_usd,
+  );
+  check("every cataloged plan respects hard ceilings", overLimit);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

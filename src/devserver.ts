@@ -12,6 +12,8 @@ import { VerdictSigner } from "./verdictsign.ts";
 import { RateLimiter } from "./ratelimit.ts";
 import {
   createApiKey,
+  handlePlansCatalog,
+  handlePlanSubscribe,
   handleReputationLookup,
   handleReputationReport,
   handleScan,
@@ -80,9 +82,14 @@ const server = createServer(async (req, res) => {
         out = createApiKey(store, cfg, body?.agent_id);
       }
     } else if (method === "POST" && path === "/v1/scan/outgoing")
-      out = handleScan("outgoing", await readBody(req), cfg, store, signer);
+      out = handleScan("outgoing", await readBody(req), cfg, store, signer, req.headers["x-api-key"] as string | undefined);
     else if (method === "POST" && path === "/v1/scan/incoming")
-      out = handleScan("incoming", await readBody(req), cfg, store, signer);
+      out = handleScan("incoming", await readBody(req), cfg, store, signer, req.headers["x-api-key"] as string | undefined);
+    else if (method === "GET" && path === "/v1/plans")
+      out = handlePlansCatalog(cfg);
+    else if (method === "POST" && path === "/v1/plans/subscribe")
+      // Dev mode: no payments — activates directly, for local testing.
+      out = handlePlanSubscribe(await readBody(req), cfg, store, req.headers["x-api-key"] as string | undefined);
     else if (method === "POST" && path === "/v1/reputation/report") {
       if (!reportLimiter.allow(ip)) out = LIMITED;
       else out = handleReputationReport(await readBody(req), store);

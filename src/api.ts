@@ -10,6 +10,7 @@ import { runScan } from "./scanner.ts";
 import { sanitizeScanRequest } from "./sanitize.ts";
 import { paymentCommitment, paymentDigest } from "./commitment.ts";
 import { addReport, summarize } from "./reputation.ts";
+import { activatePlanOnKey, getPlan, plansCatalog, resolveEffectiveConfig } from "./plans.ts";
 
 export interface ApiResult {
   status: number;
@@ -22,7 +23,7 @@ function hashKey(raw: string): string {
   return createHash("sha256").update(raw, "utf8").digest("hex");
 }
 
-export function createApiKey(store: Store, cfg: PaySafeConfig, agentId?: string): ApiResult {
+function mintKey(store: Store, agentId?: string): string {
   const key = `psk_${randomUUID().replace(/-/g, "")}`;
   store.keys.set(hashKey(key), {
     created_at: new Date().toISOString(),
@@ -30,6 +31,11 @@ export function createApiKey(store: Store, cfg: PaySafeConfig, agentId?: string)
     calls_used: 0,
   });
   store.markDirty();
+  return key;
+}
+
+export function createApiKey(store: Store, cfg: PaySafeConfig, agentId?: string): ApiResult {
+  const key = mintKey(store, agentId);
   return {
     status: 201,
     body: {
@@ -67,6 +73,7 @@ export function handleScan(
   cfg: PaySafeConfig,
   store: Store,
   signer?: VerdictSigner | null,
+  apiKey?: string,
 ): ApiResult {
   // Sanitization guarantees detector type assumptions: type-confused fields
   // degrade to "absent" (reduced coverage -> flagged), never crash or bypass.
@@ -77,7 +84,10 @@ export function handleScan(
       body: { error: "Request body must be JSON with a `payment` object. See GET / for the schema." },
     };
   }
-  const scan = runScan(direction, req, cfg, store);
+  // Per-key plan overrides (velocity/spend headroom, deep-scan policy), clamped
+  // to hard ceilings. Safety-critical checks are not plan-configurable.
+  const eff = resolveEffectiveConfig(cfg, store, apiKey);
+  const scan = runScan(direction, req, eff, store);
   if (signer) scan.attestation = signer.attest(scan, paymentCommitment(req.payment));
 
   // Tamper-evident audit record of the DECISION. Stores only a hash of the
@@ -121,6 +131,42 @@ export function handleReputationReport(body: unknown, store: Store): ApiResult {
   return { status: 201, body: { accepted: true, report: res.report } };
 }
 
+export function handlePlansCatalog(cfg: PaySafeConfig): ApiResult {
+  return { status: 200, body: plansCatalog(cfg) };
+}
+
+/**
+ * Activate/renew a plan on the caller's key. Payment enforcement happens in
+ * the transport layer (index.ts gates this route with x402 at the plan's
+ * price); by the time this runs, the subscription fee has settled (or the
+ * server is in dev mode). If no key is supplied, one is minted and returned.
+ */
+export function handlePlanSubscribe(body: unknown, cfg: PaySafeConfig, store: Store, apiKey?: string): ApiResult {
+  const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
+  const planId = typeof b.plan === "string" ? b.plan : "";
+  const plan = getPlan(planId);
+  if (!plan) {
+    return { status: 400, body: { error: `Unknown plan. Valid plans: ${["pro", "scale"].join(", ")} — see GET /v1/plans.` } };
+  }
+  let key = apiKey;
+  let minted = false;
+  if (!key || !store.keys.has(hashKey(key))) {
+    key = mintKey(store, typeof b.agent_id === "string" ? b.agent_id : undefined);
+    minted = true;
+  }
+  const activated = activatePlanOnKey(store, key, plan);
+  return {
+    status: 200,
+    body: {
+      plan: activated.plan_id,
+      expires_at: activated.expires_at,
+      ...(minted ? { api_key: key, note: "New API key minted (none supplied). Store it now — it is not recoverable." } : {}),
+      limits: plan.limits,
+      renewal: "POST the same body again before expiry to extend from the current expiry date.",
+    },
+  };
+}
+
 export function serviceInfo(cfg: PaySafeConfig): ApiResult {
   return {
     status: 200,
@@ -135,6 +181,8 @@ export function serviceInfo(cfg: PaySafeConfig): ApiResult {
         "POST /v1/scan/incoming": `${cfg.priceScan} (first ${cfg.freeCalls} calls free per key). Screen a payment request / 402 offer your agent received.`,
         "GET /v1/reputation/:address": `${cfg.priceReputation} (first ${cfg.freeCalls} calls free per key). Counterparty report summary.`,
         "POST /v1/reputation/report": `Free (rate-limited: ${cfg.reportsPerIpPerHour}/IP/hour). Report a bad counterparty after the fact.`,
+        "GET /v1/plans": "Free. Machine-readable plan catalog (pricing tiers, limits, how to subscribe).",
+        "POST /v1/plans/subscribe": "x402-paid at the plan's price. Upgrade your API key to a plan; renew by paying again.",
         "GET /.well-known/x402": "Free. x402 manifest.",
         "GET /.well-known/agent-card.json": "Free. Agent card.",
         "GET /.well-known/paysafe-verdict-key": "Free. Ed25519 public key for verdict attestations.",

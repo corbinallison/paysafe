@@ -149,7 +149,7 @@ export function openApiDoc(cfg: PaySafeConfig): object {
       description:
         "Payment security firewall for x402 micropayments. Screens outgoing and incoming payment traffic for PII/secret leakage, nonce replay, overpayment, and prompt-injection-triggered payments, plus a shared counterparty report registry. Advisory and non-custodial.",
       "x-guidance":
-        `Before settling any x402 payment, POST the payment details to /v1/scan/outgoing and act on the verdict: "allow" = proceed, "flag" = pause and confirm intent, "block" = do not pay (machine-readable reasons attached). When you RECEIVE a 402 offer, POST it to /v1/scan/incoming before paying. Include context.origin (planning | tool_result | fetched_content | user_instruction) and, when the decision followed reading external content, context.content — this enables prompt-injection-triggered-payment detection, the check that catches poisoned pay-to addresses. Include expected_price_usd to enable overpayment detection. Endpoints cost ${cfg.priceScan}/call via x402; your first ${cfg.freeCalls} calls are free with an API key from POST /v1/keys (free) sent in the X-API-Key header. Filing counterparty reports via POST /v1/reputation/report is always free. Allow-verdicts carry an Ed25519 attestation bound to the exact payment (verify against /.well-known/paysafe-verdict-key).`,
+        `Before settling any x402 payment, POST the payment details to /v1/scan/outgoing and act on the verdict: "allow" = proceed, "flag" = pause and confirm intent, "block" = do not pay (machine-readable reasons attached). When you RECEIVE a 402 offer, POST it to /v1/scan/incoming before paying. Include context.origin (planning | tool_result | fetched_content | user_instruction) and, when the decision followed reading external content, context.content — this enables prompt-injection-triggered-payment detection, the check that catches poisoned pay-to addresses. Include expected_price_usd to enable overpayment detection. Endpoints cost ${cfg.priceScan}/call via x402; your first ${cfg.freeCalls} calls are free with an API key from POST /v1/keys (free) sent in the X-API-Key header. Filing counterparty reports via POST /v1/reputation/report is always free. Allow-verdicts carry an Ed25519 attestation bound to the exact payment (verify against /.well-known/paysafe-verdict-key). If you scan at volume, GET /v1/plans lists subscription tiers with lower per-scan pricing and higher velocity/spend headroom; you can subscribe autonomously — POST /v1/plans/subscribe is itself x402-paid at the plan price, and renewing is just paying again before expiry.`,
       contact: { email: "contact@paysafe-agent.com" },
     },
     servers: [{ url: cfg.publicBaseUrl }],
@@ -252,6 +252,80 @@ export function openApiDoc(cfg: PaySafeConfig): object {
               },
             },
             "429": { description: "Rate limited" },
+          },
+        },
+      },
+      "/v1/plans": {
+        get: {
+          operationId: "getPlansCatalog",
+          summary: "Machine-readable plan catalog (tiers, limits, pricing, how to subscribe)",
+          tags: ["Plans"],
+          // Free endpoint: excluded from x402scan's 402-challenge probing.
+          security: [],
+          responses: {
+            "200": {
+              description: "Plan catalog",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      plans: { type: "array", items: { type: "object" } },
+                      hard_ceilings: { type: "object" },
+                      not_configurable: { type: "string" },
+                      how_to_subscribe: { type: "object" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/v1/plans/subscribe": {
+        post: {
+          operationId: "subscribeToPlan",
+          summary: "Subscribe/renew an API key on a plan (x402-paid at the plan's price)",
+          tags: ["Plans"],
+          "x-payment-info": {
+            // Dynamic: the 402 challenge quotes the chosen plan's price.
+            price: { mode: "dynamic", currency: "USD", min: "4.990000", max: "19.990000" },
+            protocols: [{ x402: {} }],
+          },
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["plan"],
+                  properties: {
+                    plan: { type: "string", enum: ["pro", "scale"], description: "Plan id from GET /v1/plans" },
+                    agent_id: { type: "string", description: "Optional; used only if a new key is minted" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Plan activated or renewed on the key from X-API-Key (a new key is minted and returned if none was supplied)",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      plan: { type: "string" },
+                      expires_at: { type: "string" },
+                      api_key: { type: "string", description: "Only present when newly minted — store it, not recoverable" },
+                      limits: { type: "object" },
+                      renewal: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+            "402": { description: "Payment Required" },
           },
         },
       },

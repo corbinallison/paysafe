@@ -24,6 +24,10 @@ export interface KeyRecord {
   created_at: string;
   agent_id?: string;
   calls_used: number;
+  /** Active plan id (see plans.ts); absent = starter/default tier */
+  plan?: string;
+  /** ISO expiry of the plan; expired plans fall back to default silently */
+  plan_expires_at?: string;
 }
 
 export interface VelocityEvent {
