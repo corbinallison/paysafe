@@ -32,7 +32,17 @@ Implemented as designed: `src/plans.ts` (catalog: Pro $4.99/30d, Scale $19.99/30
 - **Multi-instance readiness** — shared state + signing key to Redis/Postgres/KMS before running >1 instance (SECURITY-AUDIT.md M-3).
 - **Status page + changelog** — public uptime/incident page; builds counterparty trust for a security product.
 
-## 5. Registry network effects
+## 5. Adoption & distribution (added 2026-07-15 — likely next)
+
+The product surface now exceeds distribution. Cheapest-first:
+
+- **Update discovery surfaces with the SDK** — README/LISTINGS done; add the npm link to the awesome-x402 PR (#848) if maintainers haven't merged; mention in the x402scan/Poncho merchant page.
+- **MCP registry listing** — `mcp/server.ts` already exists; add plan/verify tools and publish to the Anthropic MCP registry + npm (`npx paysafe-mcp`). Every Claude/MCP agent becomes a potential caller with zero integration work.
+- **Quickstart tutorial** — one page: "Protect your x402 agent in 5 minutes" (SDK install → observe → guard → what a block looks like). Post to dev.to #x402, the x402 builders Telegram/Discord, r/x402.
+- **Python SDK** — the agent ecosystem is heavily Python (LangChain/CrewAI); port the TS client (it's ~400 lines, zero-dep; `pip install paysafe-x402`).
+- **Customer usage dashboard** — per-key scan history, verdict breakdown, plan status. Plan subscribers will ask for this; also the natural home for reputation rebuttals later.
+
+## 6. Registry network effects
 
 - **Badlist syndication** — curated known-bad list as a syndicated feed (potential premium tier).
 - **Cross-registry federation** — exchange reports with other x402 trust services (ScoutScore, AgentRadar-style oracles) with provenance labels, if partners emerge.

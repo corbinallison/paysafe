@@ -33,6 +33,7 @@ PaySafe is a drop-in security layer for agents that pay (or get paid) over x402.
 - Base URL: `https://paysafe-agent.com`
 - Manifest: `https://paysafe-agent.com/.well-known/x402`
 - Agent card: `https://paysafe-agent.com/.well-known/agent-card.json`
+- SDK: `npm install paysafe-x402-client` (https://www.npmjs.com/package/paysafe-x402-client)
 - Docs: `https://paysafe-agent.com/` (self-documenting) + repo README
 
 ---

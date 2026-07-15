@@ -5,6 +5,7 @@
 [![x402](https://img.shields.io/badge/x402-v2-blue)](https://github.com/x402-foundation/x402)
 [![network](https://img.shields.io/badge/settles%20on-Base%20(USDC)-0052FF)](https://docs.cdp.coinbase.com/x402/quickstart-for-sellers)
 [![tests](https://img.shields.io/badge/tests-87%2F87-brightgreen)](test/run-tests.ts)
+[![npm](https://img.shields.io/npm/v/paysafe-x402-client?label=sdk)](https://www.npmjs.com/package/paysafe-x402-client)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 Agents that pay over x402 get drained in predictable ways: secrets leak through payment metadata, captured authorizations get replayed, quoted prices get inflated, and poisoned web content tricks agents into paying addresses they never planned to pay. PaySafe is one `POST` before settlement that checks for all of it and returns **allow / flag / block** with machine-readable, per-check reasons — in **~0.6 ms**.
@@ -17,6 +18,22 @@ Agent decides to pay ──► POST /v1/scan/outgoing ──► allow ──► 
                                    ├──► flag  ──► agent pauses / confirms intent
                                    └──► block ──► wallet refuses (reason attached)
 ```
+
+## Use it in 30 seconds
+
+```bash
+npm install paysafe-x402-client
+```
+
+```ts
+import { PaySafeClient, PaySafeBlockedError } from "paysafe-x402-client";
+const paysafe = new PaySafeClient({ agentId: "my-agent" }); // free API key auto-minted, 100 free scans
+
+paysafe.observe(fetchedPageText, { sourceUrl }); // tag what your agent just read → injection detection
+await paysafe.guardOutgoing(payment);            // throws PaySafeBlockedError on a block verdict
+```
+
+The SDK ([`sdk/`](sdk/), zero dependencies) also verifies every verdict's Ed25519 attestation against a pinned key, tracks your free-call quota, and can subscribe to [plans](#api) autonomously. Wallet authors get standalone `verifyAttestation()` / `computePaymentCommitment()`.
 
 ## What it catches
 
