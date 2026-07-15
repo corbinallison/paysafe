@@ -22,7 +22,8 @@ Agent decides to pay ──► POST /v1/scan/outgoing ──► allow ──► 
 ## Use it in 30 seconds
 
 ```bash
-npm install paysafe-x402-client
+npm install paysafe-x402-client    # TypeScript/Node
+pip install paysafe-x402           # Python
 ```
 
 ```ts
@@ -144,95 +145,68 @@ POST /v1/scan/outgoing
 }
 ```
 
-## Quick start
+## Local development
+
+For contributors and anyone auditing the detectors — runs entirely offline, payments disabled, no wallet needed:
 
 ```bash
 git clone https://github.com/corbinallison/paysafe && cd paysafe
 npm install
 
-npm run dev            # dev server — payments off, no wallet needed
+npm run dev            # local dev server — payments off
 npm run demo:replay    # replay-attack demo: fresh nonce ALLOW → reused nonce BLOCK
-npm test               # 66-test detector + hardening + audit-log suite
+npm test               # 87-test detector + hardening + plans + audit-log suite
 ```
 
 ## Performance
 
 Measured on the zero-dependency dev server (same handlers as production): **2,000 sequential scans in 1.20 s → 0.60 ms/scan round-trip**, including HTTP, JSON parsing, the full check suite, and Ed25519 signing. Deployed latency is dominated by network RTT; on the paid path, the x402 verify/settle round-trip to the facilitator (inherent to x402, identical on any host) dominates everything else.
 
-## Deploying to Render
+## The hosted service
 
-1. Push this repo to GitHub.
-2. In [Render](https://render.com): **New → Blueprint**, point it at the repo — [`render.yaml`](render.yaml) provisions the web service and a 1 GB disk for state.
-3. Set the secrets when prompted: `PAY_TO` (your receiving wallet), `CDP_API_KEY_ID` / `CDP_API_KEY_SECRET` (from [portal.cdp.coinbase.com](https://portal.cdp.coinbase.com)), and `PUBLIC_BASE_URL` after the first deploy assigns your URL.
-4. Verify:
+The production service at **https://paysafe-agent.com** is live on Base mainnet, indexed in the [x402 Bazaar](https://docs.cdp.coinbase.com/x402/bazaar), registered on [x402scan](https://www.x402scan.com), and monitored with a tamper-evident audit chain. Verify it yourself:
 
 ```bash
 curl https://paysafe-agent.com/health
 curl https://paysafe-agent.com/.well-known/x402
-# Unpaid scan → 402 with payment instructions:
-curl -i -X POST https://paysafe-agent.com/v1/scan/outgoing \
-  -H 'content-type: application/json' -d '{"payment":{}}'
+curl https://paysafe-agent.com/v1/audit/verify
 ```
-
-**Testnet first (recommended):** set `X402_NETWORK=eip155:84532` (Base Sepolia) and keep `X402_FACILITATOR=cdp`, or use `X402_FACILITATOR=x402org` for a signup-free facilitator. Fund a test wallet at the [CDP faucet](https://docs.cdp.coinbase.com/faucets/introduction/quickstart).
-
-## Bazaar indexing (automatic)
-
-PaySafe registers the official Bazaar extension (`@x402/extensions/bazaar`) and declares input/output JSON Schemas on all paid routes. With the CDP facilitator, **the first successful settlement automatically indexes the service in the [x402 Bazaar](https://docs.cdp.coinbase.com/x402/bazaar)** — no registration step. Trigger it with one paid call past the free tier, then check:
-
-```bash
-curl "https://api.cdp.coinbase.com/platform/v2/x402/discovery/search?query=payment+security+firewall"
-curl "https://api.cdp.coinbase.com/platform/v2/x402/discovery/merchant?payTo=<your PAY_TO>"
-```
-
-Indexing is asynchronous (~10 min). If a route doesn't appear, inspect the `EXTENSION-RESPONSES` header on settle responses for Bazaar validation status.
-
-> The Bazaar extension registration API surface is evolving; if your installed `@x402/extensions` exposes a different registration call than `registerExtension`, adjust the marked block in [`src/index.ts`](src/index.ts). The service degrades gracefully — it still sells via x402, just without Bazaar cataloging.
 
 ## MCP server
 
-[`mcp/server.ts`](mcp/server.ts) exposes the scans as MCP tools over stdio: `scan_outgoing_payment`, `scan_incoming_payment`, `check_counterparty_reputation`, `report_counterparty`.
+Listed in the [official MCP registry](https://registry.modelcontextprotocol.io) as **`com.paysafe-agent/paysafe`** — or run it directly with zero config:
 
 ```jsonc
 // claude_desktop_config.json / any MCP client
 {
   "mcpServers": {
     "paysafe": {
-      "command": "node",
-      "args": ["/path/to/paysafe/dist/mcp/server.js"],
-      "env": {
-        "PAYSAFE_URL": "https://paysafe-agent.com",
-        "PAYSAFE_API_KEY": "psk_..."   // from POST /v1/keys
-      }
+      "command": "npx",
+      "args": ["-y", "paysafe-x402"],
+      "env": { "PAYSAFE_API_KEY": "psk_..." } // optional — mint one with the mint_api_key tool
     }
   }
 }
 ```
 
-## Configuration
+Nine tools over stdio: `scan_outgoing_payment`, `scan_incoming_payment`, `check_counterparty_reputation`, `report_counterparty`, `mint_api_key`, `get_plans`, `subscribe_plan`, and `verify_verdict_attestation` (full Ed25519 verification performed locally — pinned key, commitment recompute, expiry). Defaults to the production service; set `PAYSAFE_URL` to point elsewhere.
 
-All via environment variables (see [`.env.example`](.env.example) for the full annotated list):
+## Detection defaults (hosted service)
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `PAYSAFE_MODE` | `live` | `live` enforces x402 payments; `dev` runs everything free |
-| `PAY_TO` | — | Receiving wallet (required in live mode) |
-| `X402_NETWORK` | `eip155:8453` | CAIP-2 network (Base mainnet; `eip155:84532` = Base Sepolia) |
-| `X402_FACILITATOR` | `cdp` | `cdp` (mainnet + Bazaar) or `x402org` (testnet, no signup) |
-| `PRICE_SCAN` / `PRICE_REPUTATION` | `$0.01` | Per-call pricing |
-| `FREE_CALLS` | `100` | Free calls per API key |
-| `OVERPAY_FLAG_MULTIPLE` / `OVERPAY_BLOCK_MULTIPLE` | `3` / `10` | Overpayment thresholds |
-| `MAX_PAYMENT_USD` | `10` | Absolute payment ceiling |
-| `MAX_PAYMENTS_PER_MINUTE` | `10` | Velocity: flag at rate, block at 2× |
-| `MAX_USD_PER_HOUR` | `5` | Velocity: hourly spend cap |
-| `FIRST_PAYMENT_MAX_USD` | `1` | First-contact size cap |
-| `MICRO_BYPASS_USD` | `0.005` | Deep-tier bypass threshold |
-| `ALLOW_NON_USDC` | `off` | Downgrade non-canonical-asset block to flag |
-| `PINNING` / `CDP_PIN_VERIFY` | `on` / `off` | TOFU pinning / async CDP cross-check |
-| `VERDICT_SIGNING` | `on` | Ed25519 verdict attestations |
-| `BADLIST_PATH` | `<DATA_DIR>/badlist.json` | Known-bad address list |
-| `NONCE_TTL_HOURS` | `24` | Replay tracking window |
-| `DATA_DIR` | `./data` | State persistence |
+Published for transparency — these are the thresholds your scans are judged against on the Starter tier ([plans](#api) raise the velocity/spend headroom; nothing can relax the safety checks):
+
+| Behavior | Default |
+|---|---|
+| Overpayment | flag ≥3× expected price, block ≥10×, absolute ceiling $10 |
+| Velocity | flag ≥10 scans/min (block at 2×), $5/hour cumulative spend cap |
+| First contact | first payment to a never-seen counterparty flagged above $1 |
+| Deep content analysis | bypassed below $0.005 payment value (`policy.force_deep` overrides; always on for Pro/Scale) |
+| Replay window | nonces tracked for 24 h |
+| Asset check | non-canonical USDC on the declared network → block |
+| Merchant pinning | TOFU per resource domain; rotation → block |
+| Verdict signing | Ed25519, always on, 5-minute attestation expiry |
+
+Local dev configuration for contributors is documented in [`.env.example`](.env.example).
 
 ## Architecture
 
@@ -247,15 +221,17 @@ src/
   reputation.ts   Shared report registry
   verdictsign.ts  Ed25519 verdict attestation
   manifest.ts     /.well-known/x402 + agent card
-  store.ts        JSON-file-backed state (tiny interface — swap for Redis/Postgres at scale)
-mcp/server.ts     MCP wrapper (4 tools)
+  store.ts        JSON-file-backed state (tiny interface)
+mcp/server.ts     MCP server (9 tools — npx paysafe-x402)
 examples/         replay-demo.ts — reused-nonce attack blocked end-to-end
 auditlog.ts       Tamper-evident hash-chained decision log
   commitment.ts     Payment hashing (attestation binding + audit digest)
-test/             66-test suite (detectors, hardening, crypto, audit — npm test)
+test/             87-test suite (detectors, hardening, plans, crypto, audit — npm test)
+sdk/              TypeScript client SDK (npm: paysafe-x402-client, 32 tests)
+sdk-python/       Python client SDK (PyPI: paysafe-x402, 34 tests)
 ```
 
-Design notes: verdicts aggregate worst-first (any block ⇒ block); `risk_score` is severity-based with compounding for multiple independent findings; the detection core has **zero runtime dependencies**, so the full suite runs with `node --experimental-strip-types` and no install. State is a debounced JSON snapshot — single-instance by design; porting to Vercel/serverless means swapping `store.ts` for a KV/Redis implementation and `@x402/express` for `@x402/next`.
+Design notes: verdicts aggregate worst-first (any block ⇒ block); `risk_score` is severity-based with compounding for multiple independent findings; the detection core has **zero runtime dependencies**, so the full suite runs with `node --experimental-strip-types` and no install.
 
 ## Security & custody model
 
@@ -265,7 +241,7 @@ Design notes: verdicts aggregate worst-first (any block ⇒ block); `risk_score`
 
 ## Contributing
 
-Issues and PRs welcome — particularly new detector patterns (with tests), a Redis `Store` implementation, and client SDKs that auto-tag tool-result provenance (`context.origin`) at the source. Run `npm test` before submitting; every detector change needs a covering test.
+Issues and PRs welcome — particularly new detector patterns (with tests) and SDK improvements (the TS and Python clients live in [`sdk/`](sdk/) and [`sdk-python/`](sdk-python/)). Run `npm test` before submitting; every detector change needs a covering test.
 
 ## License
 

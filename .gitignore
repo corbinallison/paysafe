@@ -4,3 +4,4 @@ data/
 .env
 *.log
 .fuse_hidden*
+posts/LAUNCH-POSTS.md
