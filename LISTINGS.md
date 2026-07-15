@@ -25,6 +25,7 @@ PaySafe is a drop-in security layer for agents that pay (or get paid) over x402.
 | `GET /v1/reputation/:address` — counterparty report lookup | $0.01 |
 | `POST /v1/reputation/report` — report a bad counterparty | Free |
 | First 100 calls per API key (`POST /v1/keys`) | Free |
+| Plans (`GET /v1/plans`): Pro $4.99/30d → $0.005/scan · Scale $19.99/30d → $0.002/scan | Subscribed via x402 |
 
 **Payment:** x402 (exact scheme), USDC on Base mainnet, settled via Coinbase CDP facilitator.
 

@@ -4,7 +4,7 @@
 
 [![x402](https://img.shields.io/badge/x402-v2-blue)](https://github.com/x402-foundation/x402)
 [![network](https://img.shields.io/badge/settles%20on-Base%20(USDC)-0052FF)](https://docs.cdp.coinbase.com/x402/quickstart-for-sellers)
-[![tests](https://img.shields.io/badge/tests-66%2F66-brightgreen)](test/run-tests.ts)
+[![tests](https://img.shields.io/badge/tests-87%2F87-brightgreen)](test/run-tests.ts)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 Agents that pay over x402 get drained in predictable ways: secrets leak through payment metadata, captured authorizations get replayed, quoted prices get inflated, and poisoned web content tricks agents into paying addresses they never planned to pay. PaySafe is one `POST` before settlement that checks for all of it and returns **allow / flag / block** with machine-readable, per-check reasons — in **~0.6 ms**.
@@ -50,17 +50,21 @@ Agent decides to pay ──► POST /v1/scan/outgoing ──► allow ──► 
 
 | Endpoint | Price | Description |
 |---|---|---|
-| `POST /v1/scan/outgoing` | $0.01 | Screen a payment your agent is about to make |
-| `POST /v1/scan/incoming` | $0.01 | Screen a 402 offer / payment request your agent received |
+| `POST /v1/scan/outgoing` | $0.01¹ | Screen a payment your agent is about to make |
+| `POST /v1/scan/incoming` | $0.01¹ | Screen a 402 offer / payment request your agent received |
 | `GET /v1/reputation/:address` | $0.01 | Counterparty report summary |
 | `POST /v1/reputation/report` | free | Report a bad counterparty after the fact |
 | `POST /v1/keys` | free | Issue an API key — **first 100 calls free** per key |
+| `GET /v1/plans` | free | Machine-readable plan catalog (tiers, limits, subscribe mechanics) |
+| `POST /v1/plans/subscribe` | plan price | Subscribe/renew a key on a plan — itself paid via x402, so agents upgrade autonomously |
 | `GET /.well-known/x402` | free | x402 manifest |
 | `GET /.well-known/agent-card.json` | free | Agent card |
 | `GET /.well-known/paysafe-verdict-key` | free | Ed25519 public key for verdict attestations |
 | `GET /v1/audit/verify` | free | Verify the audit-log hash chain (integrity check) |
 | `GET /v1/audit/head` | free | Current audit-log head hash + sequence |
 | `GET /` · `GET /health` | free | Self-documenting schema / liveness |
+
+¹ Per-scan price drops on a plan: **Pro** ($4.99/30d) → $0.005/scan with 6× velocity headroom and deep content analysis on every scan; **Scale** ($19.99/30d) → $0.002/scan at the hard-ceiling limits. Plans raise *your own* thresholds only — replay detection, merchant pinning, asset verification, and PII scanning are identical on every tier and can't be relaxed by paying more. See `GET /v1/plans`.
 
 Send the key from `POST /v1/keys` in the `X-API-Key` header; the first `FREE_CALLS` (default 100) calls bypass payment. After that, unpaid calls get a standard x402 `402 Payment Required` — any x402 client (`@x402/fetch`, `x402-requests`, …) handles pay-and-retry automatically.
 
