@@ -1,8 +1,8 @@
 # PaySafe — Go-Live Status
 
-_Updated 2026-07-14. Owner tags: **[You]** = your account/decision/funds, **[Me]** = Claude (with approval), **[Both]** = paired._
+_Updated 2026-07-14 (late evening). Owner tags: **[You]** = your account/decision/funds, **[Me]** = Claude (with approval), **[Both]** = paired._
 
-**One-line status: everything is built, validated, and deployed on testnet. Launch is blocked on a single item — real USDC on Base to fund the throwaway wallet for the first mainnet payment. The mainnet cutover itself is ~5 minutes once funds are available.**
+**One-line status: 🎉 LIVE ON BASE MAINNET. Real payments settling ($0.01/scan to the business wallet), including revenue from a real third-party caller within 20 minutes of cutover. Remaining: Bazaar index verification, directory listings, monitoring, and legal loose ends.**
 
 ---
 
@@ -30,21 +30,20 @@ _Updated 2026-07-14. Owner tags: **[You]** = your account/decision/funds, **[Me]
 
 ---
 
-## Blocking launch 🚧
+## Launch — DONE ✅ (2026-07-14)
 
-1. **[You] Fund the throwaway wallet with real USDC on Base** — `0x6d610371aDc90a7a72db7f8588F2e3281c391F5C`, ~$0.50–1 USDC (no ETH needed; facilitator pays gas).
-   *Currently blocked: Coinbase balance (~$49.50) on temporary hold, and it's ETH/cash, not USDC. Options: wait out the hold then convert/buy ~$1 USDC on Base, or fund from any other wallet with Base USDC.*
-2. **[Me] Mainnet cutover** (same sitting as #3): set `X402_NETWORK=eip155:8453`, confirm CDP facilitator config, redeploy; verify clean audit chain (seq 0) and mainnet 402.
-3. **[You] One small real USDC payment** → confirm settlement lands in business wallet (`0x3C42…7745`). This also auto-triggers **Bazaar indexing**.
-
-### Fix at cutover (found verifying the live manifest today)
-- [ ] **[Me]** Set `PUBLIC_BASE_URL=https://paysafe-agent.com` — `/.well-known/x402` still advertises `paysafe-l2o1.onrender.com` resource URLs.
-- [ ] **[Me]** Manifest `accepts[].payTo` is **empty** — confirm it's populated from `PAY_TO` after redeploy (empty payTo may break agents that pay from the manifest rather than a live 402).
+- [x] **[You]** Throwaway wallet funded with real USDC on Base (via Phantom)
+- [x] **[Me]** Mainnet cutover: `X402_NETWORK=eip155:8453`, redeployed; manifest verified — custom-domain URLs, canonical Base USDC asset, `payTo` populated (`0x3C42…7745`)
+- [x] **[You]** Real mainnet payment settled: 402 → pay → retry, verdict `allow/0`, tx `0xb263370d…61efcae`, USDC landed in business wallet
+- [x] **Bonus:** first third-party revenue — an unknown caller paid $0.01 and ran a scan within ~20 min of cutover (correctly blocked their test payment via pin.mismatch)
+- [x] **[Me]** Fixed example-script pin collision: `examples/paid-dryrun.ts` now uses per-run unique `resource_url` domain and `agent_id` (**sync to `C:\dev\paysafe` and push to GitHub**)
+- [x] **[You]** Final store wipe before launch; audit chain verifies clean (`ok: true`)
+- [x] **[Me]** Agent card and verdict-key endpoints verified on mainnet
 
 ---
 
 ## Immediately after launch 📣
-- [ ] **[Me]** Verify Bazaar indexing via discovery/search
+- [~] **[Me]** Verify Bazaar indexing via discovery/search — first settlement done; not yet in the CDP discovery list (indexing lag expected), re-check
 - [ ] **[Both]** Submit listings (`LISTINGS.md`): x402scan, Agentic.Market, x402-list
 - [ ] **[Both]** Open awesome-x402 PR (`AWESOME-X402-PR.md`)
 - [ ] **[Me]** Confirm Terms + Privacy linked from manifest, agent card, README before public posting
@@ -66,8 +65,8 @@ _Updated 2026-07-14. Owner tags: **[You]** = your account/decision/funds, **[Me]
 
 ---
 
-## Critical path
-1. USDC on Base in throwaway wallet **[You]** ← *only real blocker*
-2. Mainnet flip + redeploy + `PUBLIC_BASE_URL`/`payTo` fixes **[Me]**
-3. One real payment → settlement confirmed **[You]**
-4. Bazaar verified, listings submitted **[Both]** → **Live.**
+## Critical path (remaining)
+1. Sync fixed `examples/paid-dryrun.ts` to `C:\dev\paysafe` + push to GitHub **[You]**
+2. Bazaar indexing verified **[Me]** (re-check discovery endpoint)
+3. Listings submitted: x402scan, Agentic.Market, x402-list, awesome-x402 PR **[Both]**
+4. Monitoring + WORM audit backup **[Both]** — first week of production

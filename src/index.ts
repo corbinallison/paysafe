@@ -37,6 +37,7 @@ import {
   serviceInfo,
 } from "./api.ts";
 import { x402Manifest, agentCard } from "./manifest.ts";
+import { openApiDoc } from "./openapi.ts";
 
 const cfg = loadConfig();
 const store = new Store(cfg.dataDir, {
@@ -270,6 +271,11 @@ app.get("/.well-known/x402", (_req, res) => {
 
 app.get("/.well-known/agent-card.json", (_req, res) => {
   res.json(agentCard(cfg));
+});
+
+// Canonical machine-readable API contract (x402scan discovery + agent tooling).
+app.get("/openapi.json", (_req, res) => {
+  res.json(openApiDoc(cfg));
 });
 
 app.get("/.well-known/paysafe-verdict-key", (_req, res) => {

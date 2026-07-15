@@ -18,6 +18,7 @@ import {
   serviceInfo,
 } from "./api.ts";
 import { x402Manifest, agentCard } from "./manifest.ts";
+import { openApiDoc } from "./openapi.ts";
 import type { ApiResult } from "./api.ts";
 
 const cfg = { ...loadConfig(), mode: "dev" as const };
@@ -64,6 +65,8 @@ const server = createServer(async (req, res) => {
       out = { status: 200, body: { ok: true, mode: cfg.mode, time: new Date().toISOString() } };
     else if (method === "GET" && path === "/.well-known/x402")
       out = { status: 200, body: x402Manifest(cfg) };
+    else if (method === "GET" && path === "/openapi.json")
+      out = { status: 200, body: openApiDoc(cfg) };
     else if (method === "GET" && path === "/.well-known/agent-card.json")
       out = { status: 200, body: agentCard(cfg) };
     else if (method === "GET" && path === "/.well-known/paysafe-verdict-key")
