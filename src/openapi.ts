@@ -260,6 +260,9 @@ export function openApiDoc(cfg: PaySafeConfig): object {
           operationId: "createApiKey",
           summary: `Issue an API key (free) — first ${cfg.freeCalls} calls free per key`,
           tags: ["Keys"],
+          // Free endpoint (not x402-paid): empty security marker excludes it
+          // from x402scan's 402-challenge probing (see discovery spec).
+          security: [],
           requestBody: {
             required: false,
             content: {

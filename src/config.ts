@@ -51,6 +51,8 @@ export interface PaySafeConfig {
   auditLog: boolean;
   /** Max entries per in-memory Map before oldest-first eviction (DoS bound) */
   maxStoreEntries: number;
+  /** Shared secret for GET /v1/audit/export (X-Admin-Token header). Empty = endpoint disabled. */
+  adminToken: string;
 }
 
 function num(v: string | undefined, d: number): number {
@@ -92,5 +94,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
 
     auditLog: env.AUDIT_LOG !== "off",
     maxStoreEntries: num(env.MAX_STORE_ENTRIES, 100_000),
+    adminToken: env.ADMIN_TOKEN ?? "",
   };
 }

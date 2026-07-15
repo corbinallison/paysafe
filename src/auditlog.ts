@@ -98,6 +98,13 @@ export class AuditLog {
     return { seq: this.seq, hash: this.lastHash };
   }
 
+  /** Raw NDJSON export of the full log, for offsite/WORM backup. Auth is the API layer's job. */
+  exportRaw(): string {
+    if (!this.file) return this.mem.map((r) => JSON.stringify(r)).join("\n") + (this.mem.length ? "\n" : "");
+    if (!existsSync(this.file)) return "";
+    return readFileSync(this.file, "utf8");
+  }
+
   private records(): AuditRecord[] {
     if (!this.file) return this.mem;
     if (!existsSync(this.file)) return [];

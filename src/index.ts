@@ -13,6 +13,7 @@
  */
 import express from "express";
 import { join } from "node:path";
+import { timingSafeEqual } from "node:crypto";
 import { paymentMiddleware, x402ResourceServer } from "@x402/express";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { HTTPFacilitatorClient } from "@x402/core/server";
@@ -335,6 +336,23 @@ app.get("/v1/audit/verify", (_req, res) => {
     return;
   }
   res.json(store.auditLog.verify());
+});
+
+// Full-log export for offsite/WORM backup. Gated by ADMIN_TOKEN (X-Admin-Token
+// header, constant-time compare); 404 when unconfigured so the route doesn't
+// advertise itself. Records contain payment hashes + non-sensitive facts only.
+app.get("/v1/audit/export", (req, res) => {
+  if (!cfg.adminToken || !store.auditLog) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  const given = Buffer.from(req.header("x-admin-token") ?? "", "utf8");
+  const want = Buffer.from(cfg.adminToken, "utf8");
+  if (given.length !== want.length || !timingSafeEqual(given, want)) {
+    res.status(403).json({ error: "forbidden" });
+    return;
+  }
+  res.type("application/x-ndjson").send(store.auditLog.exportRaw());
 });
 
 // JSON error handler: never leak stack traces.

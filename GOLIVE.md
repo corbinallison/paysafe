@@ -42,11 +42,12 @@ _Updated 2026-07-14 (late evening). Owner tags: **[You]** = your account/decisio
 
 ---
 
-## Immediately after launch 📣
-- [~] **[Me]** Verify Bazaar indexing via discovery/search — first settlement done; not yet in the CDP discovery list (indexing lag expected), re-check
-- [ ] **[Both]** Submit listings (`LISTINGS.md`): x402scan, Agentic.Market, x402-list
-- [ ] **[Both]** Open awesome-x402 PR (`AWESOME-X402-PR.md`)
-- [ ] **[Me]** Confirm Terms + Privacy linked from manifest, agent card, README before public posting
+## Immediately after launch 📣 — DONE (2026-07-14, late night)
+- [x] **[Me]** Bazaar indexing verified — Agentic.Market validator: "Found on Bazaar", mainnet payment details correct
+- [x] **[Me]** x402scan: registered **4/4 resources** via new `/openapi.json` OpenAPI contract (merchant page: tryponcho.com/m/paysafe-agent.com). `/v1/keys` excluded (free endpoint; add `"security": []` to its OpenAPI op to silence the probe warning — minor)
+- [x] Agentic.Market: auto-listed via Bazaar (no manual submission exists)
+- [x] **[Me]** awesome-x402 PR opened: [#848](https://github.com/xpaysh/awesome-x402/pull/848) under "Agent Verification & Security" (awaiting maintainer merge)
+- [x] **[Me]** Shipped `/openapi.json` (src/openapi.ts): payment metadata (`x-payment-info`), per-route input/output schemas, agent guidance, contact email for origin verification
 
 ## Legal loose ends (parallel, non-blocking)
 - [ ] **[You]** Finish EIN with the IRS (was in progress)
@@ -66,7 +67,8 @@ _Updated 2026-07-14 (late evening). Owner tags: **[You]** = your account/decisio
 ---
 
 ## Critical path (remaining)
-1. Sync fixed `examples/paid-dryrun.ts` to `C:\dev\paysafe` + push to GitHub **[You]**
-2. Bazaar indexing verified **[Me]** (re-check discovery endpoint)
-3. Listings submitted: x402scan, Agentic.Market, x402-list, awesome-x402 PR **[Both]**
-4. Monitoring + WORM audit backup **[Both]** — first week of production
+1. [x] Monitoring: daily scheduled check (uptime, audit verify, payment-config drift, verdict key) — live, runs 9 AM
+2. [x] Audit-chain anchoring: daily head-hash append to `audit-anchors.log` (tamper evidence) — live
+3. [~] Offsite audit backup: `/v1/audit/export` endpoint + `scripts/backup-audit-log.ps1` → MEGA sync folder. **[You]**: set `ADMIN_TOKEN` on Render, schedule the script in Task Scheduler, push the code. (Upgrade path: S3 Object Lock when revenue justifies.)
+4. [x] `"security": []` on `/v1/keys` in openapi.ts
+5. Legal loose ends (EIN, business bank, counsel review) **[You]**
