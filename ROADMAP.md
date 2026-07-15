@@ -23,8 +23,8 @@ Implemented as designed: `src/plans.ts` (catalog: Pro $4.99/30d, Scale $19.99/30
 
 ## 3. Detection improvements
 
-- **Client SDK provenance auto-tagging** — SDK that stamps `context.origin` (planning / tool_result / fetched_content) at the source; strongest possible upgrade to injection detection.
-- **Wallet-side verifier snippet** — published reference code for checking Ed25519 allow-attestations (`payment_commitment` binding + `expires_at`), turning advisory verdicts into enforceable wallet policy.
+- ✅ **Client SDK provenance auto-tagging** — BUILT 2026-07-14: `sdk/` (`paysafe-x402-client`, zero-dep, Node 18+). `observe()`/`notePlanning()` auto-tag `context.origin`; observations are single-use with a TTL. 32/32 tests, cross-validated against the real server signer. Pending: `npm publish` from `sdk/` (name confirmed available).
+- ✅ **Wallet-side verifier** — absorbed into the SDK: standalone `verifyAttestation()` + `computePaymentCommitment()` exports (pinned-key signature check, commitment recompute/replay defense, expiry). Optional follow-up: publish a docs page with the snippet inline.
 
 ## 4. Infrastructure & scale
 
