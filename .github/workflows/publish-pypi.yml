@@ -1,43 +1,43 @@
 # Publishes sdk-python/ to PyPI via trusted publishing (OIDC — no tokens).
 # Trigger manually: GitHub → Actions → publish-pypi → Run workflow.
+#
+# Supply-chain hardening (see SECURITY-AUDIT-2.md):
+#  - every action pinned to a full commit SHA, not a movable tag
+#  - single job: no artifact upload/download actions in the chain
+#  - least privilege: read-only default; id-token:write only where needed
+#  - tests run before every publish; the `pypi` environment should have
+#    required-reviewer protection so a push alone can never publish
 name: publish-pypi
 
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  build:
+  build-and-publish:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: sdk-python
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write # required for PyPI trusted publishing (OIDC)
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - name: Run SDK tests
+        working-directory: sdk-python
         run: |
           python -m pip install cryptography
           python tests/run_tests.py
       - name: Build sdist + wheel
+        working-directory: sdk-python
         run: |
           python -m pip install build
           python -m build
-      - uses: actions/upload-artifact@v4
+      - name: Publish to PyPI (OIDC)
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
-          name: dist
-          path: sdk-python/dist/
-
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      id-token: write # required for PyPI trusted publishing (OIDC)
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist
-      - uses: pypa/gh-action-pypi-publish@release/v1
+          packages-dir: sdk-python/dist
