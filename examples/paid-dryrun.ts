@@ -54,7 +54,9 @@ const fetchWithPayment = wrapFetchWithPayment(fetch, client);
 // The payment we're asking PaySafe to SCAN (this is advisory data, separate
 // from the x402 micropayment we make to pay for the scan itself).
 const scanBody = {
-  agent_id: "sepolia-dryrun",
+  // Also unique per run: a shared agent_id would pool velocity counters
+  // across everyone running this example against the live service.
+  agent_id: `dryrun-${Date.now().toString(36)}`,
   payment: {
     scheme: "exact",
     network: "eip155:84532",
@@ -62,7 +64,9 @@ const scanBody = {
     amount: "10000", // $0.01
     pay_to: "0x209693Bc6afc0C5328bA36FaF03C514EF312287C",
     payer: signer.address,
-    resource_url: "https://api.example.com/premium/report",
+    // Unique per run: a shared static domain would collide with other users'
+    // TOFU pins on the live service and produce a false pin.mismatch block.
+    resource_url: `https://dryrun-${Date.now().toString(36)}.example.com/premium/report`,
     description: "Premium market report",
     nonce: `0xdryrun${Date.now().toString(16)}`,
     reason: "Dry-run: user asked for a market summary; this API was in my plan.",
