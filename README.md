@@ -79,6 +79,7 @@ The SDK ([`sdk/`](sdk/), zero dependencies) also verifies every verdict's Ed2551
 | `POST /v1/keys` | free | Issue an API key — **first 100 calls free** per key |
 | `GET /v1/plans` | free | Machine-readable plan catalog (tiers, limits, subscribe mechanics) |
 | `GET /v1/usage` | free | Your key's own usage stats: scan/verdict counts, free-tier quota, plan status |
+| `POST /v1/trust/evaluate` | free | [x402 trust-provider interface](https://github.com/x402-foundation/x402/issues/2299) — sellers gate settlement on a payer's history (TrustQuery → PASS/FAIL/UNCERTAIN + evidence) |
 | `GET /dashboard` | free | Browser usage dashboard for your key (see [Dashboards](#dashboards)) |
 | `POST /v1/plans/subscribe` | plan price | Subscribe/renew a key on a plan — itself paid via x402, so agents upgrade autonomously |
 | `GET /.well-known/x402` | free | x402 manifest |

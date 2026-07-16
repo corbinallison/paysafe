@@ -51,6 +51,8 @@ export interface PaySafeConfig {
   keysPerIpPerDay: number;
   /** Reputation reports per IP per hour */
   reportsPerIpPerHour: number;
+  /** Trust-provider evaluations (POST /v1/trust/evaluate) per IP per hour */
+  trustQueriesPerIpPerHour: number;
 
   // --- audit + resource bounds ---
   /** Write a tamper-evident audit record for every scan decision */
@@ -103,6 +105,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
 
     keysPerIpPerDay: num(env.KEYS_PER_IP_PER_DAY, 10),
     reportsPerIpPerHour: num(env.REPORTS_PER_IP_PER_HOUR, 30),
+    trustQueriesPerIpPerHour: num(env.TRUST_QUERIES_PER_IP_PER_HOUR, 120),
 
     auditLog: env.AUDIT_LOG !== "off",
     maxStoreEntries: num(env.MAX_STORE_ENTRIES, 100_000),

@@ -291,6 +291,7 @@ export function serviceInfo(cfg: PaySafeConfig): ApiResult {
         "GET /v1/reputation/:address": `${cfg.priceReputation} (first ${cfg.freeCalls} calls free per key). Counterparty report summary.`,
         "POST /v1/reputation/report": `Free (rate-limited: ${cfg.reportsPerIpPerHour}/IP/hour). Report a bad counterparty after the fact.`,
         "GET /v1/plans": "Free. Machine-readable plan catalog (pricing tiers, limits, how to subscribe).",
+        "POST /v1/trust/evaluate": `Free (rate-limited: ${cfg.trustQueriesPerIpPerHour}/IP/hour). x402 trust-provider interface: TrustQuery about a payer in, TrustEvaluation (PASS/FAIL/UNCERTAIN + evidence) out — for sellers gating settlement.`,
         "POST /v1/plans/subscribe": "x402-paid at the plan's price. Upgrade your API key to a plan; renew by paying again.",
         "GET /v1/usage": "Free. Your own key's usage stats (X-API-Key header): scan/verdict counts, free-tier quota, plan status.",
         "GET /dashboard": "Free. Browser usage dashboard for your key — key is sent via header only, never a URL.",

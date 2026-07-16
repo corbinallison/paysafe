@@ -18,6 +18,7 @@ import { paymentCommitment, paymentDigest } from "../src/commitment.ts";
 import { dashboardHtml } from "../src/dashboard.ts";
 import { adminDashboardHtml } from "../src/admindash.ts";
 import { llmsTxt } from "../src/llms.ts";
+import { handleTrustEvaluate } from "../src/trust.ts";
 import { parseScoutScore, scheduleScoutScoreRefresh } from "../src/detectors/scoutscore.ts";
 import { createServer as createHttpServer } from "node:http";
 import type { ScanRequest, ScanResponse } from "../src/types.ts";
@@ -779,6 +780,52 @@ console.log("\n— usage dashboard stats —");
   const before = store.keys.size;
   handleScan("outgoing", { payment: { ...clean, nonce: "anon1" }, context: { origin: "planning" } }, cfg, store, null, undefined);
   check("anonymous scan creates no account", store.keys.size === before);
+}
+
+console.log("\n— x402 trust-provider interface (#2299) —");
+{
+  const store = new Store(null);
+  const query = (wallet?: string, agentId?: string) => ({
+    schema: "x402-trust-query-v0.1",
+    payer: { ...(wallet ? { wallet } : {}), ...(agentId ? { agent_id: agentId } : {}) },
+    resource: { url: "https://seller.example/api", method: "POST", amount: { value: "20000", currency: "USDC", chain: "base" } },
+    requested_at: new Date().toISOString(),
+  });
+
+  // Clean subject → PASS with the honest "not an endorsement" framing.
+  const clean = handleTrustEvaluate(query("0xCleanPayer00000000000000000000000000001"), cfg, store) as { status: number; body: any };
+  check("clean payer evaluates PASS", clean.status === 200 && clean.body.decision === "PASS");
+  check("evaluation carries the spec schema + provider fields", clean.body.schema === "x402-trust-evaluation-v0.1" && clean.body.provider === "PaySafe" && typeof clean.body.provider_url === "string");
+  check("clean PASS is moderate, not an endorsement", clean.body.score === 70 && clean.body.reason_code === "NO_ADVERSE_HISTORY");
+  check("evidence_uri points at the public reputation lookup", String(clean.body.evidence_uri).includes("/v1/reputation/0xcleanpayer"));
+
+  // Badlisted payer → the ONLY hard FAIL.
+  store.badlist.add("0xbadlistedpayer0000000000000000000000001");
+  const bad = handleTrustEvaluate(query("0xBadlistedPayer0000000000000000000000001"), cfg, store) as { body: any };
+  check("badlisted payer FAILs with score 0", bad.body.decision === "FAIL" && bad.body.score === 0 && bad.body.reason_code === "BADLISTED");
+
+  // Report density: self-asserted reports can lower confidence but never FAIL (H-2).
+  const reported = "0xReportedPayer00000000000000000000000001";
+  for (let i = 0; i < 5; i++) {
+    addReport(store, { address: reported, category: "replay_abuse", reason: "replayed a captured authorization", reporter_agent_id: `witness-${i}` });
+  }
+  const dense = handleTrustEvaluate(query(reported), cfg, store) as { body: any };
+  check("heavily reported payer is UNCERTAIN, never FAIL (H-2)", dense.body.decision === "UNCERTAIN" && dense.body.reason_code === "REPORTED_HIGH_DENSITY", dense.body);
+  check("high report density crushes the score", dense.body.score <= 20);
+
+  const once = "0xOnceReported000000000000000000000000001";
+  addReport(store, { address: once, category: "overcharge", reason: "charged 3x the quoted price", reporter_agent_id: "solo-witness" });
+  const single = handleTrustEvaluate(query(once), cfg, store) as { body: any };
+  check("a single unverified report still PASSes (lower score)", single.body.decision === "PASS" && single.body.score < 70);
+
+  // Subject handling.
+  const noWallet = handleTrustEvaluate(query(undefined, "agent-9000"), cfg, store) as { body: any };
+  check("agent_id-only subject is UNCERTAIN, never PASS", noWallet.body.decision === "UNCERTAIN" && noWallet.body.reason_code === "NO_WALLET_SUBJECT");
+  const malformed = handleTrustEvaluate({ hello: "world" }, cfg, store) as { status: number; body: any };
+  check("malformed query gets 400 with a self-serve example", malformed.status === 400 && malformed.body.expected_schema === "x402-trust-query-v0.1" && malformed.body.example !== undefined);
+  const flat = handleTrustEvaluate({ wallet: "0xCleanPayer00000000000000000000000000001" }, cfg, store) as { body: any };
+  check("flat wallet field tolerated (schema drift)", flat.body.decision === "PASS");
+  check("ttl_seconds and evaluated_at present", typeof clean.body.ttl_seconds === "number" && typeof clean.body.evaluated_at === "string");
 }
 
 console.log("\n— llms.txt discovery page —");

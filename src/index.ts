@@ -47,6 +47,7 @@ import { openApiDoc } from "./openapi.ts";
 import { dashboardHtml } from "./dashboard.ts";
 import { adminDashboardHtml } from "./admindash.ts";
 import { llmsTxt } from "./llms.ts";
+import { handleTrustEvaluate } from "./trust.ts";
 
 const cfg = loadConfig();
 const store = new Store(cfg.dataDir, {
@@ -59,6 +60,7 @@ const signer = cfg.verdictSigning ? new VerdictSigner(cfg.dataDir) : null;
 
 const keyLimiter = new RateLimiter(cfg.keysPerIpPerDay, 24 * 3600_000);
 const reportLimiter = new RateLimiter(cfg.reportsPerIpPerHour, 3600_000);
+const trustLimiter = new RateLimiter(cfg.trustQueriesPerIpPerHour, 3600_000);
 
 if (cfg.mode === "live" && !cfg.payTo) {
   console.error("PAY_TO (receiving wallet address) is required in live mode. Set PAYSAFE_MODE=dev to run without payments.");
@@ -416,6 +418,18 @@ app.post("/v1/plans/subscribe", (req, res) => {
 
 app.get("/v1/reputation/:address", (req, res) => {
   const r = handleReputationLookup(req.params.address, store);
+  res.status(r.status).json(r.body);
+});
+
+// x402 trust-provider interface (#2299): TrustQuery in, TrustEvaluation out.
+// Free + rate-limited; sellers call this from onBeforeSettle to gate on the
+// payer's history. FAILs come only from the curated badlist (audit H-2).
+app.post("/v1/trust/evaluate", (req, res) => {
+  if (!trustLimiter.allow(req.ip ?? "unknown")) {
+    res.status(429).json({ error: `Rate limit: max ${cfg.trustQueriesPerIpPerHour} trust evaluations per IP per hour.` });
+    return;
+  }
+  const r = handleTrustEvaluate(req.body, cfg, store);
   res.status(r.status).json(r.body);
 });
 

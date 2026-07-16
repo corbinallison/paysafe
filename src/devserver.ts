@@ -26,6 +26,7 @@ import { openApiDoc } from "./openapi.ts";
 import { dashboardHtml } from "./dashboard.ts";
 import { adminDashboardHtml } from "./admindash.ts";
 import { llmsTxt } from "./llms.ts";
+import { handleTrustEvaluate } from "./trust.ts";
 import type { ApiResult } from "./api.ts";
 
 const cfg = { ...loadConfig(), mode: "dev" as const };
@@ -40,6 +41,7 @@ const signer = cfg.verdictSigning ? new VerdictSigner(ephemeral ? null : cfg.dat
 
 const keyLimiter = new RateLimiter(cfg.keysPerIpPerDay, 24 * 3600_000);
 const reportLimiter = new RateLimiter(cfg.reportsPerIpPerHour, 3600_000);
+const trustLimiter = new RateLimiter(cfg.trustQueriesPerIpPerHour, 3600_000);
 const LIMITED: ApiResult = { status: 429, body: { error: "Rate limit exceeded for this endpoint. Try again later." } };
 
 function readBody(req: import("node:http").IncomingMessage): Promise<unknown> {
@@ -114,6 +116,10 @@ const server = createServer(async (req, res) => {
     else if (method === "POST" && path === "/v1/plans/subscribe")
       // Dev mode: no payments — activates directly, for local testing.
       out = handlePlanSubscribe(await readBody(req), cfg, store, req.headers["x-api-key"] as string | undefined);
+    else if (method === "POST" && path === "/v1/trust/evaluate") {
+      if (!trustLimiter.allow(ip)) out = LIMITED;
+      else out = handleTrustEvaluate(await readBody(req), cfg, store);
+    }
     else if (method === "POST" && path === "/v1/reputation/report") {
       if (!reportLimiter.allow(ip)) out = LIMITED;
       else out = handleReputationReport(await readBody(req), store);

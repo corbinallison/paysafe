@@ -84,6 +84,8 @@ advisory into enforceable without PaySafe ever holding funds.
 - GET  /v1/plans                  Machine-readable plan catalog. Free.
 - POST /v1/plans/subscribe        Upgrade a key to a plan; paid over x402, so you can subscribe autonomously.
 - GET  /v1/usage                  Your key's own scan/verdict counts (X-API-Key header). Free.
+- POST /v1/trust/evaluate         For SELLERS: x402 trust-provider interface (TrustQuery in,
+                                  TrustEvaluation out) to gate settlement on a payer's history. Free.
 
 ## What it checks
 
