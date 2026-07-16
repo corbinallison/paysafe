@@ -31,8 +31,11 @@ from paysafe_x402 import (
     AttestationError,
     PaySafeBlockedError,
     PaySafeClient,
+    PaySafeEnforcementError,
+    PaySafeEnforcer,
     PaySafeError,
     compute_payment_commitment,
+    payment_from_typed_data,
     verify_attestation,
 )
 
@@ -312,6 +315,206 @@ print("\n— reporting —")
 client = PaySafeClient(base_url=BASE, agent_id="py-test")
 r = client.report("0xbad", "scam", "took the money and ran")
 check("report files successfully", r["accepted"] is True)
+
+print("\n— wallet-side enforcement kit —")
+
+
+def typed_data_for(p: dict) -> dict:
+    """EIP-3009 typed data matching a payment (what an x402 client asks the wallet to sign)."""
+    return {
+        "domain": {"name": "USD Coin", "version": "2", "chainId": 8453, "verifyingContract": p.get("asset")},
+        "primaryType": "TransferWithAuthorization",
+        "types": {
+            "TransferWithAuthorization": [
+                {"name": "from", "type": "address"}, {"name": "to", "type": "address"},
+                {"name": "value", "type": "uint256"}, {"name": "validAfter", "type": "uint256"},
+                {"name": "validBefore", "type": "uint256"}, {"name": "nonce", "type": "bytes32"},
+            ],
+        },
+        "message": {
+            "from": p.get("payer") or "0xPayerAgent000000000000000000000000000001",
+            "to": p.get("pay_to"),
+            "value": p.get("amount"),
+            "validAfter": 0,
+            "validBefore": 9999999999,
+            "nonce": p.get("nonce"),
+        },
+    }
+
+
+class FakeSigner:
+    address = "0xWalletAddress"
+
+    def __init__(self):
+        self.signed = []
+
+    def sign_typed_data(self, *args, **kwargs):
+        self.signed.append((args, kwargs))
+        return "0xsigned"
+
+    def sign_message(self):
+        return "0xmsg"
+
+
+def expect_refusal(fn, *args, **kwargs):
+    try:
+        fn(*args, **kwargs)
+        return None
+    except PaySafeEnforcementError as e:
+        return e
+    except Exception:
+        return None
+
+
+PINNED = signer_pub_hex
+
+# typed-data → payment mapping produces the SAME commitment the scan attests.
+p = dict(base_payment, nonce="0xenf1")
+mapped = payment_from_typed_data(typed_data_for(p))
+check("typed-data mapping matches the scanned payment's commitment",
+      compute_payment_commitment(mapped) == compute_payment_commitment(p))
+
+# Happy path: scan → approve → wrapped signer signs (full-dict shape).
+p = dict(base_payment, nonce="0xenf2")
+enforcer = PaySafeEnforcer(trusted_key_hex=PINNED)
+wallet = FakeSigner()
+guarded = enforcer.guard_signer(wallet)
+enforcer.approve(make_scan(p, "outgoing"), p)
+check("approved payment signs", guarded.sign_typed_data(typed_data_for(p)) == "0xsigned" and len(wallet.signed) == 1)
+check("other signer attributes pass through", guarded.address == "0xWalletAddress" and guarded.sign_message() == "0xmsg")
+
+# Single-use: the same approval cannot sign twice.
+e = expect_refusal(guarded.sign_typed_data, typed_data_for(p))
+check("approval is single-use by default", e is not None and "already used" in str(e))
+
+# No approval → refuse; the unscanned payment never reaches the real signer.
+enforcer = PaySafeEnforcer(trusted_key_hex=PINNED)
+wallet = FakeSigner()
+guarded = enforcer.guard_signer(wallet)
+e = expect_refusal(guarded.sign_typed_data, typed_data_for(dict(base_payment, nonce="0xenf3")))
+check("unapproved payment refused", e is not None and len(wallet.signed) == 0)
+
+# The core attack: scan payment A, try to sign payment B (drain redirect).
+a = dict(base_payment, nonce="0xenf4")
+b = dict(a, pay_to="0xAttackerDrainAddress0000000000000000001", amount="999999999")
+enforcer = PaySafeEnforcer(trusted_key_hex=PINNED)
+wallet = FakeSigner()
+guarded = enforcer.guard_signer(wallet)
+enforcer.approve(make_scan(a, "outgoing"), a)
+e = expect_refusal(guarded.sign_typed_data, typed_data_for(b))
+check("scan-A-sign-B (redirected recipient/amount) refused", e is not None and len(wallet.signed) == 0)
+
+# Verdict gates: block never approves; flag only with allow_flagged.
+blocked = dict(base_payment, pay_to="0xBADactor00000000000000000000000000000001", nonce="0xenf5")
+enforcer = PaySafeEnforcer(trusted_key_hex=PINNED)
+check("block verdict refuses approval", expect_refusal(enforcer.approve, make_scan(blocked, "outgoing"), blocked) is not None)
+iffy = dict(base_payment, pay_to="0xIFFYmerchant0000000000000000000000000001", nonce="0xenf6")
+check("flag verdict refuses approval by default", expect_refusal(enforcer.approve, make_scan(iffy, "outgoing"), iffy) is not None)
+lenient = PaySafeEnforcer(trusted_key_hex=PINNED, allow_flagged=True)
+check("allow_flagged accepts a flag verdict", isinstance(lenient.approve(make_scan(iffy, "outgoing"), iffy), str))
+
+# Crypto gates: rogue-signed and replayed attestations never approve.
+p = dict(base_payment, nonce="0xenf7")
+rogue_pinned = PaySafeEnforcer(trusted_key_hex=rogue_pub_hex)
+try:
+    rogue_pinned.approve(make_scan(p, "outgoing"), p)
+    check("attestation signed by the wrong key refuses approval", False)
+except AttestationError:
+    check("attestation signed by the wrong key refuses approval", True)
+replay_p = dict(base_payment, pay_to="0xREPLAYmerchant00000000000000000000000001", nonce="0xenf8")
+enforcer = PaySafeEnforcer(trusted_key_hex=PINNED)
+try:
+    enforcer.approve(make_scan(replay_p, "outgoing"), replay_p)
+    check("attestation for a different payment refuses approval", False)
+except AttestationError:
+    check("attestation for a different payment refuses approval", True)
+
+# Freshness: max_age_s bounds how long an approval can wait before signing.
+p = dict(base_payment, nonce="0xenf9")
+enforcer = PaySafeEnforcer(trusted_key_hex=PINNED, max_age_s=0.001)
+guarded = enforcer.guard_signer(FakeSigner())
+enforcer.approve(make_scan(p, "outgoing"), p)
+time.sleep(0.02)
+e = expect_refusal(guarded.sign_typed_data, typed_data_for(p))
+check("stale approval (max_age_s) refused", e is not None and "stale" in str(e))
+
+# Reusable mode + revoke.
+p = dict(base_payment, nonce="0xenf10")
+enforcer = PaySafeEnforcer(trusted_key_hex=PINNED, reusable=True)
+guarded = enforcer.guard_signer(FakeSigner())
+commitment = enforcer.approve(make_scan(p, "outgoing"), p)
+guarded.sign_typed_data(typed_data_for(p))
+guarded.sign_typed_data(typed_data_for(p))
+check("reusable approval signs repeatedly", True)
+enforcer.revoke(commitment)
+check("revoked approval refused", expect_refusal(guarded.sign_typed_data, typed_data_for(p)) is not None)
+
+# Non-payment typed data: pass-through by default, refused under strict_types.
+mail = {
+    "domain": {"name": "App", "chainId": 8453},
+    "primaryType": "Mail",
+    "types": {"Mail": [{"name": "contents", "type": "string"}]},
+    "message": {"contents": "hi"},
+}
+enforcer = PaySafeEnforcer(trusted_key_hex=PINNED)
+check("non-payment typed data passes through", enforcer.guard_signer(FakeSigner()).sign_typed_data(mail) == "0xsigned")
+strict = PaySafeEnforcer(trusted_key_hex=PINNED, strict_types=True)
+check("strict_types refuses unrecognized typed data",
+      expect_refusal(strict.guard_signer(FakeSigner()).sign_typed_data, mail) is not None)
+
+# eth-account call shapes: positional (domain, types, message) and full_message kwarg.
+p = dict(base_payment, nonce="0xenf11")
+td = typed_data_for(p)
+enforcer = PaySafeEnforcer(trusted_key_hex=PINNED)
+wallet = FakeSigner()
+guarded = enforcer.guard_signer(wallet)
+e = expect_refusal(guarded.sign_typed_data, td["domain"], td["types"], td["message"])
+check("eth-account positional shape is recognized and gated", e is not None and len(wallet.signed) == 0)
+enforcer.approve(make_scan(p, "outgoing"), p)
+check("eth-account positional shape signs once approved",
+      guarded.sign_typed_data(td["domain"], td["types"], td["message"]) == "0xsigned")
+p2 = dict(base_payment, nonce="0xenf12")
+td2 = typed_data_for(p2)
+enforcer2 = PaySafeEnforcer(trusted_key_hex=PINNED)
+guarded2 = enforcer2.guard_signer(FakeSigner())
+e = expect_refusal(guarded2.sign_typed_data, full_message=td2)
+check("full_message kwarg shape is recognized and gated", e is not None)
+enforcer2.approve(make_scan(p2, "outgoing"), p2)
+check("full_message kwarg shape signs once approved", guarded2.sign_typed_data(full_message=td2) == "0xsigned")
+
+# ERC-2612 Permit is treated as a payment authorization.
+spender = "0xSpenderContract000000000000000000000001"
+permit = {
+    "domain": {"name": "USD Coin", "version": "2", "chainId": 8453, "verifyingContract": base_payment["asset"]},
+    "primaryType": "Permit",
+    "types": {"Permit": [
+        {"name": "owner", "type": "address"}, {"name": "spender", "type": "address"},
+        {"name": "value", "type": "uint256"}, {"name": "nonce", "type": "uint256"},
+        {"name": "deadline", "type": "uint256"},
+    ]},
+    "message": {"owner": "0xOwner", "spender": spender, "value": "5000", "nonce": 7, "deadline": 9999999999},
+}
+as_payment = payment_from_typed_data(permit)
+check("Permit maps spender/value/nonce to payment fields",
+      as_payment["pay_to"] == spender and as_payment["amount"] == "5000" and as_payment["nonce"] == "7")
+enforcer = PaySafeEnforcer(trusted_key_hex=PINNED)
+wallet = FakeSigner()
+check("unapproved Permit refused", expect_refusal(enforcer.guard_signer(wallet).sign_typed_data, permit) is not None)
+enforcer.approve(make_scan(as_payment, "outgoing"), as_payment)
+check("approved Permit signs", enforcer.guard_signer(wallet).sign_typed_data(permit) == "0xsigned")
+
+# Pinning is mandatory.
+check("enforcer refuses to construct without a pinned key",
+      expect_refusal(PaySafeEnforcer, trusted_key_hex="") is not None)
+
+# Cross-language: an attestation signed by the REAL Node server signer
+# authorizes a signature through the Python enforcement gate end to end.
+fx_enforcer = PaySafeEnforcer(trusted_key_hex=FIXTURE["public_key_spki_hex"])
+fx_wallet = FakeSigner()
+fx_guarded = fx_enforcer.guard_signer(fx_wallet)
+fx_enforcer.approve(FIXTURE["scan"], FIXTURE["payment"])
+check("Node-signed attestation drives the Python gate end to end",
+      fx_guarded.sign_typed_data(typed_data_for(FIXTURE["payment"])) == "0xsigned")
 
 server.shutdown()
 print(f"\n{passed} passed, {failed} failed")

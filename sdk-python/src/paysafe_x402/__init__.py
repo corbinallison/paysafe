@@ -41,11 +41,14 @@ __all__ = [
     "PaySafeError",
     "PaySafeBlockedError",
     "AttestationError",
+    "PaySafeEnforcer",
+    "PaySafeEnforcementError",
+    "payment_from_typed_data",
     "compute_payment_commitment",
     "verify_attestation",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 DEFAULT_BASE_URL = "https://paysafe-agent.com"
 
@@ -432,3 +435,14 @@ class PaySafeClient:
                 import warnings
 
                 warnings.warn(f"paysafe-x402: plan auto-renewal failed ({e}); continuing on default tier after expiry.")
+
+
+# ---------------------------------------------------------------------------
+# Wallet-side enforcement kit. Imported at the END of the module on purpose:
+# enforce.py imports names defined above, so this must follow the definitions.
+# ---------------------------------------------------------------------------
+from .enforce import (  # noqa: E402
+    PaySafeEnforcementError,
+    PaySafeEnforcer,
+    payment_from_typed_data,
+)
