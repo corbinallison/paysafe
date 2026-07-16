@@ -1,8 +1,6 @@
 # PaySafe — Terms of Use
 
-**Last updated: 2026-07-14**
-
-> **DRAFT — not legal advice.** This document was prepared as a starting point and has not been reviewed by a lawyer. Have qualified counsel review and adapt it (especially the liability, indemnity, and governing-law sections, and any consumer-protection or jurisdiction-specific requirements) before you rely on it for a live paid service. Replace every **[BRACKETED]** placeholder.
+**Last updated: 2026-07-16**
 
 ## 1. What PaySafe is
 
