@@ -2,9 +2,9 @@
  * Framework-agnostic API handlers. Both the production Express app (index.ts)
  * and the zero-dependency dev server (devserver.ts) route into these.
  */
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { PaySafeConfig } from "./config.ts";
-import type { Store } from "./store.ts";
+import { hashApiKey, type Store } from "./store.ts";
 import type { VerdictSigner } from "./verdictsign.ts";
 import { runScan } from "./scanner.ts";
 import { sanitizeScanRequest } from "./sanitize.ts";
@@ -17,10 +17,24 @@ export interface ApiResult {
   body: unknown;
 }
 
-/** API keys are stored hashed at rest (audit M-3): disk/backup disclosure of
- * the store never reveals a usable key. The raw key is shown once, on issue. */
-function hashKey(raw: string): string {
-  return createHash("sha256").update(raw, "utf8").digest("hex");
+/** Keys are hashed at rest via store.hashApiKey (audit M-3); raw shown once, on issue. */
+const hashKey = hashApiKey;
+
+/** 401 body for a key that is positively dead. Deliberately specific: unlike
+ * "unknown key" (kept indistinguishable from a typo so probes learn nothing),
+ * a tombstoned key is already unusable — naming why it stopped working is
+ * pure operational value for the legitimate owner mid-incident. */
+function deadKeyResult(dead: "rotated" | "revoked"): ApiResult {
+  return {
+    status: 401,
+    body: {
+      error:
+        dead === "rotated"
+          ? "This API key was rotated and its grace period has ended. Use the replacement key returned by POST /v1/keys/rotate."
+          : "This API key was revoked. Mint a fresh key with POST /v1/keys.",
+      code: dead === "rotated" ? "key_rotated" : "key_revoked",
+    },
+  };
 }
 
 function mintKey(store: Store, agentId?: string): string {
@@ -51,8 +65,7 @@ export function createApiKey(store: Store, cfg: PaySafeConfig, agentId?: string)
  * (valid key with remaining free quota). Increments usage on success.
  */
 export function consumeFreeCall(store: Store, cfg: PaySafeConfig, apiKey: string | undefined): boolean {
-  if (!apiKey) return false;
-  const rec = store.keys.get(hashKey(apiKey));
+  const { rec } = store.resolveKey(apiKey);
   if (!rec) return false;
   if (rec.calls_used >= cfg.freeCalls) return false;
   rec.calls_used += 1;
@@ -61,8 +74,7 @@ export function consumeFreeCall(store: Store, cfg: PaySafeConfig, apiKey: string
 }
 
 export function freeCallsRemaining(store: Store, cfg: PaySafeConfig, apiKey: string | undefined): number | null {
-  if (!apiKey) return null;
-  const rec = store.keys.get(hashKey(apiKey));
+  const { rec } = store.resolveKey(apiKey);
   if (!rec) return null;
   return Math.max(0, cfg.freeCalls - rec.calls_used);
 }
@@ -111,7 +123,7 @@ export function handleScan(
   // data, no PII). Only recorded for a recognized key; anonymous paid scans
   // aren't attributable to an account.
   if (apiKey) {
-    const rec = store.keys.get(hashKey(apiKey));
+    const { rec } = store.resolveKey(apiKey);
     if (rec) {
       const s = rec.scans ?? { total: 0, allow: 0, flag: 0, block: 0 };
       s.total += 1;
@@ -165,7 +177,9 @@ export function handlePlanSubscribe(body: unknown, cfg: PaySafeConfig, store: St
   }
   let key = apiKey;
   let minted = false;
-  if (!key || !store.keys.has(hashKey(key))) {
+  // resolveKey (not a raw hash lookup) so an in-grace rotated key renews its
+  // own account instead of getting a brand-new one minted.
+  if (!key || !store.resolveKey(key).rec) {
     key = mintKey(store, typeof b.agent_id === "string" ? b.agent_id : undefined);
     minted = true;
   }
@@ -192,7 +206,9 @@ export function handleUsage(cfg: PaySafeConfig, store: Store, apiKey: string | u
   if (!apiKey) {
     return { status: 401, body: { error: "Provide your API key in the X-API-Key header." } };
   }
-  const rec = store.keys.get(hashKey(apiKey));
+  const resolved = store.resolveKey(apiKey);
+  if (resolved.dead) return deadKeyResult(resolved.dead);
+  const rec = resolved.rec;
   if (!rec) {
     // Same shape as an auth failure — never distinguish "no such key" from
     // "wrong key", to avoid confirming key validity to a probe.
@@ -227,6 +243,125 @@ export function handleUsage(cfg: PaySafeConfig, store: Store, apiKey: string | u
   };
 }
 
+/** Shared auth for the key-lifecycle endpoints. Returns the live record or an
+ * ApiResult error. In-grace rotated secrets are refused (403): a leaked OLD
+ * secret must never rotate/revoke the account out from under the real owner. */
+function requireLiveKey(
+  store: Store,
+  apiKey: string | undefined,
+): { rec: import("./store.ts").KeyRecord; hash: string } | { err: ApiResult } {
+  if (!apiKey) {
+    return { err: { status: 401, body: { error: "Provide your API key in the X-API-Key header." } } };
+  }
+  const r = store.resolveKey(apiKey);
+  if (r.dead) return { err: deadKeyResult(r.dead) };
+  if (!r.rec || !r.hash) {
+    return { err: { status: 401, body: { error: "Unknown or invalid API key." } } };
+  }
+  if (r.viaGrace) {
+    return {
+      err: {
+        status: 403,
+        body: {
+          error:
+            "This key was already rotated. It still works for scans until its grace period ends, but only the current key can rotate or revoke the account.",
+          code: "key_superseded",
+        },
+      },
+    };
+  }
+  return { rec: r.rec, hash: r.hash };
+}
+
+const GRACE_DEFAULT_SECONDS = 900; // 15 min: long enough to redeploy a fleet
+const GRACE_MAX_SECONDS = 86_400; // 24 h hard cap — a leaked key must die
+
+/**
+ * Rotate the caller's API key: mint a fresh secret bound to the SAME account.
+ * Usage counters, remaining free calls, plan, and dashboard stats all carry
+ * over — the psk_ secret is a credential, not the identity. The old secret
+ * keeps working for `grace_seconds` (default 900, 0 = immediately dead, max
+ * 24h) so a fleet can switch over without downtime; during grace it can scan
+ * but NOT rotate/revoke (see requireLiveKey). Rotation never resets the free
+ * tier, so it cannot be farmed.
+ */
+export function handleKeyRotate(store: Store, cfg: PaySafeConfig, apiKey: string | undefined, body: unknown): ApiResult {
+  const auth = requireLiveKey(store, apiKey);
+  if ("err" in auth) return auth.err;
+  const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
+  const requested = typeof b.grace_seconds === "number" && Number.isFinite(b.grace_seconds) ? b.grace_seconds : GRACE_DEFAULT_SECONDS;
+  const grace = Math.min(Math.max(Math.floor(requested), 0), GRACE_MAX_SECONDS);
+
+  const newKey = `psk_${randomUUID().replace(/-/g, "")}`;
+  const newHash = hashKey(newKey);
+  const now = new Date();
+  const graceUntil = new Date(now.getTime() + grace * 1000).toISOString();
+
+  // Move the account to the new hash; tombstone the old secret.
+  store.keys.delete(auth.hash);
+  store.keys.set(newHash, auth.rec);
+  store.revoked.set(auth.hash, {
+    revoked_at: now.toISOString(),
+    reason: "rotated",
+    ...(grace > 0 ? { grace_until: graceUntil, successor: newHash } : {}),
+  });
+  store.markDirty();
+
+  const isAdminKey = !!cfg.adminKeyHash && auth.hash === cfg.adminKeyHash;
+  return {
+    status: 200,
+    body: {
+      api_key: newKey,
+      api_key_sha256: newHash,
+      rotated_at: now.toISOString(),
+      previous_key_valid_until: grace > 0 ? graceUntil : null,
+      carried_over: {
+        free_calls_remaining: Math.max(0, cfg.freeCalls - auth.rec.calls_used),
+        plan: auth.rec.plan ?? null,
+        scans_total: auth.rec.scans?.total ?? 0,
+      },
+      note:
+        "Store the new key now — it is not recoverable. Your usage history, free-call quota, and plan carried over unchanged." +
+        (isAdminKey
+          ? " This key is bound to the /admin dashboard (ADMIN_KEY_SHA256): update that env var to api_key_sha256 above, or admin access stays locked."
+          : ""),
+    },
+  };
+}
+
+/**
+ * Permanently revoke the caller's API key (the leaked-key kill switch).
+ * Requires `{"confirm": true}` — this is irreversible: the account's usage
+ * history, remaining free calls, and any active plan die with it. The secret's
+ * tombstone persists, so the dead key keeps failing with an explanatory 401.
+ */
+export function handleKeyRevoke(store: Store, cfg: PaySafeConfig, apiKey: string | undefined, body: unknown): ApiResult {
+  const auth = requireLiveKey(store, apiKey);
+  if ("err" in auth) return auth.err;
+  const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
+  if (b.confirm !== true) {
+    return {
+      status: 400,
+      body: {
+        error:
+          'Revocation is irreversible: usage history, remaining free calls, and any active plan are destroyed. POST again with {"confirm": true} to proceed — or use POST /v1/keys/rotate to swap the secret and KEEP the account.',
+      },
+    };
+  }
+  const now = new Date().toISOString();
+  store.keys.delete(auth.hash);
+  store.revoked.set(auth.hash, { revoked_at: now, reason: "revoked" });
+  store.markDirty();
+  return {
+    status: 200,
+    body: {
+      revoked: true,
+      revoked_at: now,
+      note: "The key and its account are permanently dead. Mint a fresh key with POST /v1/keys.",
+    },
+  };
+}
+
 /**
  * Owner-only, all-time service stats (the /admin dashboard's data source).
  * Unlocked by the ONE key whose SHA-256 matches cfg.adminKeyHash
@@ -243,6 +378,14 @@ export function handleAdminStats(cfg: PaySafeConfig, store: Store, apiKey: strin
   const given = Buffer.from(hashKey(apiKey), "utf8");
   const want = Buffer.from(cfg.adminKeyHash, "utf8");
   if (given.length !== want.length || !timingSafeEqual(given, want)) {
+    return { status: 401, body: { error: "Unknown or invalid API key." } };
+  }
+  // The hash match alone isn't enough: a rotated/revoked admin key must lose
+  // admin access too (that's the point of revocation). The key must still be
+  // LIVE in the store — after rotating the admin key, update ADMIN_KEY_SHA256
+  // to the new hash (the rotate response includes it).
+  const live = store.resolveKey(apiKey);
+  if (!live.rec || live.viaGrace) {
     return { status: 401, body: { error: "Unknown or invalid API key." } };
   }
 
@@ -282,10 +425,12 @@ export function serviceInfo(cfg: PaySafeConfig): ApiResult {
     body: {
       name: "PaySafe",
       tagline: "Payment security firewall for x402 micropayments. Advisory, non-custodial.",
-      version: "1.1.2",
+      version: "1.1.3",
       mode: cfg.mode,
       endpoints: {
         "POST /v1/keys": `Free (rate-limited: ${cfg.keysPerIpPerDay}/IP/day). Issue an API key with a free-call allowance.`,
+        "POST /v1/keys/rotate": "Free (X-API-Key header). Swap your key's secret for a fresh one — usage, free quota, and plan carry over. Old secret honors an optional grace window (default 15 min, max 24 h).",
+        "POST /v1/keys/revoke": 'Free (X-API-Key header, body {"confirm": true}). Permanently kill a leaked key AND its account. Irreversible.',
         "POST /v1/scan/outgoing": `${cfg.priceScan} (first ${cfg.freeCalls} calls free per key). Screen a payment your agent is about to make.`,
         "POST /v1/scan/incoming": `${cfg.priceScan} (first ${cfg.freeCalls} calls free per key). Screen a payment request / 402 offer your agent received.`,
         "GET /v1/reputation/:address": `${cfg.priceReputation} (first ${cfg.freeCalls} calls free per key). Counterparty report summary.`,

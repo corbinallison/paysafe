@@ -18,7 +18,6 @@
  */
 import type { PaySafeConfig } from "./config.ts";
 import type { Store } from "./store.ts";
-import { createHash } from "node:crypto";
 
 export interface PlanLimits {
   /** x402 price per scan while this plan is active, e.g. "$0.005" */
@@ -92,14 +91,11 @@ export function getPlan(id: string): Plan | undefined {
   return PLANS.find((p) => p.id === id);
 }
 
-function hashKey(raw: string): string {
-  return createHash("sha256").update(raw, "utf8").digest("hex");
-}
-
-/** The key's currently active plan, or null (none, unknown key, or expired). */
+/** The key's currently active plan, or null (none, unknown key, or expired).
+ * Resolved via store.resolveKey so an in-grace rotated secret keeps its plan
+ * pricing/limits during the switchover window. */
 export function activePlan(store: Store, apiKey: string | undefined): { plan: Plan; expires_at: string } | null {
-  if (!apiKey) return null;
-  const rec = store.keys.get(hashKey(apiKey));
+  const { rec } = store.resolveKey(apiKey);
   if (!rec?.plan || !rec.plan_expires_at) return null;
   if (new Date(rec.plan_expires_at).getTime() <= Date.now()) return null;
   const plan = getPlan(rec.plan);
@@ -134,8 +130,7 @@ export function resolveEffectiveConfig(cfg: PaySafeConfig, store: Store, apiKey:
  * expiry; switching plans starts fresh from now.
  */
 export function activatePlanOnKey(store: Store, apiKey: string, plan: Plan): { plan_id: string; expires_at: string } {
-  const h = hashKey(apiKey);
-  const rec = store.keys.get(h);
+  const { rec } = store.resolveKey(apiKey);
   if (!rec) throw new Error("unknown API key");
   const now = Date.now();
   const currentExpiry =

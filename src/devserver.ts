@@ -13,6 +13,8 @@ import { RateLimiter } from "./ratelimit.ts";
 import {
   createApiKey,
   handleAdminStats,
+  handleKeyRevoke,
+  handleKeyRotate,
   handlePlansCatalog,
   handlePlanSubscribe,
   handleReputationLookup,
@@ -93,6 +95,14 @@ const server = createServer(async (req, res) => {
         const body = (await readBody(req)) as { agent_id?: string } | undefined;
         out = createApiKey(store, cfg, body?.agent_id);
       }
+    } else if (method === "POST" && path === "/v1/keys/rotate") {
+      // Shares the key-mint limiter: rotation writes a tombstone per call, so
+      // it must not be free to hammer.
+      if (!keyLimiter.allow(ip)) out = LIMITED;
+      else out = handleKeyRotate(store, cfg, req.headers["x-api-key"] as string | undefined, await readBody(req));
+    } else if (method === "POST" && path === "/v1/keys/revoke") {
+      if (!keyLimiter.allow(ip)) out = LIMITED;
+      else out = handleKeyRevoke(store, cfg, req.headers["x-api-key"] as string | undefined, await readBody(req));
     } else if (method === "POST" && path === "/v1/scan/outgoing")
       out = handleScan("outgoing", await readBody(req), cfg, store, signer, req.headers["x-api-key"] as string | undefined);
     else if (method === "POST" && path === "/v1/scan/incoming")

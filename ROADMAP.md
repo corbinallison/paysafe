@@ -4,17 +4,29 @@ _Post-launch feature roadmap. Updated 2026-07-16. Operational/legal to-dos live 
 
 **Shipped & published (2026-07-16):** server 1.1.2 (llms.txt discovery, imperative MCP tooling, trust-provider endpoint, address-poisoning + ScoutScore detectors, usage/owner dashboards); `paysafe-x402-client` 0.3.0 + `paysafe-x402` (PyPI) 0.3.0 (enforcement kit + default-payment-path wrapper in both languages); `langchain-paysafe` 0.1.0 (LangChain docs PR submitted). Trust-provider endpoint deployed live; x402#2299 comment posted.
 
-**Top open items (not yet built):** (1) API-key rotation/revocation — oldest real security gap; a leaked `psk_` key is currently unrevocable. (2) Reputation registry v2 (§1). (3) Human-in-the-loop step-up approvals (§6). (4) ERC-8004 validator registration (§6). (All five DISCOVERY-PLAN framework integrations — LangChain, CrewAI, NeMo, AgentKit, Vercel AI SDK — are now built; publishing/PR submission is the remaining per-package work.)
+**Top open items (not yet built):** (1) Reputation registry v2 (§1). (2) Human-in-the-loop step-up approvals (§6). (3) ERC-8004 validator registration (§6). (API-key rotation/revocation ✅ built 2026-07-16 — see §0. All five DISCOVERY-PLAN framework integrations are built AND published; docs PRs to Vercel/LangChain/CrewAI are open, AgentKit/NeMo submissions parked in SUBMISSIONS-TODO.md.)
 
-## 0. API-key rotation & revocation — the oldest open security gap
+## 0. API-key rotation & revocation — ✅ BUILT 2026-07-16
 
-A leaked `psk_` key is currently permanent: there is no way to revoke it, and
-the victim's plan + free-tier balance are welded to it. Highest-priority
-security build now that keys live in more places (SDKs, MCP, LangChain).
-Sketch: `POST /v1/keys/rotate` (authenticated by the current key) mints a
-replacement, migrates the KeyRecord, kills the old hash; optional one-time
-recovery secret shown at mint so a lost key is recoverable. Small build,
-real user-harm reduction.
+The oldest open security gap is closed. The account (KeyRecord) is the
+identity; the `psk_` secret is a credential pointing at it. `POST
+/v1/keys/rotate` (authed by the current key) mints a replacement secret bound
+to the SAME account — usage, remaining free calls, plan, and dashboard stats
+carry over; rotation never resets the free tier so it can't be farmed. The old
+secret honors a grace window (`grace_seconds` default 900, 0 = instant death,
+max 24 h) during which it can scan but NOT rotate/revoke — a leaked old secret
+can't take over the account (grace also never chains across rotations). `POST
+/v1/keys/revoke` (`{"confirm": true}`) is the irreversible kill switch.
+Tombstones persist, so dead keys fail with named 401s (`key_rotated` /
+`key_revoked`) while unknown keys keep the generic 401 (no probe oracle).
+Admin hardening included: hash match alone no longer unlocks `/v1/admin/stats`
+— the key must be LIVE, so revoking the owner key actually cuts admin access
+(rotate returns `api_key_sha256` for rebinding `ADMIN_KEY_SHA256`). Both
+lifecycle routes share the key-mint rate limiter (tombstone-flood defense);
+the revoked map is size-capped like every other store map. `rotate_api_key`
+MCP tool added. 26 new tests (198/198). Not built (deliberately): the one-time
+recovery secret idea — a second long-lived credential doubles the theft
+surface; minting a new key is cheap.
 
 ## 1. Reputation registry v2 — fairness & abuse resistance
 

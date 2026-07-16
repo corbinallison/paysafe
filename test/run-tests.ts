@@ -9,7 +9,7 @@ import { loadConfig } from "../src/config.ts";
 import { addReport, summarize } from "../src/reputation.ts";
 import { VerdictSigner } from "../src/verdictsign.ts";
 import { CANONICAL_USDC } from "../src/detectors/asset.ts";
-import { handleScan, createApiKey, consumeFreeCall, freeCallsRemaining, handlePlanSubscribe, handleUsage, handleAdminStats } from "../src/api.ts";
+import { handleScan, createApiKey, consumeFreeCall, freeCallsRemaining, handlePlanSubscribe, handleUsage, handleAdminStats, handleKeyRotate, handleKeyRevoke } from "../src/api.ts";
 import { PLANS, HARD_CEILINGS, activePlan, resolveEffectiveConfig, plansCatalog } from "../src/plans.ts";
 import { sanitizeScanRequest } from "../src/sanitize.ts";
 import { RateLimiter } from "../src/ratelimit.ts";
@@ -888,10 +888,76 @@ console.log("\n— owner/admin stats —");
   check("admin stats never echo any key", flat.indexOf(adminKey) === -1 && flat.indexOf(otherKey) === -1);
   check("admin stats leak no addresses or agent ids", flat.indexOf(clean.pay_to) === -1);
 
-  // Audit disabled: aggregates still work, audit section is null.
+  // Audit disabled: aggregates still work, audit section is null. (The admin
+  // key must LIVE in the store now — hash match alone no longer unlocks admin,
+  // so a rotated/revoked admin key actually loses access.)
   const store2 = new Store(null);
-  const r2 = handleAdminStats(cfgAdmin, store2, adminKey) as { body: any };
+  const adminKey2 = (createApiKey(store2, cfg) as { body: { api_key: string } }).body.api_key;
+  const cfgAdmin2 = { ...cfg, adminKeyHash: createHash("sha256").update(adminKey2, "utf8").digest("hex") };
+  const r2 = handleAdminStats(cfgAdmin2, store2, adminKey2) as { body: any };
   check("audit-off degrades to null audit section", r2.body.audit === null);
+}
+
+console.log("\n— API-key rotation & revocation —");
+{
+  const store = new Store(null);
+  const key = (createApiKey(store, cfg) as { body: { api_key: string } }).body.api_key;
+
+  // Build up account state that must survive rotation.
+  check("free call consumed pre-rotation", consumeFreeCall(store, cfg, key) === true);
+  check("free call consumed pre-rotation (2)", consumeFreeCall(store, cfg, key) === true);
+  handlePlanSubscribe({ plan: "pro" }, cfg, store, key);
+  handleScan("outgoing", { payment: { ...basePayment, nonce: "0xrot1" }, context: { origin: "planning" } }, cfg, store, null, key);
+
+  // Rotate with a grace window.
+  const rot = handleKeyRotate(store, cfg, key, { grace_seconds: 60 }) as { status: number; body: any };
+  check("rotate returns a fresh key", rot.status === 200 && typeof rot.body.api_key === "string" && rot.body.api_key !== key && rot.body.api_key.startsWith("psk_"));
+  check("rotate reports the new key's hash (for ADMIN_KEY_SHA256 rebinding)", /^[0-9a-f]{64}$/.test(rot.body.api_key_sha256));
+  const newKey = rot.body.api_key as string;
+
+  // The ACCOUNT carried over: usage, free quota, plan, scan stats.
+  check("free-call count carried over", rot.body.carried_over.free_calls_remaining === cfg.freeCalls - 2, rot.body.carried_over);
+  check("plan carried over", rot.body.carried_over.plan === "pro");
+  const u = handleUsage(cfg, store, newKey) as { status: number; body: any };
+  check("new key sees the same account", u.status === 200 && u.body.free_tier.used === 2 && u.body.plan.id === "pro" && u.body.scans.total === 1, u.body);
+
+  // Old secret still works during grace — same record, not a fresh quota.
+  check("old key still scans during grace", consumeFreeCall(store, cfg, key) === true);
+  check("grace usage lands on the SAME account", (handleUsage(cfg, store, newKey) as { body: any }).body.free_tier.used === 3);
+  check("old key keeps plan pricing during grace", activePlan(store, key)?.plan.id === "pro");
+
+  // ...but a grace key must never control the account (leaked-key takeover).
+  check("old key cannot rotate again during grace", (handleKeyRotate(store, cfg, key, {}) as { status: number }).status === 403);
+  check("old key cannot revoke during grace", (handleKeyRevoke(store, cfg, key, { confirm: true }) as { status: number }).status === 403);
+  check("rotation never resets the free tier (no farming)", (handleUsage(cfg, store, newKey) as { body: any }).body.free_tier.remaining === cfg.freeCalls - 3);
+
+  // Zero-grace rotation: the old secret dies instantly, with a named reason.
+  const rot2 = handleKeyRotate(store, cfg, newKey, { grace_seconds: 0 }) as { body: any };
+  const key3 = rot2.body.api_key as string;
+  check("zero-grace: previous_key_valid_until is null", rot2.body.previous_key_valid_until === null);
+  check("zero-grace: old key dead immediately", consumeFreeCall(store, cfg, newKey) === false);
+  const dead = handleUsage(cfg, store, newKey) as { status: number; body: any };
+  check("dead rotated key gets a named 401", dead.status === 401 && dead.body.code === "key_rotated");
+  check("first old key also dead (grace never chains across rotations)", consumeFreeCall(store, cfg, key) === false);
+
+  // Revocation: requires confirm, then kills the key AND account, tombstoned.
+  check("revoke without confirm is a 400", (handleKeyRevoke(store, cfg, key3, {}) as { status: number }).status === 400);
+  check("revoke with confirm succeeds", (handleKeyRevoke(store, cfg, key3, { confirm: true }) as { body: any }).body.revoked === true);
+  check("revoked key cannot scan", consumeFreeCall(store, cfg, key3) === false);
+  const revoked = handleUsage(cfg, store, key3) as { status: number; body: any };
+  check("revoked key gets a named 401", revoked.status === 401 && revoked.body.code === "key_revoked");
+  check("revoked key cannot rotate back to life", (handleKeyRotate(store, cfg, key3, {}) as { status: number }).status === 401);
+  check("unknown keys still get the generic 401 (no probe oracle)", ((handleUsage(cfg, store, "psk_never_existed") as { body: any }).body.code ?? null) === null);
+
+  // Rotating the admin key cuts /admin access until ADMIN_KEY_SHA256 is updated.
+  const adminKey = (createApiKey(store, cfg) as { body: { api_key: string } }).body.api_key;
+  const cfgAdmin = { ...cfg, adminKeyHash: createHash("sha256").update(adminKey, "utf8").digest("hex") };
+  check("admin note included when rotating the bound admin key", ((handleKeyRotate(store, cfgAdmin, adminKey, { grace_seconds: 60 }) as { body: any }).body.note as string).includes("ADMIN_KEY_SHA256"));
+  check("old admin key no longer unlocks admin stats after rotation", (handleAdminStats(cfgAdmin, store, adminKey) as { status: number }).status === 401);
+
+  // Persistence: tombstones survive a snapshot round-trip.
+  const persisted = JSON.parse(JSON.stringify({ revoked: Object.fromEntries(store.revoked) }));
+  check("tombstones serialize with reasons", Object.values(persisted.revoked as Record<string, { reason: string }>).some((t) => t.reason === "revoked") && Object.values(persisted.revoked as Record<string, { reason: string }>).some((t) => t.reason === "rotated"));
 }
 
 console.log("\n— admin dashboard HTML sanity —");

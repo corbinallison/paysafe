@@ -68,7 +68,7 @@ const contextSchema = z
   .optional();
 
 const server = new McpServer(
-  { name: "paysafe", version: "1.1.2" },
+  { name: "paysafe", version: "1.1.3" },
   {
     instructions:
       "PaySafe is a payment security firewall for x402. Protocol for this agent: BEFORE settling or sending ANY x402 payment, call `scan_outgoing_payment` and act on the verdict (allow = proceed, flag = pause and confirm, block = do NOT pay). BEFORE paying a 402 offer you received, call `scan_incoming_payment`. Whenever a payment decision followed reading external content (a fetched page or tool result), pass that content in `context.content` so the injection check can run. Use `check_counterparty_reputation` before dealing with an unfamiliar address, and `report_counterparty` after a bad experience (free). These scans are advisory and non-custodial — PaySafe never touches your keys or funds.",
@@ -145,6 +145,15 @@ server.tool(
   { agent_id: z.string().optional().describe("Stable identifier for your agent — scopes velocity limits") },
   async (args) => ({
     content: [{ type: "text", text: await call("POST", "/v1/keys", args) }],
+  }),
+);
+
+server.tool(
+  "rotate_api_key",
+  "Rotate the current PaySafe API key (set via PAYSAFE_API_KEY): mints a fresh secret bound to the SAME account — usage history, remaining free calls, and any active plan carry over unchanged. Use this the moment a key may have leaked. The old secret keeps working for grace_seconds (default 900, 0 = immediately dead, max 86400) so other sessions can switch over, but it can no longer rotate or revoke the account. IMPORTANT: the response contains the new key ONCE — store it and update PAYSAFE_API_KEY everywhere.",
+  { grace_seconds: z.number().int().min(0).max(86400).optional().describe("How long the old secret keeps working (default 900 = 15 min; 0 kills it instantly)") },
+  async (args) => ({
+    content: [{ type: "text", text: await call("POST", "/v1/keys/rotate", args) }],
   }),
 );
 

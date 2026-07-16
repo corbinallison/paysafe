@@ -37,6 +37,8 @@ import {
   handleReputationLookup,
   handleReputationReport,
   handleAdminStats,
+  handleKeyRevoke,
+  handleKeyRotate,
   handleScan,
   handleUsage,
   serviceInfo,
@@ -352,6 +354,26 @@ app.post("/v1/keys", (req, res) => {
     return;
   }
   const r = createApiKey(store, cfg, (req.body as { agent_id?: string } | undefined)?.agent_id);
+  res.status(r.status).json(r.body);
+});
+
+// Key lifecycle. Both share the key-mint limiter (each rotate writes a
+// tombstone, so it must not be free to hammer) and are never payment-gated.
+app.post("/v1/keys/rotate", (req, res) => {
+  if (!keyLimiter.allow(req.ip ?? "unknown")) {
+    res.status(429).json({ error: `Rate limit: max ${cfg.keysPerIpPerDay} key operations per IP per day.` });
+    return;
+  }
+  const r = handleKeyRotate(store, cfg, req.header("x-api-key"), req.body);
+  res.status(r.status).json(r.body);
+});
+
+app.post("/v1/keys/revoke", (req, res) => {
+  if (!keyLimiter.allow(req.ip ?? "unknown")) {
+    res.status(429).json({ error: `Rate limit: max ${cfg.keysPerIpPerDay} key operations per IP per day.` });
+    return;
+  }
+  const r = handleKeyRevoke(store, cfg, req.header("x-api-key"), req.body);
   res.status(r.status).json(r.body);
 });
 

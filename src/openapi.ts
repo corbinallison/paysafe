@@ -365,6 +365,108 @@ export function openApiDoc(cfg: PaySafeConfig): object {
           },
         },
       },
+      "/v1/keys/rotate": {
+        post: {
+          operationId: "rotateApiKey",
+          summary: "Rotate your API key: fresh secret, same account (usage, free quota, and plan carry over)",
+          description:
+            "Mints a replacement psk_ secret bound to the SAME account. The old secret keeps working for grace_seconds (default 900, 0 = immediately dead, max 86400) so a fleet can switch over, but can no longer rotate or revoke. Rotation never resets the free tier. Authenticate with the current key in X-API-Key.",
+          tags: ["Keys"],
+          security: [],
+          parameters: [
+            { name: "X-API-Key", in: "header", required: true, schema: { type: "string" } },
+          ],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    grace_seconds: { type: "integer", minimum: 0, maximum: 86400, default: 900, description: "How long the old secret keeps working" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Replacement key (store it now — not recoverable)",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      api_key: { type: "string" },
+                      api_key_sha256: { type: "string", description: "Hash of the new key (rebind ADMIN_KEY_SHA256 if this was the admin key)" },
+                      rotated_at: { type: "string" },
+                      previous_key_valid_until: { type: "string", nullable: true },
+                      carried_over: {
+                        type: "object",
+                        properties: {
+                          free_calls_remaining: { type: "integer" },
+                          plan: { type: "string", nullable: true },
+                          scans_total: { type: "integer" },
+                        },
+                      },
+                      note: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+            "401": { description: "Missing, unknown, rotated, or revoked key" },
+            "403": { description: "An already-rotated (in-grace) key cannot rotate the account" },
+            "429": { description: "Rate limited" },
+          },
+        },
+      },
+      "/v1/keys/revoke": {
+        post: {
+          operationId: "revokeApiKey",
+          summary: "Permanently revoke your API key (leaked-key kill switch) — irreversible",
+          description:
+            "Kills the key AND its account: usage history, remaining free calls, and any active plan are destroyed. The tombstone persists, so the dead key keeps failing with an explanatory 401. Requires {\"confirm\": true}. To swap the secret and KEEP the account, use /v1/keys/rotate instead.",
+          tags: ["Keys"],
+          security: [],
+          parameters: [
+            { name: "X-API-Key", in: "header", required: true, schema: { type: "string" } },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["confirm"],
+                  properties: { confirm: { type: "boolean", description: "Must be true — revocation is irreversible" } },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Key and account permanently dead",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      revoked: { type: "boolean" },
+                      revoked_at: { type: "string" },
+                      note: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+            "400": { description: "Missing {\"confirm\": true}" },
+            "401": { description: "Missing, unknown, rotated, or revoked key" },
+            "403": { description: "An already-rotated (in-grace) key cannot revoke the account" },
+            "429": { description: "Rate limited" },
+          },
+        },
+      },
     },
   };
 }
