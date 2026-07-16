@@ -14,7 +14,7 @@ Service URL: `https://paysafe-agent.com` (custom domain). Ensure the domain is p
 Payment security firewall for x402. Screens payments for PII/secret leaks, nonce replay, overpayment & prompt-injection-triggered payments. Non-custodial.
 
 **Long description:**
-PaySafe is a drop-in security layer for agents that pay (or get paid) over x402. Before your agent settles a payment, one API call screens it for the vulnerability classes that actually drain agent wallets: secrets and PII leaking through payment metadata, replayed payment authorizations (nonce reuse), overpayment above what was quoted, and — most importantly — payments triggered by prompt-injected content the agent just read rather than its own plan. Incoming 402 offers get screened too: homoglyph/IP-literal/shortener resource URLs, credential demands, and price sanity. A shared counterparty report registry lets agents flag bad actors after the fact (reporting is always free) and every scan cross-checks it. PaySafe is advisory and non-custodial: it never touches keys, wallets, or funds, and wraps around whatever facilitator you already use. Verdicts are allow/flag/block with machine-readable, per-check reasons your agent can act on. Available as HTTP API, `/.well-known/x402` manifest, agent card, MCP tools, and drop-in packages for LangChain, CrewAI, NeMo, Coinbase AgentKit, and the Vercel AI SDK.
+PaySafe is a drop-in security layer for agents that pay (or get paid) over x402. Before your agent settles a payment, one API call screens it for the vulnerability classes that actually drain agent wallets: secrets and PII leaking through payment metadata, replayed payment authorizations (nonce reuse), overpayment above what was quoted, and — most importantly — payments triggered by prompt-injected content the agent just read rather than its own plan. Incoming 402 offers get screened too: homoglyph/IP-literal/shortener resource URLs, credential demands, and price sanity. A shared counterparty report registry lets agents flag bad actors after the fact (reporting is always free) and every scan cross-checks it. PaySafe is advisory and non-custodial: it never touches keys, wallets, or funds, and wraps around whatever facilitator you already use. Verdicts are allow/flag/block with machine-readable, per-check reasons your agent can act on — and every verdict is Ed25519-signed and payment-bound, so a wallet can be configured to physically refuse unscanned payments. Flags can pause for a human: one click on an operator webhook mints a short-lived signed override for exactly that payment. And after settlement, PaySafe closes the loop: delivery outcomes (did the seller actually ship?) are captured automatically by the SDK payment wrappers, bound to real scans so delivery history can't be faked, and fed back into every agent's future scans. Leaked API keys are rotatable in one call with usage and plan carried over. Available as HTTP API, `/.well-known/x402` manifest, agent card, MCP tools, and drop-in packages for LangChain, CrewAI, NeMo, Coinbase AgentKit, and the Vercel AI SDK.
 
 **Pricing table:**
 
@@ -52,7 +52,7 @@ Submit at: https://www.x402scan.com/resources/register — paste each paid resou
 **Category:** Security / Infrastructure
 
 **Description (short):**
-Advisory firewall for x402 payment traffic. POST a payment (or a 402 offer you received) and get an allow/flag/block verdict with reasons: PII/secret leakage in payment metadata, nonce replay, overpayment vs expected price, prompt-injection-triggered payment detection, resource-URL risk, and shared counterparty reputation. Non-custodial — wraps your existing wallet/facilitator. $0.01/scan, first 100 calls free per API key.
+Advisory firewall for x402 payment traffic. POST a payment (or a 402 offer you received) and get an allow/flag/block verdict with reasons: PII/secret leakage in payment metadata, nonce replay, overpayment vs expected price, prompt-injection-triggered payment detection, resource-URL risk, shared counterparty reputation, and measured delivery-outcome history (does this seller actually ship?). Signed verdicts enable wallet-side enforcement; flags can escalate to a human for one-click signed overrides. Non-custodial — wraps your existing wallet/facilitator. $0.01/scan, first 100 calls free per API key.
 
 **Pricing:** $0.01 per scan (USDC, Base, exact scheme) · reputation reporting free · 100 free calls per key
 
@@ -60,7 +60,7 @@ Advisory firewall for x402 payment traffic. POST a payment (or a 402 offer you r
 
 ## One-liner (for directories that want a single sentence)
 
-PaySafe is a non-custodial payment security firewall for x402: one API call screens any payment for PII/secret leaks, nonce replay, overpayment, and prompt-injection-triggered spending, returning an allow/flag/block verdict with machine-readable reasons — without ever touching your keys, wallet, or funds.
+PaySafe is a non-custodial payment security firewall for x402: one API call screens any payment for PII/secret leaks, nonce replay, overpayment, prompt-injection-triggered spending, and never-shipping sellers, returning a signed allow/flag/block verdict your wallet can enforce — with human escalation on flags and automatic delivery-outcome tracking after settlement, without PaySafe ever touching your keys, wallet, or funds.
 
 ---
 
@@ -80,7 +80,7 @@ Beyond the hosted service, PaySafe ships published client SDKs and **five** fram
 | `agentkit-paysafe` | PyPI | Coinbase AgentKit integration | https://pypi.org/project/agentkit-paysafe/ |
 
 **Short blurb (for a registry that lists SDKs/integrations):**
-PaySafe gives agents "scan before you pay" for x402 payments. Drop-in packages for LangChain, CrewAI, NeMo Agent Toolkit, Coinbase AgentKit, and the Vercel AI SDK add three tools (scan / check reputation / report) plus a provenance hook that auto-tags what the agent reads — so prompt-injection-triggered-payment detection works with no prompt engineering — and a `guarded_payment` wrapper that refuses blocked payments by construction. Advisory and non-custodial.
+PaySafe gives agents "scan before you pay" for x402 payments. Drop-in packages for LangChain, CrewAI, NeMo Agent Toolkit, Coinbase AgentKit, and the Vercel AI SDK add three tools (scan / check reputation / report) plus a provenance hook that auto-tags what the agent reads — so prompt-injection-triggered-payment detection works with no prompt engineering — and a `guarded_payment` wrapper that refuses blocked payments by construction. The core SDKs (npm `paysafe-x402-client`, PyPI `paysafe-x402`) add wallet-side enforcement (signers that refuse unscanned payments), human-in-the-loop approval waiting, and automatic delivery-outcome reporting from the payment path. Advisory and non-custodial.
 
 ---
 

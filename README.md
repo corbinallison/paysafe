@@ -34,6 +34,8 @@ paysafe.observe(fetchedPageText, { sourceUrl }); // tag what your agent just rea
 await paysafe.guardOutgoing(payment);            // throws PaySafeBlockedError on a block verdict
 ```
 
+**New here? [Protect your x402 agent in 5 minutes →](QUICKSTART.md)**
+
 The SDK ([`sdk/`](sdk/), zero dependencies) also verifies every verdict's Ed25519 attestation against a pinned key, tracks your free-call quota, and can subscribe to [plans](#api) autonomously. Wallet authors get standalone `verifyAttestation()` / `computePaymentCommitment()` — and the **enforcement kit**: `PaySafeEnforcer.guardSigner(account)` wraps any viem/ethers signer so it physically refuses to sign an x402 payment authorization without a fresh, payment-bound allow-verdict.
 
 ## Framework integrations
