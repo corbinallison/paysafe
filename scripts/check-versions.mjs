@@ -47,6 +47,10 @@ const PACKAGES = {
     registry: { type: "npm", name: "paysafe-x402-client" },
     spots: () => ({ "sdk/package.json": jsonVersion("sdk/package.json") }),
   },
+  "ai-sdk": {
+    registry: { type: "npm", name: "paysafe-ai-sdk" },
+    spots: () => ({ "integrations/paysafe-ai-sdk/package.json": jsonVersion("integrations/paysafe-ai-sdk/package.json") }),
+  },
   python: {
     registry: { type: "pypi", name: "paysafe-x402" },
     spots: () => ({

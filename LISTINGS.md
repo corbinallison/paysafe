@@ -14,7 +14,7 @@ Service URL: `https://paysafe-agent.com` (custom domain). Ensure the domain is p
 Payment security firewall for x402. Screens payments for PII/secret leaks, nonce replay, overpayment & prompt-injection-triggered payments. Non-custodial.
 
 **Long description:**
-PaySafe is a drop-in security layer for agents that pay (or get paid) over x402. Before your agent settles a payment, one API call screens it for the vulnerability classes that actually drain agent wallets: secrets and PII leaking through payment metadata, replayed payment authorizations (nonce reuse), overpayment above what was quoted, and — most importantly — payments triggered by prompt-injected content the agent just read rather than its own plan. Incoming 402 offers get screened too: homoglyph/IP-literal/shortener resource URLs, credential demands, and price sanity. A shared counterparty report registry lets agents flag bad actors after the fact (reporting is always free) and every scan cross-checks it. PaySafe is advisory and non-custodial: it never touches keys, wallets, or funds, and wraps around whatever facilitator you already use. Verdicts are allow/flag/block with machine-readable, per-check reasons your agent can act on. Available as HTTP API, `/.well-known/x402` manifest, agent card, and MCP tools.
+PaySafe is a drop-in security layer for agents that pay (or get paid) over x402. Before your agent settles a payment, one API call screens it for the vulnerability classes that actually drain agent wallets: secrets and PII leaking through payment metadata, replayed payment authorizations (nonce reuse), overpayment above what was quoted, and — most importantly — payments triggered by prompt-injected content the agent just read rather than its own plan. Incoming 402 offers get screened too: homoglyph/IP-literal/shortener resource URLs, credential demands, and price sanity. A shared counterparty report registry lets agents flag bad actors after the fact (reporting is always free) and every scan cross-checks it. PaySafe is advisory and non-custodial: it never touches keys, wallets, or funds, and wraps around whatever facilitator you already use. Verdicts are allow/flag/block with machine-readable, per-check reasons your agent can act on. Available as HTTP API, `/.well-known/x402` manifest, agent card, MCP tools, and drop-in packages for LangChain, CrewAI, NeMo, Coinbase AgentKit, and the Vercel AI SDK.
 
 **Pricing table:**
 
@@ -60,4 +60,38 @@ Advisory firewall for x402 payment traffic. POST a payment (or a 402 offer you r
 
 ## One-liner (for directories that want a single sentence)
 
-PaySafe is a non-custodial payment security firewall for x402: one API call screens any payment for PII/secret leaks, nonce replay, overpayment, and prompt-injection-triggered spe
+PaySafe is a non-custodial payment security firewall for x402: one API call screens any payment for PII/secret leaks, nonce replay, overpayment, and prompt-injection-triggered spending, returning an allow/flag/block verdict with machine-readable reasons — without ever touching your keys, wallet, or funds.
+
+---
+
+## Packages (npm / PyPI)
+
+Beyond the hosted service, PaySafe ships published client SDKs and **five** framework integrations. Each carries the "scan before you pay" toolset plus a framework-native provenance hook, and points back at the service.
+
+| Package | Registry | What it is | Link |
+|---|---|---|---|
+| `paysafe-x402-client` | npm | TypeScript client SDK + wallet enforcement kit | https://www.npmjs.com/package/paysafe-x402-client |
+| `paysafe-x402` | npm | Server + MCP server (`npx paysafe-x402`) | https://www.npmjs.com/package/paysafe-x402 |
+| `paysafe-x402` | PyPI | Python client SDK + enforcement kit | https://pypi.org/project/paysafe-x402/ |
+| `paysafe-ai-sdk` | npm | Vercel AI SDK integration | https://www.npmjs.com/package/paysafe-ai-sdk |
+| `langchain-paysafe` | PyPI | LangChain integration | https://pypi.org/project/langchain-paysafe/ |
+| `crewai-paysafe` | PyPI | CrewAI integration | https://pypi.org/project/crewai-paysafe/ |
+| `nemo-paysafe` | PyPI | NeMo Agent Toolkit integration | https://pypi.org/project/nemo-paysafe/ |
+| `agentkit-paysafe` | PyPI | Coinbase AgentKit integration | https://pypi.org/project/agentkit-paysafe/ |
+
+**Short blurb (for a registry that lists SDKs/integrations):**
+PaySafe gives agents "scan before you pay" for x402 payments. Drop-in packages for LangChain, CrewAI, NeMo Agent Toolkit, Coinbase AgentKit, and the Vercel AI SDK add three tools (scan / check reputation / report) plus a provenance hook that auto-tags what the agent reads — so prompt-injection-triggered-payment detection works with no prompt engineering — and a `guarded_payment` wrapper that refuses blocked payments by construction. Advisory and non-custodial.
+
+---
+
+## External docs submissions — checklist
+
+Each framework maintains a community / providers / integrations docs surface; getting PaySafe listed there is how that framework's users discover it. Ready-to-submit copy already lives beside each integration as `docs/paysafe.md` (or `.mdx`). Confirm the exact contribution path in each repo's CONTRIBUTING before opening the PR.
+
+- [x] **LangChain** — integrations-docs PR **submitted** 2026-07-16. Copy: `integrations/langchain-paysafe/docs/paysafe.mdx`.
+- [ ] **Vercel AI SDK** — add to the AI SDK community providers/integrations docs. Target repo: `vercel/ai` (the docs that render at ai-sdk.dev). Copy: `integrations/paysafe-ai-sdk/docs/paysafe.mdx`. Prereq: package published to npm ✅.
+- [ ] **CrewAI** — add to the CrewAI tools/integrations docs. Target repo: `crewAIInc/crewAI` (docs), community tools section. Copy: `integrations/crewai-paysafe/docs/paysafe.mdx`.
+- [ ] **NeMo Agent Toolkit** — PR to `NVIDIA/NeMo-Agent-Toolkit` (precedent: PR #17 merged `agentpay-mcp`). Copy: `integrations/nemo-paysafe/docs/paysafe.md`.
+- [ ] **Coinbase AgentKit** — submit the action provider to `coinbase/agentkit` (they accept community action providers). Copy: `integrations/agentkit-paysafe/docs/paysafe.md`.
+
+**Per-submission framing (reuse for each):** lead with prompt-injection-triggered-payment detection (the differentiator), not "generic payment security." Every listing should link the package, the source folder, and `https://paysafe-agent.com/llms.txt`.

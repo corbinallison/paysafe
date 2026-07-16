@@ -41,6 +41,7 @@ const EDITS = {
     sub("src/api.ts", /(version: ")[^"]+(")/, `$1${version}$2`);
   },
   sdk: () => sub("sdk/package.json", /("version":\s*")[^"]+(")/, `$1${version}$2`),
+  "ai-sdk": () => sub("integrations/paysafe-ai-sdk/package.json", /("version":\s*")[^"]+(")/, `$1${version}$2`),
   python: () => {
     sub("sdk-python/pyproject.toml", /^(version = ")[^"]+(")/m, `$1${version}$2`);
     sub("sdk-python/src/paysafe_x402/__init__.py", /(__version__ = ")[^"]+(")/, `$1${version}$2`);

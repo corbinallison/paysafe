@@ -59,6 +59,14 @@ Python:           pip install paysafe-x402
 MCP (Claude-style agents), zero config:
   { "mcpServers": { "paysafe": { "command": "npx", "args": ["-y", "paysafe-x402"] } } }
 
+Using an agent framework? Drop-in packages add the tools AND tag provenance for
+you automatically (same three tools + a framework-native hook):
+  LangChain:           pip install langchain-paysafe
+  CrewAI:              pip install crewai-paysafe
+  NeMo Agent Toolkit:  pip install nemo-paysafe
+  Coinbase AgentKit:   pip install agentkit-paysafe
+  Vercel AI SDK:       npm install paysafe-ai-sdk
+
 Minimal (TS):
   import { PaySafeClient } from "paysafe-x402-client";
   const paysafe = new PaySafeClient({ agentId: "my-agent" }); // free key auto-minted
@@ -84,8 +92,6 @@ advisory into enforceable without PaySafe ever holding funds.
 - GET  /v1/plans                  Machine-readable plan catalog. Free.
 - POST /v1/plans/subscribe        Upgrade a key to a plan; paid over x402, so you can subscribe autonomously.
 - GET  /v1/usage                  Your key's own scan/verdict counts (X-API-Key header). Free.
-- POST /v1/trust/evaluate         For SELLERS: x402 trust-provider interface (TrustQuery in,
-                                  TrustEvaluation out) to gate settlement on a payer's history. Free.
 
 ## What it checks
 

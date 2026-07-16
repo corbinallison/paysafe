@@ -4,7 +4,7 @@
 
 [![x402](https://img.shields.io/badge/x402-v2-blue)](https://github.com/x402-foundation/x402)
 [![network](https://img.shields.io/badge/settles%20on-Base%20(USDC)-0052FF)](https://docs.cdp.coinbase.com/x402/quickstart-for-sellers)
-[![tests](https://img.shields.io/badge/tests-155%2F155-brightgreen)](test/run-tests.ts)
+[![tests](https://img.shields.io/badge/tests-87%2F87-brightgreen)](test/run-tests.ts)
 [![npm](https://img.shields.io/npm/v/paysafe-x402-client?label=sdk)](https://www.npmjs.com/package/paysafe-x402-client)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
@@ -34,7 +34,21 @@ paysafe.observe(fetchedPageText, { sourceUrl }); // tag what your agent just rea
 await paysafe.guardOutgoing(payment);            // throws PaySafeBlockedError on a block verdict
 ```
 
-The SDK ([`sdk/`](sdk/), zero dependencies) also verifies every verdict's Ed25519 attestation against a pinned key, tracks your free-call quota, and can subscribe to [plans](#api) autonomously. Wallet authors get standalone `verifyAttestation()` / `computePaymentCommitment()` — and the **enforcement kit**: `PaySafeEnforcer.guardSigner(account)` wraps any viem/ethers signer so it physically refuses to sign an x402 payment authorization without a fresh, payment-bound allow-verdict.
+The SDK ([`sdk/`](sdk/), zero dependencies) also verifies every verdict's Ed25519 attestation against a pinned key, tracks your free-call quota, and can subscribe to [plans](#api) autonomously. Wallet authors get standalone `verifyAttestation()` / `computePaymentCommitment()`.
+
+## Framework integrations
+
+Building on an agent framework? PaySafe ships drop-in packages that give your agent "scan before you pay" in about two lines — a toolset plus a provenance mechanism that auto-tags what the agent reads, so the prompt-injection-triggered-payment detector works without any prompt engineering:
+
+| Framework | Package | Install |
+|---|---|---|
+| LangChain | [`langchain-paysafe`](integrations/langchain-paysafe) | `pip install langchain-paysafe` |
+| CrewAI | [`crewai-paysafe`](integrations/crewai-paysafe) | `pip install crewai-paysafe` |
+| NeMo Agent Toolkit | [`nemo-paysafe`](integrations/nemo-paysafe) | `pip install nemo-paysafe` |
+| Coinbase AgentKit | [`agentkit-paysafe`](integrations/agentkit-paysafe) | `pip install agentkit-paysafe` |
+| Vercel AI SDK | [`paysafe-ai-sdk`](integrations/paysafe-ai-sdk) | `npm install paysafe-ai-sdk` |
+
+Each exposes the same three tools (scan / check reputation / report) plus a framework-native provenance hook — a callback (LangChain), an after-tool-call hook (CrewAI), an explicit `content` argument (NeMo), a wallet-aware action (AgentKit), or an `onStepFinish` handler (Vercel AI SDK) — and a `guarded_payment` / `guardedPayment` wrapper for enforcement by construction (the payment executor never runs on a block verdict). See each package's README for the two-line setup.
 
 ## What it catches
 
@@ -57,14 +71,10 @@ The SDK ([`sdk/`](sdk/), zero dependencies) also verifies every verdict's Ed2551
 | First-contact size cap | First payment to a never-seen counterparty above a threshold |
 | Asset verification | `asset` contract that isn't canonical USDC on the declared network (lookalike-token attack) |
 | Merchant pinning (TOFU) | `pay_to` rotation on a known resource domain → block; optional non-blocking CDP Bazaar cross-check |
-| Address poisoning | `pay_to` that matches a known counterparty or pinned merchant on its first + last characters but differs in the middle — the truncated-display ("0x2096…287C") vanity-address attack → block. Blocked payments are rolled back out of trust state, so repeat attempts keep detecting |
-| ScoutScore trust signal (opt-in) | Merchant domains rated LOW/VERY_LOW by [ScoutScore](https://scoutscore.ai) (spam farms, template clones, dead endpoints) → flag, clearly labeled as an external third-party signal. Lookups are async + cached (zero scan latency), share the domain only, and can never block on their own. Enable with `SCOUTSCORE=on` |
 | Known-bad list | O(1) membership against a curated/synced badlist |
 | Deep content analysis | Base64-encoded and zero-width/homoglyph-obfuscated injection payloads, decoded/normalized and rescanned — bypassed below `MICRO_BYPASS_USD` (default $0.005), overridable per request via `policy.force_deep` |
 
 **Signed verdicts.** Every response carries an Ed25519 `attestation` over `scan_id|direction|verdict|risk_score|scanned_at|payment_commitment|expires_at` (public key at `/.well-known/paysafe-verdict-key`). The `payment_commitment` is `sha256(network|pay_to|asset|amount|nonce)`, so a wallet can confirm an allow-verdict belongs to *this* payment and hasn't been replayed onto another, and reject it after `expires_at`. Wallet policies can require a fresh signed allow-verdict before signing — turning the firewall from advisory into enforceable, still without PaySafe touching funds.
-
-**Wallet-side enforcement.** Both SDKs ship that policy turnkey: `PaySafeEnforcer.guardSigner(account)` (TS: viem accounts, ethers v6 signers) / `PaySafeEnforcer.guard_signer(account)` (Python: eth-account, all call shapes) wraps the signer in a proxy that recomputes the payment commitment *from the typed data being signed* (EIP-3009 / ERC-2612) and refuses the signature unless a fresh, pinned-key-verified allow-verdict exists for exactly that commitment. Approvals are single-use and expire with the attestation; a compromised agent that scans payment A cannot sign payment B, and one that skips scanning cannot sign at all. Fail-closed and fully local; the two implementations are cross-validated against the same production signer — see [`sdk/README.md`](sdk/README.md#enforcement-a-wallet-that-refuses-unscanned-payments) and [`sdk-python/README.md`](sdk-python/README.md#enforcement-a-wallet-that-refuses-unscanned-payments).
 
 **Tamper-evident audit log.** Every scan decision is appended to a hash-chained log (`AUDIT_LOG=on`) that stores a SHA-256 of the payment plus non-sensitive transaction facts — never the plaintext PII/secrets it scans. `GET /v1/audit/verify` recomputes the chain and reports any tampering; `GET /v1/audit/head` returns the current head hash for external anchoring. See `SECURITY-AUDIT.md`.
 
@@ -78,9 +88,6 @@ The SDK ([`sdk/`](sdk/), zero dependencies) also verifies every verdict's Ed2551
 | `POST /v1/reputation/report` | free | Report a bad counterparty after the fact |
 | `POST /v1/keys` | free | Issue an API key — **first 100 calls free** per key |
 | `GET /v1/plans` | free | Machine-readable plan catalog (tiers, limits, subscribe mechanics) |
-| `GET /v1/usage` | free | Your key's own usage stats: scan/verdict counts, free-tier quota, plan status |
-| `POST /v1/trust/evaluate` | free | [x402 trust-provider interface](https://github.com/x402-foundation/x402/issues/2299) — sellers gate settlement on a payer's history (TrustQuery → PASS/FAIL/UNCERTAIN + evidence) |
-| `GET /dashboard` | free | Browser usage dashboard for your key (see [Dashboards](#dashboards)) |
 | `POST /v1/plans/subscribe` | plan price | Subscribe/renew a key on a plan — itself paid via x402, so agents upgrade autonomously |
 | `GET /.well-known/x402` | free | x402 manifest |
 | `GET /.well-known/agent-card.json` | free | Agent card |
@@ -152,12 +159,6 @@ POST /v1/scan/outgoing
 }
 ```
 
-## Dashboards
-
-**Usage dashboard — `GET /dashboard`.** A single self-contained page where any key holder can see their own scan counts, verdict breakdown, free-tier quota, and plan status. Paste your `psk_` key and hit View; the key is sent only as an `X-API-Key` header to `GET /v1/usage` (never in a URL, so it can't leak via history, referrers, or server logs), and each key can only ever see its own account. Served with a locked-down CSP (`default-src 'none'`, zero external resources) and rendered exclusively via `textContent`.
-
-**Owner dashboard — `GET /admin`.** Same interface, but sourced from the tamper-evident audit log: all-time scan totals and verdict split (including anonymous scans), a 30-day activity chart, most-fired checks, account/registry counts, and the audit-chain head with a one-click full-chain verify. Access is bound to a single key: set `ADMIN_KEY_SHA256` to the SHA-256 hex of your key and only that key unlocks `GET /v1/admin/stats` (constant-time compare; the endpoint 404s when unconfigured). Only the hash lives in config — consistent with keys being hashed at rest. Responses are aggregates only: no customer keys, agent ids, or addresses.
-
 ## Local development
 
 For contributors and anyone auditing the detectors — runs entirely offline, payments disabled, no wallet needed:
@@ -168,7 +169,7 @@ npm install
 
 npm run dev            # local dev server — payments off
 npm run demo:replay    # replay-attack demo: fresh nonce ALLOW → reused nonce BLOCK
-npm test               # 155-test detector + hardening + plans + audit-log + dashboard suite
+npm test               # 87-test detector + hardening + plans + audit-log suite
 ```
 
 ## Performance
@@ -217,8 +218,6 @@ Published for transparency — these are the thresholds your scans are judged ag
 | Replay window | nonces tracked for 24 h |
 | Asset check | non-canonical USDC on the declared network → block |
 | Merchant pinning | TOFU per resource domain; rotation → block |
-| Address poisoning | ≥4 shared hex chars on both ends of a known address (but not equal) → block |
-| ScoutScore signal | opt-in (`SCOUTSCORE=on`); LOW/VERY_LOW-rated domains → flag (never block); cached 24h |
 | Verdict signing | Ed25519, always on, 5-minute attestation expiry |
 
 Local dev configuration for contributors is documented in [`.env.example`](.env.example).
@@ -232,10 +231,8 @@ src/
   api.ts          Framework-agnostic handlers (both servers route here)
   scanner.ts      Detector orchestration, tiering, verdict aggregation
   detectors/      pii · replay · overpayment · injection (fast + deep) · urlrisk
-                  asset · badlist · pinning · poisoning · scoutscore · velocity
+                  asset · badlist · pinning · velocity
   reputation.ts   Shared report registry
-  dashboard.ts    Self-contained usage dashboard (GET /dashboard)
-  admindash.ts    Owner dashboard, audit-log-backed (GET /admin)
   verdictsign.ts  Ed25519 verdict attestation
   manifest.ts     /.well-known/x402 + agent card
   store.ts        JSON-file-backed state (tiny interface)
@@ -243,9 +240,9 @@ mcp/server.ts     MCP server (9 tools — npx paysafe-x402)
 examples/         replay-demo.ts — reused-nonce attack blocked end-to-end
 auditlog.ts       Tamper-evident hash-chained decision log
   commitment.ts     Payment hashing (attestation binding + audit digest)
-test/             155-test suite (detectors, hardening, plans, crypto, audit, dashboards — npm test)
-sdk/              TypeScript client SDK + wallet enforcement kit + payment-path wrapper (npm: paysafe-x402-client, 68 tests)
-sdk-python/       Python client SDK + wallet enforcement kit + payment-path wrapper (PyPI: paysafe-x402, 72 tests)
+test/             87-test suite (detectors, hardening, plans, crypto, audit — npm test)
+sdk/              TypeScript client SDK (npm: paysafe-x402-client, 32 tests)
+sdk-python/       Python client SDK (PyPI: paysafe-x402, 34 tests)
 ```
 
 Design notes: verdicts aggregate worst-first (any block ⇒ block); `risk_score` is severity-based with compounding for multiple independent findings; the detection core has **zero runtime dependencies**, so the full suite runs with `node --experimental-strip-types` and no install.

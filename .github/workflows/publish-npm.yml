@@ -1,12 +1,18 @@
 # Publishes the npm packages via trusted publishing (OIDC — no tokens):
 #   - paysafe-x402         (repo root: server + MCP server, `npx paysafe-x402`)
 #   - paysafe-x402-client  (sdk/: client SDK + wallet enforcement kit)
+#   - paysafe-ai-sdk       (integrations/paysafe-ai-sdk/: Vercel AI SDK integration)
 # Trigger manually: GitHub → Actions → publish-npm → Run workflow → pick package.
 #
 # One-time setup on npmjs.com (per package → Settings → Trusted publishers):
 #   organization/user: corbinallison   repository: paysafe
 #   workflow filename: publish-npm.yml   environment: npm
 #   (package.json `repository.url` already matches — required for OIDC.)
+#
+# paysafe-ai-sdk is a NEW npm project — the trusted publisher can't be added
+# until the package exists. Publish it once manually (`npm publish --access
+# public` from integrations/paysafe-ai-sdk), then add the trusted publisher on
+# the package's Settings page so future releases go through this workflow.
 #
 # Supply-chain hardening (same posture as publish-pypi.yml, SECURITY-AUDIT-2.md):
 #  - every action pinned to a full commit SHA, not a movable tag
@@ -24,7 +30,7 @@ on:
         description: "Which package to publish"
         required: true
         type: choice
-        options: [sdk, server, both]
+        options: [sdk, server, ai-sdk, both]
 
 permissions:
   contents: read
@@ -82,3 +88,30 @@ jobs:
         run: npm test
       - name: Publish paysafe-x402 (OIDC)
         run: npm publish
+
+  publish-ai-sdk:
+    if: inputs.package == 'ai-sdk'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # required for npm trusted publishing (OIDC)
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      - name: Upgrade npm (trusted publishing needs >= 11.5.1)
+        run: npm install -g npm@11 && npm --version
+      - name: Version gate (consistency + not-already-published + no downgrade)
+        run: node scripts/check-versions.mjs ai-sdk --registry
+      - name: Install integration dependencies (ai + zod + paysafe-x402-client)
+        working-directory: integrations/paysafe-ai-sdk
+        run: npm install --no-save ai zod paysafe-x402-client @types/node typescript
+      - name: Run integration tests against the REAL ai + zod packages
+        working-directory: integrations/paysafe-ai-sdk
+        run: npm test
+      - name: Publish paysafe-ai-sdk (OIDC; prepublishOnly re-runs build+test)
+        working-directory: integrations/paysafe-ai-sdk
+        run: npm publish --access public
