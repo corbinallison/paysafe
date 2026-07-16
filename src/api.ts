@@ -10,7 +10,7 @@ import { runScan } from "./scanner.ts";
 import { sanitizeScanRequest } from "./sanitize.ts";
 import { paymentCommitment, paymentDigest } from "./commitment.ts";
 import { addReport, summarize } from "./reputation.ts";
-import { activatePlanOnKey, getPlan, plansCatalog, resolveEffectiveConfig } from "./plans.ts";
+import { activatePlanOnKey, activePlan, getPlan, plansCatalog, resolveEffectiveConfig } from "./plans.ts";
 
 export interface ApiResult {
   status: number;
@@ -107,6 +107,21 @@ export function handleScan(
     attestation_sig: scan.attestation?.signature_hex,
   });
 
+  // Per-key aggregate stats for the usage dashboard (counts only — no payment
+  // data, no PII). Only recorded for a recognized key; anonymous paid scans
+  // aren't attributable to an account.
+  if (apiKey) {
+    const rec = store.keys.get(hashKey(apiKey));
+    if (rec) {
+      const s = rec.scans ?? { total: 0, allow: 0, flag: 0, block: 0 };
+      s.total += 1;
+      s[scan.verdict] += 1;
+      rec.scans = s;
+      rec.last_used_at = scan.scanned_at;
+      store.markDirty();
+    }
+  }
+
   return { status: 200, body: scan };
 }
 
@@ -163,6 +178,51 @@ export function handlePlanSubscribe(body: unknown, cfg: PaySafeConfig, store: St
       ...(minted ? { api_key: key, note: "New API key minted (none supplied). Store it now — it is not recoverable." } : {}),
       limits: plan.limits,
       renewal: "POST the same body again before expiry to extend from the current expiry date.",
+    },
+  };
+}
+
+/**
+ * Usage stats for the CALLER'S OWN key (X-API-Key). A key can only ever see
+ * its own account — the lookup is keyed by the hash of the presented key, so
+ * there is no way to read another account's data, and no key is ever returned
+ * or logged. Aggregates only; contains no payment data or PII.
+ */
+export function handleUsage(cfg: PaySafeConfig, store: Store, apiKey: string | undefined): ApiResult {
+  if (!apiKey) {
+    return { status: 401, body: { error: "Provide your API key in the X-API-Key header." } };
+  }
+  const rec = store.keys.get(hashKey(apiKey));
+  if (!rec) {
+    // Same shape as an auth failure — never distinguish "no such key" from
+    // "wrong key", to avoid confirming key validity to a probe.
+    return { status: 401, body: { error: "Unknown or invalid API key." } };
+  }
+  const active = activePlan(store, apiKey);
+  const scans = rec.scans ?? { total: 0, allow: 0, flag: 0, block: 0 };
+  return {
+    status: 200,
+    body: {
+      account: {
+        created_at: rec.created_at,
+        agent_id: rec.agent_id ?? null,
+        last_used_at: rec.last_used_at ?? null,
+      },
+      free_tier: {
+        included: cfg.freeCalls,
+        used: rec.calls_used,
+        remaining: Math.max(0, cfg.freeCalls - rec.calls_used),
+      },
+      plan: active
+        ? { id: active.plan.id, name: active.plan.name, expires_at: active.expires_at, price_per_scan: active.plan.limits.price_per_scan }
+        : { id: "starter", name: "Starter (default)", expires_at: null, price_per_scan: cfg.priceScan },
+      scans: {
+        total: scans.total,
+        allow: scans.allow,
+        flag: scans.flag,
+        block: scans.block,
+        block_rate: scans.total ? Number((scans.block / scans.total).toFixed(4)) : 0,
+      },
     },
   };
 }

@@ -17,10 +17,12 @@ import {
   handleReputationLookup,
   handleReputationReport,
   handleScan,
+  handleUsage,
   serviceInfo,
 } from "./api.ts";
 import { x402Manifest, agentCard } from "./manifest.ts";
 import { openApiDoc } from "./openapi.ts";
+import { dashboardHtml } from "./dashboard.ts";
 import type { ApiResult } from "./api.ts";
 
 const cfg = { ...loadConfig(), mode: "dev" as const };
@@ -87,6 +89,18 @@ const server = createServer(async (req, res) => {
       out = handleScan("incoming", await readBody(req), cfg, store, signer, req.headers["x-api-key"] as string | undefined);
     else if (method === "GET" && path === "/v1/plans")
       out = handlePlansCatalog(cfg);
+    else if (method === "GET" && path === "/v1/usage")
+      out = handleUsage(cfg, store, req.headers["x-api-key"] as string | undefined);
+    else if (method === "GET" && path === "/dashboard") {
+      res.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "no-referrer",
+      });
+      res.end(dashboardHtml());
+      return;
+    }
     else if (method === "POST" && path === "/v1/plans/subscribe")
       // Dev mode: no payments — activates directly, for local testing.
       out = handlePlanSubscribe(await readBody(req), cfg, store, req.headers["x-api-key"] as string | undefined);

@@ -9,12 +9,13 @@ import { loadConfig } from "../src/config.ts";
 import { addReport, summarize } from "../src/reputation.ts";
 import { VerdictSigner } from "../src/verdictsign.ts";
 import { CANONICAL_USDC } from "../src/detectors/asset.ts";
-import { handleScan, createApiKey, consumeFreeCall, freeCallsRemaining, handlePlanSubscribe } from "../src/api.ts";
+import { handleScan, createApiKey, consumeFreeCall, freeCallsRemaining, handlePlanSubscribe, handleUsage } from "../src/api.ts";
 import { PLANS, HARD_CEILINGS, activePlan, resolveEffectiveConfig, plansCatalog } from "../src/plans.ts";
 import { sanitizeScanRequest } from "../src/sanitize.ts";
 import { RateLimiter } from "../src/ratelimit.ts";
 import { AuditLog } from "../src/auditlog.ts";
 import { paymentCommitment, paymentDigest } from "../src/commitment.ts";
+import { dashboardHtml } from "../src/dashboard.ts";
 import type { ScanRequest, ScanResponse } from "../src/types.ts";
 
 const cfg = loadConfig({ PAYSAFE_MODE: "dev", PAY_TO: "0xtest" });
@@ -576,6 +577,60 @@ console.log("\n— plans / tiers —");
       p.limits.first_payment_max_usd <= HARD_CEILINGS.first_payment_max_usd,
   );
   check("every cataloged plan respects hard ceilings", overLimit);
+}
+
+console.log("\n— usage dashboard stats —");
+{
+  const store = new Store(null);
+  const key = (createApiKey(store, cfg) as { body: { api_key: string } }).body.api_key;
+  const clean = { ...basePayment, pay_to: "0xNiceMerchant0000000000000000000000000001" };
+
+  // Fresh key: usage is all zeros, starter plan.
+  const u0 = handleUsage(cfg, store, key) as { status: number; body: any };
+  check("usage returns 200 for a valid key", u0.status === 200);
+  check("fresh key has 0 scans", u0.body.scans.total === 0 && u0.body.scans.block === 0);
+  check("fresh key shows full free quota", u0.body.free_tier.remaining === cfg.freeCalls && u0.body.free_tier.used === 0);
+  check("fresh key is on starter plan", u0.body.plan.id === "starter");
+  check("usage never echoes the api key", JSON.stringify(u0.body).indexOf(key) === -1);
+
+  // Record scans of each verdict on this key. (Signing is exercised in its own
+  // section above; pass null here — stat recording is independent of it.)
+  handleScan("outgoing", { payment: clean, context: { origin: "planning" } }, cfg, store, null, key);
+  handleScan("outgoing", { payment: { ...clean, nonce: clean.nonce }, context: { origin: "planning" } }, cfg, store, null, key); // reused nonce -> block
+  const u1 = handleUsage(cfg, store, key) as { body: any };
+  check("scan totals recorded per key", u1.body.scans.total === 2, u1.body.scans.total);
+  check("a blocked scan is counted", u1.body.scans.block >= 1, u1.body.scans.block);
+  check("block_rate computed", u1.body.scans.block_rate > 0);
+  check("last_used_at set after a scan", u1.body.account.last_used_at !== null);
+
+  // Isolation: a second key never sees the first key's data.
+  const key2 = (createApiKey(store, cfg) as { body: { api_key: string } }).body.api_key;
+  const u2 = handleUsage(cfg, store, key2) as { body: any };
+  check("a different key sees only its own (zero) stats", u2.body.scans.total === 0);
+
+  // Anonymous / unknown keys are rejected without confirming validity.
+  check("missing key -> 401", (handleUsage(cfg, store, undefined) as { status: number }).status === 401);
+  const bad = handleUsage(cfg, store, "psk_not_a_real_key") as { status: number; body: any };
+  check("unknown key -> 401 (same shape as missing)", bad.status === 401);
+
+  // A scan with NO api key must not create or mutate any account.
+  const before = store.keys.size;
+  handleScan("outgoing", { payment: { ...clean, nonce: "anon1" }, context: { origin: "planning" } }, cfg, store, null, undefined);
+  check("anonymous scan creates no account", store.keys.size === before);
+}
+
+console.log("\n— dashboard HTML sanity —");
+{
+  const html = dashboardHtml();
+  check("dashboard is a complete HTML document", html.startsWith("<!DOCTYPE html>") && html.includes("</html>"));
+  check(
+    "dashboard loads zero external resources",
+    !/(?:src|href)\s*=\s*["']\s*(?:https?:)?\/\//i.test(html) && !/@import/i.test(html) && !html.includes("<link"),
+  );
+  check("dashboard sends the key via header, never the URL", html.includes('"X-API-Key"') && !html.includes("/v1/usage?"));
+  check("dashboard calls only the read-only usage endpoint", html.includes('fetch("/v1/usage"') && (html.match(/fetch\(/g) ?? []).length === 1);
+  check("dashboard renders via textContent (no HTML sinks)", !html.includes("innerHTML") && !html.includes("document.write") && !html.includes("insertAdjacentHTML"));
+  check("dashboard key input is a password field", html.includes('type="password"'));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

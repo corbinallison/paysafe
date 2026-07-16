@@ -37,11 +37,13 @@ import {
   handleReputationLookup,
   handleReputationReport,
   handleScan,
+  handleUsage,
   serviceInfo,
 } from "./api.ts";
 import { PLANS, resolveEffectiveConfig, type Plan } from "./plans.ts";
 import { x402Manifest, agentCard } from "./manifest.ts";
 import { openApiDoc } from "./openapi.ts";
+import { dashboardHtml } from "./dashboard.ts";
 
 const cfg = loadConfig();
 const store = new Store(cfg.dataDir, {
@@ -353,6 +355,26 @@ app.post("/v1/scan/incoming", (req, res) => {
 app.get("/v1/plans", (_req, res) => {
   const r = handlePlansCatalog(cfg);
   res.status(r.status).json(r.body);
+});
+
+// Usage stats for the caller's own key (free, never payment-gated).
+app.get("/v1/usage", (req, res) => {
+  const r = handleUsage(cfg, store, req.header("x-api-key"));
+  res.status(r.status).json(r.body);
+});
+
+// Self-contained usage dashboard. Locked-down CSP: the page loads zero external
+// resources and only ever calls same-origin /v1/usage, so there is nowhere for
+// a hypothetical injected script to send data. The API key lives only in the
+// browser and is sent as a header — never in the URL.
+app.get("/dashboard", (_req, res) => {
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  );
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.type("html").send(dashboardHtml());
 });
 
 // Payment for this route is enforced by the gate above (x402 at the plan's

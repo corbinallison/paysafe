@@ -28,6 +28,10 @@ export interface KeyRecord {
   plan?: string;
   /** ISO expiry of the plan; expired plans fall back to default silently */
   plan_expires_at?: string;
+  /** Aggregate verdict counts for this key's scans (dashboard stats; no PII) */
+  scans?: { total: number; allow: number; flag: number; block: number };
+  /** ISO timestamp of the most recent scan on this key */
+  last_used_at?: string;
 }
 
 export interface VelocityEvent {
