@@ -25,14 +25,14 @@ on:
         description: "Which package to publish"
         required: true
         type: choice
-        options: [sdk, langchain, both]
+        options: [sdk, langchain, crewai, all]
 
 permissions:
   contents: read
 
 jobs:
   publish-sdk:
-    if: inputs.package == 'sdk' || inputs.package == 'both'
+    if: inputs.package == 'sdk' || inputs.package == 'all'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -43,6 +43,8 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
+      - name: Version gate (consistency + not-already-published)
+        run: node scripts/check-versions.mjs python --registry
       - name: Run SDK tests
         working-directory: sdk-python
         run: |
@@ -59,7 +61,7 @@ jobs:
           packages-dir: sdk-python/dist
 
   publish-langchain:
-    if: inputs.package == 'langchain' || inputs.package == 'both'
+    if: inputs.package == 'langchain' || inputs.package == 'all'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -70,6 +72,8 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
+      - name: Version gate (consistency + not-already-published)
+        run: node scripts/check-versions.mjs langchain --registry
       - name: Run integration tests against REAL langchain-core
         working-directory: integrations/langchain-paysafe
         run: |
@@ -84,3 +88,32 @@ jobs:
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
           packages-dir: integrations/langchain-paysafe/dist
+
+  publish-crewai:
+    if: inputs.package == 'crewai' || inputs.package == 'all'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write # required for PyPI trusted publishing (OIDC)
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Version gate (consistency + not-already-published)
+        run: node scripts/check-versions.mjs crewai --registry
+      - name: Run integration tests against REAL crewai
+        working-directory: integrations/crewai-paysafe
+        run: |
+          python -m pip install cryptography crewai
+          python tests/run_tests.py
+      - name: Build sdist + wheel
+        working-directory: integrations/crewai-paysafe
+        run: |
+          python -m pip install build
+          python -m build
+      - name: Publish crewai-paysafe to PyPI (OIDC)
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          packages-dir: integrations/crewai-paysafe/dist

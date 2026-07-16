@@ -45,6 +45,8 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - name: Upgrade npm (trusted publishing needs >= 11.5.1)
         run: npm install -g npm@11 && npm --version
+      - name: Version gate (consistency + not-already-published + no downgrade)
+        run: node scripts/check-versions.mjs sdk --registry
       - name: Install SDK dev dependencies
         working-directory: sdk
         run: npm ci
@@ -70,6 +72,8 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - name: Upgrade npm (trusted publishing needs >= 11.5.1)
         run: npm install -g npm@11 && npm --version
+      - name: Version gate (consistency + not-already-published + no downgrade)
+        run: node scripts/check-versions.mjs server --registry
       - name: Install dependencies
         run: npm ci
       - name: Build (tsc -> dist)
