@@ -4,7 +4,7 @@
 
 [![x402](https://img.shields.io/badge/x402-v2-blue)](https://github.com/x402-foundation/x402)
 [![network](https://img.shields.io/badge/settles%20on-Base%20(USDC)-0052FF)](https://docs.cdp.coinbase.com/x402/quickstart-for-sellers)
-[![tests](https://img.shields.io/badge/tests-87%2F87-brightgreen)](test/run-tests.ts)
+[![tests](https://img.shields.io/badge/tests-139%2F139-brightgreen)](test/run-tests.ts)
 [![npm](https://img.shields.io/npm/v/paysafe-x402-client?label=sdk)](https://www.npmjs.com/package/paysafe-x402-client)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
@@ -57,6 +57,7 @@ The SDK ([`sdk/`](sdk/), zero dependencies) also verifies every verdict's Ed2551
 | First-contact size cap | First payment to a never-seen counterparty above a threshold |
 | Asset verification | `asset` contract that isn't canonical USDC on the declared network (lookalike-token attack) |
 | Merchant pinning (TOFU) | `pay_to` rotation on a known resource domain → block; optional non-blocking CDP Bazaar cross-check |
+| Address poisoning | `pay_to` that matches a known counterparty or pinned merchant on its first + last characters but differs in the middle — the truncated-display ("0x2096…287C") vanity-address attack → block. Blocked payments are rolled back out of trust state, so repeat attempts keep detecting |
 | Known-bad list | O(1) membership against a curated/synced badlist |
 | Deep content analysis | Base64-encoded and zero-width/homoglyph-obfuscated injection payloads, decoded/normalized and rescanned — bypassed below `MICRO_BYPASS_USD` (default $0.005), overridable per request via `policy.force_deep` |
 
@@ -74,6 +75,8 @@ The SDK ([`sdk/`](sdk/), zero dependencies) also verifies every verdict's Ed2551
 | `POST /v1/reputation/report` | free | Report a bad counterparty after the fact |
 | `POST /v1/keys` | free | Issue an API key — **first 100 calls free** per key |
 | `GET /v1/plans` | free | Machine-readable plan catalog (tiers, limits, subscribe mechanics) |
+| `GET /v1/usage` | free | Your key's own usage stats: scan/verdict counts, free-tier quota, plan status |
+| `GET /dashboard` | free | Browser usage dashboard for your key (see [Dashboards](#dashboards)) |
 | `POST /v1/plans/subscribe` | plan price | Subscribe/renew a key on a plan — itself paid via x402, so agents upgrade autonomously |
 | `GET /.well-known/x402` | free | x402 manifest |
 | `GET /.well-known/agent-card.json` | free | Agent card |
@@ -145,6 +148,12 @@ POST /v1/scan/outgoing
 }
 ```
 
+## Dashboards
+
+**Usage dashboard — `GET /dashboard`.** A single self-contained page where any key holder can see their own scan counts, verdict breakdown, free-tier quota, and plan status. Paste your `psk_` key and hit View; the key is sent only as an `X-API-Key` header to `GET /v1/usage` (never in a URL, so it can't leak via history, referrers, or server logs), and each key can only ever see its own account. Served with a locked-down CSP (`default-src 'none'`, zero external resources) and rendered exclusively via `textContent`.
+
+**Owner dashboard — `GET /admin`.** Same interface, but sourced from the tamper-evident audit log: all-time scan totals and verdict split (including anonymous scans), a 30-day activity chart, most-fired checks, account/registry counts, and the audit-chain head with a one-click full-chain verify. Access is bound to a single key: set `ADMIN_KEY_SHA256` to the SHA-256 hex of your key and only that key unlocks `GET /v1/admin/stats` (constant-time compare; the endpoint 404s when unconfigured). Only the hash lives in config — consistent with keys being hashed at rest. Responses are aggregates only: no customer keys, agent ids, or addresses.
+
 ## Local development
 
 For contributors and anyone auditing the detectors — runs entirely offline, payments disabled, no wallet needed:
@@ -155,7 +164,7 @@ npm install
 
 npm run dev            # local dev server — payments off
 npm run demo:replay    # replay-attack demo: fresh nonce ALLOW → reused nonce BLOCK
-npm test               # 87-test detector + hardening + plans + audit-log suite
+npm test               # 139-test detector + hardening + plans + audit-log + dashboard suite
 ```
 
 ## Performance
@@ -204,6 +213,7 @@ Published for transparency — these are the thresholds your scans are judged ag
 | Replay window | nonces tracked for 24 h |
 | Asset check | non-canonical USDC on the declared network → block |
 | Merchant pinning | TOFU per resource domain; rotation → block |
+| Address poisoning | ≥4 shared hex chars on both ends of a known address (but not equal) → block |
 | Verdict signing | Ed25519, always on, 5-minute attestation expiry |
 
 Local dev configuration for contributors is documented in [`.env.example`](.env.example).
@@ -217,8 +227,10 @@ src/
   api.ts          Framework-agnostic handlers (both servers route here)
   scanner.ts      Detector orchestration, tiering, verdict aggregation
   detectors/      pii · replay · overpayment · injection (fast + deep) · urlrisk
-                  asset · badlist · pinning · velocity
+                  asset · badlist · pinning · poisoning · velocity
   reputation.ts   Shared report registry
+  dashboard.ts    Self-contained usage dashboard (GET /dashboard)
+  admindash.ts    Owner dashboard, audit-log-backed (GET /admin)
   verdictsign.ts  Ed25519 verdict attestation
   manifest.ts     /.well-known/x402 + agent card
   store.ts        JSON-file-backed state (tiny interface)
@@ -226,7 +238,7 @@ mcp/server.ts     MCP server (9 tools — npx paysafe-x402)
 examples/         replay-demo.ts — reused-nonce attack blocked end-to-end
 auditlog.ts       Tamper-evident hash-chained decision log
   commitment.ts     Payment hashing (attestation binding + audit digest)
-test/             87-test suite (detectors, hardening, plans, crypto, audit — npm test)
+test/             139-test suite (detectors, hardening, plans, crypto, audit, dashboards — npm test)
 sdk/              TypeScript client SDK (npm: paysafe-x402-client, 32 tests)
 sdk-python/       Python client SDK (PyPI: paysafe-x402, 34 tests)
 ```

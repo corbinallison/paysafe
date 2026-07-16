@@ -342,6 +342,80 @@ console.log("\n— velocity & policy limits —");
   check("unscoped velocity flagged", r.verdict === "flag" && hasCheck(r, "velocity.unscoped"));
 }
 
+console.log("\n— address poisoning —");
+{
+  // The victim's regular counterparty, then a vanity lookalike of it:
+  // same first 6 + last 4 hex chars, completely different middle.
+  const real = basePayment.pay_to.toLowerCase(); // 0x209693...287c
+  const lookalike = "0x209693" + "0".repeat(30) + "287c";
+  const store = new Store(null);
+  const mk = (payTo: string, nonce: string, url = "https://api.example.com/data"): ScanRequest => ({
+    agent_id: "victim-agent",
+    payment: { ...basePayment, pay_to: payTo, nonce, resource_url: url },
+    expected_price_usd: 0.01,
+    context: { origin: "planning" },
+  });
+
+  // Establish history: the agent pays the real counterparty.
+  const r0 = scan("outgoing", mk(real, "0xpz1"), store);
+  check("first payment to the real address allowed", r0.verdict === "allow", r0.checks.filter((c) => c.verdict !== "allow"));
+
+  // Lookalike (on a fresh domain, so pinning can't be what catches it) → block.
+  const r1 = scan("outgoing", mk(lookalike, "0xpz2", "https://other.example.net/x"), store);
+  check("lookalike of a known counterparty blocked", r1.verdict === "block" && hasCheck(r1, "poison.lookalike"), r1.checks);
+
+  // A blocked lookalike must NOT become a trusted counterparty: repeat attempt still blocks.
+  const r2 = scan("outgoing", mk(lookalike, "0xpz3", "https://third.example.org/y"), store);
+  check("repeat lookalike still blocked (no history pollution)", r2.verdict === "block" && hasCheck(r2, "poison.lookalike"), r2.checks);
+
+  // The real address keeps working.
+  const r3 = scan("outgoing", mk(real, "0xpz4"), store);
+  check("real address still allowed after the attack", r3.verdict === "allow" && !hasCheck(r3, "poison.lookalike"), r3.checks.filter((c) => c.verdict !== "allow"));
+
+  // An unrelated address is NOT a poisoning hit.
+  const r4 = scan("outgoing", mk("0xFeedFeedFeedFeedFeedFeedFeedFeedFeedFee1", "0xpz5", "https://fourth.example.io/z"), store);
+  check("unrelated new address not flagged as poisoning", !hasCheck(r4, "poison.lookalike"), r4.checks);
+
+  // Prefix-only similarity (suffix differs) stays below the threshold.
+  const prefixOnly = "0x209693" + "0".repeat(30) + "ffff";
+  const r5 = scan("outgoing", mk(prefixOnly, "0xpz6", "https://fifth.example.dev/w"), store);
+  check("prefix-only similarity not flagged", !hasCheck(r5, "poison.lookalike"), r5.checks);
+}
+{
+  // Lookalike of a PINNED merchant address is caught even with no agent history.
+  const store = new Store(null);
+  store.pins.set("shop.example.com", {
+    pay_to: basePayment.pay_to.toLowerCase(),
+    first_seen: new Date().toISOString(),
+    times_seen: 5,
+    cdp_status: "unchecked",
+  });
+  const lookalike = "0x209693" + "1".repeat(30) + "287c";
+  const r = scan("outgoing", {
+    agent_id: "fresh-agent",
+    payment: { ...basePayment, pay_to: lookalike, nonce: "0xpz7", resource_url: "https://unrelated.example.com/p" },
+    expected_price_usd: 0.01,
+    context: { origin: "planning" },
+  }, store);
+  check("lookalike of a pinned merchant blocked", r.verdict === "block" && hasCheck(r, "poison.lookalike"), r.checks);
+  const reason = r.checks.find((c) => c.id === "poison.lookalike")?.reason ?? "";
+  check("poisoning reason names the pinned source", reason.includes("shop.example.com"));
+}
+{
+  // Robustness: non-EVM / malformed pay_to shapes never crash the detector.
+  const store = new Store(null);
+  store.counterparties.set("agent-x", ["0x209693bc6afc0c5328ba36faf03c514ef312287c"]);
+  for (const weird of ["bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", "0xSHORT", "", "0x209693zz6afc0c5328ba36faf03c514ef312287c"]) {
+    const r = scan("outgoing", {
+      agent_id: "agent-x",
+      payment: { ...basePayment, pay_to: weird, nonce: `0xw${weird.length}` },
+      expected_price_usd: 0.01,
+      context: { origin: "planning" },
+    }, store);
+    check(`non-EVM pay_to handled without poisoning hit (${weird.slice(0, 12) || "empty"})`, !hasCheck(r, "poison.lookalike"));
+  }
+}
+
 console.log("\n— signed verdicts (bound to payment, H-1) —");
 {
   const signer = new VerdictSigner(null);

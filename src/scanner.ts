@@ -11,6 +11,7 @@ import { checkUrlRisk } from "./detectors/urlrisk.ts";
 import { checkAsset } from "./detectors/asset.ts";
 import { checkBadlist } from "./detectors/badlist.ts";
 import { checkPinning, checkCdpPinStatus, scheduleCdpPinVerify } from "./detectors/pinning.ts";
+import { checkAddressPoisoning } from "./detectors/poisoning.ts";
 import { checkVelocity } from "./detectors/velocity.ts";
 import { checkReputation } from "./reputation.ts";
 
@@ -103,6 +104,27 @@ export function runScan(
   const badlistHit = checkBadlist(payment, store);
   if (badlistHit) checks.push(badlistHit);
 
+  // Address poisoning: MUST run before pinning and velocity — both record
+  // this scan's pay_to into trust state (pin / counterparty history), and the
+  // lookalike has to be judged against state that does not yet contain it.
+  const poisoning = checkAddressPoisoning(req, store);
+  if (poisoning) checks.push(poisoning);
+
+  // Snapshot pre-scan trust state so a BLOCKED payment can be rolled out of
+  // it below (a blocked lookalike must not become "known" and silence the
+  // poisoning detector on the next attempt).
+  const velocityKey = req.agent_id ?? payment.payer?.toLowerCase();
+  const payToLc = payment.pay_to?.toLowerCase();
+  const counterpartyWasKnown =
+    !!(velocityKey && payToLc && (store.counterparties.get(velocityKey) ?? []).includes(payToLc));
+  let pinDomain: string | null = null;
+  try {
+    pinDomain = payment.resource_url ? new URL(payment.resource_url).hostname.toLowerCase() : null;
+  } catch {
+    pinDomain = null;
+  }
+  const pinExistedBefore = pinDomain !== null && store.pins.has(pinDomain);
+
   if (cfg.pinning) {
     checks.push(checkPinning(payment, store));
     const cdpStatus = checkCdpPinStatus(payment, store);
@@ -123,6 +145,23 @@ export function runScan(
   checks.push(checkReputation(store, payment.pay_to));
 
   const { verdict, risk } = aggregate(checks);
+
+  // A BLOCKED payment must not grow trust state: roll back the counterparty
+  // history entry and the pin this scan just created, so the lookalike isn't
+  // "known" (exact match) on the next attempt, silencing the detectors.
+  if (verdict === "block") {
+    if (!counterpartyWasKnown && velocityKey && payToLc) {
+      const seen = store.counterparties.get(velocityKey);
+      const i = seen ? seen.indexOf(payToLc) : -1;
+      if (seen && i >= 0) {
+        seen.splice(i, 1);
+        store.markDirty();
+      }
+    }
+    if (pinDomain !== null && !pinExistedBefore && store.pins.delete(pinDomain)) {
+      store.markDirty();
+    }
+  }
   return {
     scan_id: scanId,
     direction,

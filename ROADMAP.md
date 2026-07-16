@@ -1,6 +1,6 @@
 # PaySafe Roadmap
 
-_Post-launch feature roadmap. Updated 2026-07-14. Operational/legal to-dos live in GOLIVE.md._
+_Post-launch feature roadmap. Updated 2026-07-16. Operational/legal to-dos live in GOLIVE.md._
 
 ## 1. Reputation registry v2 — fairness & abuse resistance
 
@@ -25,6 +25,7 @@ Implemented as designed: `src/plans.ts` (catalog: Pro $4.99/30d, Scale $19.99/30
 
 - ✅ **Client SDK provenance auto-tagging** — BUILT 2026-07-14: `sdk/` (`paysafe-x402-client`, zero-dep, Node 18+). `observe()`/`notePlanning()` auto-tag `context.origin`; observations are single-use with a TTL. 32/32 tests, cross-validated against the real server signer. Pending: `npm publish` from `sdk/` (name confirmed available).
 - ✅ **Wallet-side verifier** — absorbed into the SDK: standalone `verifyAttestation()` + `computePaymentCommitment()` exports (pinned-key signature check, commitment recompute/replay defense, expiry). Optional follow-up: publish a docs page with the snippet inline.
+- ✅ **Address-poisoning detection** — BUILT 2026-07-16: `src/detectors/poisoning.ts`. Blocks a `pay_to` that shares ≥4 leading and ≥4 trailing hex chars with a known counterparty (this agent's history) or pinned merchant but isn't that address — the truncated-display vanity-address attack. Runs before pinning/velocity so lookalikes are judged against pre-scan state; blocked scans are rolled back out of trust state (counterparty history + fresh pins) so repeats keep detecting. 12 new tests.
 
 ## 4. Infrastructure & scale
 
@@ -40,7 +41,7 @@ The product surface now exceeds distribution. Cheapest-first:
 - ✅ **MCP registry listing** — LIVE 2026-07-15: published as **`com.paysafe-agent/paysafe`** (status: active) in the official MCP registry, domain-verified via DNS. 9 tools, `npx paysafe-x402`, npm `mcpName` ownership proof on v1.1.1.
 - **Quickstart tutorial** — one page: "Protect your x402 agent in 5 minutes" (SDK install → observe → guard → what a block looks like). Post to dev.to #x402, the x402 builders Telegram/Discord, r/x402.
 - ✅ **Python SDK** — BUILT 2026-07-15: `sdk-python/` (`paysafe-x402`, Python 3.9+, single dep `cryptography`). Full parity with the TS client; verifier cross-validated against a fixture signed by the real Node signer (34/34 tests). PyPI name confirmed free. **Pending [You]:** `pip install build twine && python -m build && twine upload dist/*` from `sdk-python/`.
-- **Customer usage dashboard** — per-key scan history, verdict breakdown, plan status. Plan subscribers will ask for this; also the natural home for reputation rebuttals later.
+- ✅ **Customer usage dashboard** — BUILT 2026-07-16: `GET /dashboard` (self-contained page, strict CSP, key via header only) backed by `GET /v1/usage` (own-key-only aggregates). Plus an owner dashboard at `GET /admin`: audit-log-backed all-time stats, 30-day activity, top fired checks, chain verify — unlocked by the single key matching `ADMIN_KEY_SHA256`. Still the natural home for reputation rebuttals later.
 
 ## 6. Registry network effects
 
