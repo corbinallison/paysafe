@@ -1,19 +1,26 @@
 """
 nemo-paysafe tests.
 
-The NVIDIA NeMo Agent Toolkit (nvidia-nat) is heavy and not installable in the
-build sandbox, so these run against a STRUCTURAL STUB of the four `nat` symbols
-we touch: FunctionBaseConfig (a real pydantic model that accepts `name=` in the
-class kwargs), register_function (records the async builder), FunctionInfo
-(.from_fn stores the callable + description), and Builder. The stub is skipped
-automatically when real nat imports, so `pip install nvidia-nat && python
-tests/run_tests.py` exercises the real registration path in CI.
+Two layers, because the NVIDIA NeMo Agent Toolkit (nvidia-nat) is heavy and not
+installable in the build sandbox:
+
+  1. Import + registration smoke check — runs against WHATEVER nat is present
+     (real in the publish-pypi CI job, a structural stub locally). Proves the
+     package imports, the @register_function decorators execute, and the config
+     classes are real FunctionBaseConfig subclasses. This is the real-nat check.
+
+  2. Behavioral suite — runs ONLY against the structural stub, which exposes an
+     introspectable registry + FunctionInfo so we can drive each builder and
+     assert scan routing, injection-provenance wiring, and the shared client
+     cache. (Driving real nat's function machinery needs the full toolkit/Builder
+     and isn't a unit-test concern.)
 
 Run: python tests/run_tests.py
 """
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import sys
 import types
@@ -34,8 +41,6 @@ except ImportError:
     from pydantic import BaseModel as _PydBase
 
     class _FunctionBaseConfig(_PydBase):
-        """Real pydantic model; captures the `name=` class kwarg like nat does."""
-
         _nat_name: str = ""
 
         def __init_subclass__(cls, name: str = "", **kw):
@@ -79,8 +84,19 @@ except ImportError:
     _mod("nat.data_models")
     _mod("nat.data_models.function", FunctionBaseConfig=_FunctionBaseConfig)
 
-import nemo_paysafe  # noqa: E402,F401  (runs the registrations)
+# Importing the package runs the @register_function decorators — this line
+# itself is the core real-nat assertion (an API break raises here).
+import nemo_paysafe  # noqa: E402,F401
 from nemo_paysafe import register as reg  # noqa: E402
+from nemo_paysafe.register import (  # noqa: E402
+    PaySafeReportConfig,
+    PaySafeReputationConfig,
+    PaySafeScanConfig,
+    paysafe_check_reputation,
+    paysafe_report_counterparty,
+    paysafe_scan_payment,
+)
+from nat.data_models.function import FunctionBaseConfig  # noqa: E402
 
 passed = 0
 failed = 0
@@ -96,6 +112,25 @@ def check(name: str, cond: bool, extra=None) -> None:
         print(f"  ✗ {name} {extra if extra is not None else ''}")
 
 
+# ---------------------------------------------------------------------------
+# 1. Import + registration smoke check (real nat OR stub)
+# ---------------------------------------------------------------------------
+print(f"— import + registration ({'stubbed' if USING_STUB else 'REAL'} nat) —")
+check("package imports and @register_function decorators run", True)
+_configs = (PaySafeScanConfig, PaySafeReputationConfig, PaySafeReportConfig)
+check("config classes are FunctionBaseConfig subclasses", all(issubclass(c, FunctionBaseConfig) for c in _configs))
+_builders = (paysafe_scan_payment, paysafe_check_reputation, paysafe_report_counterparty)
+check("three builder functions are present and callable", all(callable(f) for f in _builders))
+
+if not USING_STUB:  # pragma: no cover — real-nat CI path
+    print("\nReal-nat smoke check passed. Behavioral suite runs against the structural stub.")
+    print(f"\n{passed} passed, {failed} failed")
+    sys.exit(1 if failed else 0)
+
+
+# ---------------------------------------------------------------------------
+# 2. Behavioral suite (structural stub only)
+# ---------------------------------------------------------------------------
 class FakeClient:
     instances = 0
 
@@ -104,17 +139,16 @@ class FakeClient:
         self.base_url = base_url
         self.api_key = api_key
         self.agent_id = agent_id
-        self.verdict = "allow"
         self.scans = []
         self.reports = []
 
     def scan_outgoing(self, payment, expected_price_usd=None, context=None, **kw):
         self.scans.append({"direction": "outgoing", "payment": payment, "expected_price_usd": expected_price_usd, "context": context})
-        return {"scan_id": "s", "direction": "outgoing", "verdict": self.verdict, "risk_score": 0, "checks": []}
+        return {"scan_id": "s", "direction": "outgoing", "verdict": "allow", "risk_score": 0, "checks": []}
 
     def scan_incoming(self, payment, expected_price_usd=None, context=None, **kw):
         self.scans.append({"direction": "incoming", "payment": payment, "context": context})
-        return {"scan_id": "s", "direction": "incoming", "verdict": self.verdict, "risk_score": 0, "checks": []}
+        return {"scan_id": "s", "direction": "incoming", "verdict": "allow", "risk_score": 0, "checks": []}
 
     def reputation(self, address):
         return {"address": address, "status": "clean"}
@@ -124,43 +158,32 @@ class FakeClient:
         return {"accepted": True}
 
 
-# Patch the client factory so we don't hit the network.
 reg._CLIENTS.clear()
 reg.PaySafeClient = FakeClient
+FakeClient.instances = 0
 
 payment = {"network": "eip155:8453", "pay_to": "0xMerchant", "amount": "10000", "nonce": "0x1"}
 
 
-async def build_fn(config_name: str, **config_kwargs):
-    """Find the registered builder for a config name, drive it, return FunctionInfo."""
-    if USING_STUB:
-        from nat.cli.register_workflow import register_function as rf
-        registered = rf.__globals__["_REGISTERED"]
-    else:  # pragma: no cover
-        raise RuntimeError("real-nat path constructs via the toolkit, not this harness")
-    for config_type, builder in registered:
+async def _build(config_name: str, **config_kwargs):
+    """Drive the registered builder for a config name; return its FunctionInfo."""
+    from nat.cli.register_workflow import register_function as rf
+    for config_type, builder in rf.__globals__["_REGISTERED"]:
         if getattr(config_type, "_nat_name", "") == config_name:
-            cfg = config_type(**config_kwargs)
-            gen = builder(cfg, object())
+            gen = builder(config_type(**config_kwargs), object())
             return await gen.__anext__()
     raise KeyError(config_name)
 
 
 async def main():
-    print(f"— function registration ({'stubbed' if USING_STUB else 'REAL'} nat) —")
-    from nat.cli.register_workflow import register_function as rf
-    names = {ct._nat_name for ct, _ in rf.__globals__["_REGISTERED"]}
-    check("three functions registered", {"paysafe_scan_payment", "paysafe_check_reputation", "paysafe_report_counterparty"} <= names)
-
-    scan_info = await build_fn("paysafe_scan_payment", agent_id="my-agent")
+    print("\n— scan behavior —")
+    scan_info = await _build("paysafe_scan_payment", agent_id="my-agent")
     check("scan description is imperative", "ALWAYS call this immediately BEFORE" in scan_info.description)
     check("scan description mentions injection provenance", "prompt-injection" in scan_info.description)
 
-    print("\n— scan behavior —")
     out = json.loads(await scan_info.fn(payment=payment, expected_price_usd=0.01))
     check("scan returns the verdict JSON", out["verdict"] == "allow")
-    # Grab the shared client to inspect calls.
-    client = next(iter(reg._CLIENTS.values()))
+    client = reg._CLIENTS[("https://paysafe-agent.com", "", "my-agent")]
     check("payment + price forwarded", client.scans[-1]["payment"] == payment and client.scans[-1]["expected_price_usd"] == 0.01)
     check("no content -> no provenance context", client.scans[-1]["context"] is None)
 
@@ -172,21 +195,17 @@ async def main():
 
     print("\n— shared client cache —")
     before = FakeClient.instances
-    # Same config params -> same cached client (no second mint).
-    await (await build_fn("paysafe_check_reputation", agent_id="my-agent")).fn(address="0xabc")
+    await (await _build("paysafe_check_reputation", agent_id="my-agent")).fn(address="0xabc")
     check("same (base_url, api_key, agent_id) reuses one client", FakeClient.instances == before)
-    # Different agent_id -> a new client.
-    await (await build_fn("paysafe_check_reputation", agent_id="other")).fn(address="0xabc")
+    await (await _build("paysafe_check_reputation", agent_id="other")).fn(address="0xabc")
     check("different config mints a distinct client", FakeClient.instances == before + 1)
 
     print("\n— reputation + report —")
-    rep = json.loads(await (await build_fn("paysafe_check_reputation", agent_id="my-agent")).fn(address="0xabc"))
+    rep = json.loads(await (await _build("paysafe_check_reputation", agent_id="my-agent")).fn(address="0xabc"))
     check("reputation returns status", rep["status"] == "clean")
-    rep_info = await build_fn("paysafe_report_counterparty", agent_id="my-agent")
-    res = json.loads(await rep_info.fn(address="0xbad", category="scam", reason="took funds, gave nothing"))
+    res = json.loads(await (await _build("paysafe_report_counterparty", agent_id="my-agent")).fn(address="0xbad", category="scam", reason="took funds, gave nothing"))
     check("report accepted", res["accepted"] is True)
-    client2 = reg._CLIENTS[("https://paysafe-agent.com", "", "my-agent")]
-    check("report reached the client", any(r["category"] == "scam" for r in client2.reports))
+    check("report reached the client", any(r["category"] == "scam" for r in reg._CLIENTS[("https://paysafe-agent.com", "", "my-agent")].reports))
 
     print(f"\n{passed} passed, {failed} failed")
     sys.exit(1 if failed else 0)
