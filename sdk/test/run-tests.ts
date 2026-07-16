@@ -14,10 +14,14 @@ import {
   PaySafeBlockedError,
   PaySafeError,
   AttestationError,
+  PaySafeEnforcer,
+  PaySafeEnforcementError,
+  paymentFromTypedData,
   computePaymentCommitment,
   verifyAttestation,
   type PaymentDetails,
   type ScanResponse,
+  type TypedDataLike,
 } from "../src/index.ts";
 
 let passed = 0;
@@ -294,6 +298,189 @@ console.log("\n— reporting —");
   const client = new PaySafeClient({ baseUrl: BASE, agentId: "sdk-test" });
   const r = (await client.report({ address: "0xbad", category: "scam", reason: "took the money and ran" })) as { accepted: boolean };
   check("report files successfully", r.accepted === true);
+}
+
+console.log("\n— wallet-side enforcement kit —");
+const PINNED = (signer.publicKeyInfo() as { public_key_spki_hex: string }).public_key_spki_hex;
+
+/** EIP-3009 typed data matching a PaymentDetails (what an x402 client asks the wallet to sign). */
+function typedDataFor(p: PaymentDetails): TypedDataLike {
+  return {
+    domain: { name: "USD Coin", version: "2", chainId: 8453, verifyingContract: p.asset },
+    primaryType: "TransferWithAuthorization",
+    types: {
+      TransferWithAuthorization: [
+        { name: "from", type: "address" }, { name: "to", type: "address" },
+        { name: "value", type: "uint256" }, { name: "validAfter", type: "uint256" },
+        { name: "validBefore", type: "uint256" }, { name: "nonce", type: "bytes32" },
+      ],
+    },
+    message: { from: p.payer ?? "0xPayerAgent000000000000000000000000000001", to: p.pay_to, value: p.amount, validAfter: 0, validBefore: 9999999999, nonce: p.nonce },
+  };
+}
+
+function fakeSigner(): { address: string; signed: TypedDataLike[]; signTypedData: (...a: unknown[]) => Promise<string>; signMessage: () => Promise<string> } {
+  const signed: TypedDataLike[] = [];
+  return {
+    address: "0xWalletAddress",
+    signed,
+    async signTypedData(...args: unknown[]) { signed.push(args[0] as TypedDataLike); return "0xsigned"; },
+    async signMessage() { return "0xmsg"; },
+  };
+}
+
+{
+  // typed-data → payment mapping produces the SAME commitment the server attests.
+  const p = { ...basePayment, nonce: "0xenf1" };
+  const mapped = paymentFromTypedData(typedDataFor(p))!;
+  check("typed-data mapping matches the scanned payment's commitment", computePaymentCommitment(mapped) === paymentCommitment(p));
+}
+{
+  // Happy path: scan → approve → wrapped signer signs.
+  const p = { ...basePayment, nonce: "0xenf2" };
+  const enforcer = new PaySafeEnforcer({ trustedKeyHex: PINNED });
+  const wallet = fakeSigner();
+  const guarded = enforcer.guardSigner(wallet);
+  enforcer.approve(makeScan(p), p);
+  const sig = await guarded.signTypedData(typedDataFor(p));
+  check("approved payment signs", sig === "0xsigned" && wallet.signed.length === 1);
+  check("other signer properties pass through", guarded.address === "0xWalletAddress" && (await guarded.signMessage()) === "0xmsg");
+
+  // Single-use: the same approval cannot sign twice.
+  let threw: unknown = null;
+  try { await guarded.signTypedData(typedDataFor(p)); } catch (e) { threw = e; }
+  check("approval is single-use by default", threw instanceof PaySafeEnforcementError && String((threw as Error).message).includes("already used"));
+}
+{
+  // No approval → refuse. The unscanned payment never reaches the real signer.
+  const enforcer = new PaySafeEnforcer({ trustedKeyHex: PINNED });
+  const wallet = fakeSigner();
+  const guarded = enforcer.guardSigner(wallet);
+  let threw: unknown = null;
+  try { await guarded.signTypedData(typedDataFor({ ...basePayment, nonce: "0xenf3" })); } catch (e) { threw = e; }
+  check("unapproved payment refused", threw instanceof PaySafeEnforcementError && wallet.signed.length === 0);
+}
+{
+  // The core attack: scan payment A, try to sign payment B (drain redirect).
+  const a = { ...basePayment, nonce: "0xenf4" };
+  const b = { ...a, pay_to: "0xAttackerDrainAddress0000000000000000001", amount: "999999999" };
+  const enforcer = new PaySafeEnforcer({ trustedKeyHex: PINNED });
+  const wallet = fakeSigner();
+  const guarded = enforcer.guardSigner(wallet);
+  enforcer.approve(makeScan(a), a);
+  let threw: unknown = null;
+  try { await guarded.signTypedData(typedDataFor(b)); } catch (e) { threw = e; }
+  check("scan-A-sign-B (redirected recipient/amount) refused", threw instanceof PaySafeEnforcementError && wallet.signed.length === 0);
+}
+{
+  // Verdict gates: block never approves; flag only with allowFlagged.
+  const blocked = { ...basePayment, pay_to: "0xBADactor00000000000000000000000000000001", nonce: "0xenf5" };
+  const enforcer = new PaySafeEnforcer({ trustedKeyHex: PINNED });
+  let threw: unknown = null;
+  try { enforcer.approve(makeScan(blocked), blocked); } catch (e) { threw = e; }
+  check("block verdict refuses approval", threw instanceof PaySafeEnforcementError);
+
+  const iffy = { ...basePayment, pay_to: "0xIFFYmerchant0000000000000000000000000001", nonce: "0xenf6" };
+  let flagThrew: unknown = null;
+  try { enforcer.approve(makeScan(iffy), iffy); } catch (e) { flagThrew = e; }
+  check("flag verdict refuses approval by default", flagThrew instanceof PaySafeEnforcementError);
+  const lenient = new PaySafeEnforcer({ trustedKeyHex: PINNED, allowFlagged: true });
+  check("allowFlagged accepts a flag verdict", typeof lenient.approve(makeScan(iffy), iffy) === "string");
+}
+{
+  // Crypto gates: rogue-signed and replayed attestations never approve.
+  const p = { ...basePayment, nonce: "0xenf7" };
+  const roguePinned = new PaySafeEnforcer({
+    trustedKeyHex: (rogueSigner.publicKeyInfo() as { public_key_spki_hex: string }).public_key_spki_hex,
+  });
+  let threw: unknown = null;
+  try { roguePinned.approve(makeScan(p), p); } catch (e) { threw = e; }
+  check("attestation signed by the wrong key refuses approval", threw instanceof AttestationError);
+
+  const replayP = { ...basePayment, pay_to: "0xREPLAYmerchant00000000000000000000000001", nonce: "0xenf8" };
+  const enforcer = new PaySafeEnforcer({ trustedKeyHex: PINNED });
+  let replayThrew: unknown = null;
+  try { enforcer.approve(makeScan(replayP), replayP); } catch (e) { replayThrew = e; }
+  check("attestation for a different payment refuses approval", replayThrew instanceof AttestationError);
+}
+{
+  // Freshness: maxAgeMs bounds how long an approval can wait before signing.
+  const p = { ...basePayment, nonce: "0xenf9" };
+  const enforcer = new PaySafeEnforcer({ trustedKeyHex: PINNED, maxAgeMs: 1 });
+  const guarded = enforcer.guardSigner(fakeSigner());
+  enforcer.approve(makeScan(p), p);
+  await new Promise((r) => setTimeout(r, 25));
+  let threw: unknown = null;
+  try { await guarded.signTypedData(typedDataFor(p)); } catch (e) { threw = e; }
+  check("stale approval (maxAgeMs) refused", threw instanceof PaySafeEnforcementError && String((threw as Error).message).includes("stale"));
+}
+{
+  // Reusable mode + revoke.
+  const p = { ...basePayment, nonce: "0xenf10" };
+  const enforcer = new PaySafeEnforcer({ trustedKeyHex: PINNED, reusable: true });
+  const guarded = enforcer.guardSigner(fakeSigner());
+  const commitment = enforcer.approve(makeScan(p), p);
+  await guarded.signTypedData(typedDataFor(p));
+  await guarded.signTypedData(typedDataFor(p));
+  check("reusable approval signs repeatedly", true);
+  enforcer.revoke(commitment);
+  let threw: unknown = null;
+  try { await guarded.signTypedData(typedDataFor(p)); } catch (e) { threw = e; }
+  check("revoked approval refused", threw instanceof PaySafeEnforcementError);
+}
+{
+  // Non-payment typed data: pass-through by default, refused under strictTypes.
+  const mail: TypedDataLike = {
+    domain: { name: "App", chainId: 8453 },
+    primaryType: "Mail",
+    types: { Mail: [{ name: "contents", type: "string" }] },
+    message: { contents: "hi" },
+  };
+  const enforcer = new PaySafeEnforcer({ trustedKeyHex: PINNED });
+  const wallet = fakeSigner();
+  check("non-payment typed data passes through", (await enforcer.guardSigner(wallet).signTypedData(mail)) === "0xsigned");
+  const strict = new PaySafeEnforcer({ trustedKeyHex: PINNED, strictTypes: true });
+  let threw: unknown = null;
+  try { await strict.guardSigner(fakeSigner()).signTypedData(mail); } catch (e) { threw = e; }
+  check("strictTypes refuses unrecognized typed data", threw instanceof PaySafeEnforcementError);
+}
+{
+  // ethers v6 shape: signTypedData(domain, types, message) with no primaryType.
+  const p = { ...basePayment, nonce: "0xenf11" };
+  const td = typedDataFor(p);
+  const enforcer = new PaySafeEnforcer({ trustedKeyHex: PINNED });
+  const wallet = fakeSigner();
+  const guarded = enforcer.guardSigner(wallet);
+  let threw: unknown = null;
+  try { await guarded.signTypedData(td.domain, td.types, td.message); } catch (e) { threw = e; }
+  check("ethers-shape call is recognized and gated", threw instanceof PaySafeEnforcementError && wallet.signed.length === 0);
+  enforcer.approve(makeScan(p), p);
+  check("ethers-shape call signs once approved", (await guarded.signTypedData(td.domain, td.types, td.message)) === "0xsigned");
+}
+{
+  // ERC-2612 Permit is treated as a payment authorization.
+  const spender = "0xSpenderContract000000000000000000000001";
+  const permit: TypedDataLike = {
+    domain: { name: "USD Coin", version: "2", chainId: 8453, verifyingContract: basePayment.asset },
+    primaryType: "Permit",
+    types: { Permit: [{ name: "owner", type: "address" }, { name: "spender", type: "address" }, { name: "value", type: "uint256" }, { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }] },
+    message: { owner: "0xOwner", spender, value: "5000", nonce: 7, deadline: 9999999999 },
+  };
+  const asPayment = paymentFromTypedData(permit)!;
+  check("Permit maps spender/value/nonce to payment fields", asPayment.pay_to === spender && asPayment.amount === "5000" && asPayment.nonce === "7");
+  const enforcer = new PaySafeEnforcer({ trustedKeyHex: PINNED });
+  const wallet = fakeSigner();
+  let threw: unknown = null;
+  try { await enforcer.guardSigner(wallet).signTypedData(permit); } catch (e) { threw = e; }
+  check("unapproved Permit refused", threw instanceof PaySafeEnforcementError);
+  enforcer.approve(makeScan(asPayment), asPayment);
+  check("approved Permit signs", (await enforcer.guardSigner(wallet).signTypedData(permit)) === "0xsigned");
+}
+{
+  // Pinning is mandatory.
+  let threw: unknown = null;
+  try { new PaySafeEnforcer({ trustedKeyHex: "" }); } catch (e) { threw = e; }
+  check("enforcer refuses to construct without a pinned key", threw instanceof PaySafeEnforcementError);
 }
 
 server.close();

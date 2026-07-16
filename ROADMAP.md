@@ -43,7 +43,15 @@ The product surface now exceeds distribution. Cheapest-first:
 - ✅ **Python SDK** — BUILT 2026-07-15: `sdk-python/` (`paysafe-x402`, Python 3.9+, single dep `cryptography`). Full parity with the TS client; verifier cross-validated against a fixture signed by the real Node signer (34/34 tests). PyPI name confirmed free. **Pending [You]:** `pip install build twine && python -m build && twine upload dist/*` from `sdk-python/`.
 - ✅ **Customer usage dashboard** — BUILT 2026-07-16: `GET /dashboard` (self-contained page, strict CSP, key via header only) backed by `GET /v1/usage` (own-key-only aggregates). Plus an owner dashboard at `GET /admin`: audit-log-backed all-time stats, 30-day activity, top fired checks, chain verify — unlocked by the single key matching `ADMIN_KEY_SHA256`. Still the natural home for reputation rebuttals later.
 
-## 6. Registry network effects
+## 6. Enforcement & ecosystem trust (added 2026-07-16)
+
+The differentiation thesis: everyone else in the trust space produces *scores*; PaySafe produces signed, payment-bound *verdicts* — so PaySafe alone can move from "advisory" to "physically enforced."
+
+- ✅ **Wallet-side enforcement kit** — BUILT 2026-07-16: `sdk/src/enforce.ts` (`PaySafeEnforcer`, `guardSigner`, `paymentFromTypedData`), shipped in `paysafe-x402-client` 0.2.0. Wraps any `signTypedData`-bearing signer (viem/ethers, both call shapes) in a Proxy that recomputes the payment commitment from the EIP-3009/ERC-2612 typed data being signed and refuses without a live, pinned-key-verified allow-verdict for exactly that commitment. Single-use approvals, attestation expiry + optional `maxAgeMs`, allow-only by default, `strictTypes` deny-by-default mode, fail-closed. 22 new tests (54/54) cross-validated against the real server signer. **Pending [You]:** `npm publish` from `sdk/` to ship 0.2.0. Follow-ups: ERC-4337 session-key/paymaster reference module; Python SDK parity; a "PaySafe-gated wallet in 5 minutes" tutorial.
+- **Human-in-the-loop step-up approvals** — fill the gap between flag and block: on a flag, notify the operator (webhook / email / Slack) with the payment facts; a human click mints a short-lived, signed override-verdict bound to that payment's commitment, which the enforcement kit accepts like any allow. Design constraints: override attestations must be distinguishable from organic allows (separate message tag), TTL ≤ 5 min, and the click UI must show the full pay_to (address-poisoning lesson). Natural paid-tier feature; composes directly with the enforcement kit.
+- **ERC-8004 validator registration** — the identity/reputation/validation registries went live on Ethereum mainnet + Base in Jan 2026. Register PaySafe as a validation provider and publish verdicts as on-chain validation attestations (hash-linked to the audit chain), making PaySafe infrastructure *inside* the emerging agent-trust standard rather than an app beside it. Cheap to do early; also the natural contribute-side answer to §7 federation.
+
+## 7. Registry network effects
 
 - **Badlist syndication** — curated known-bad list as a syndicated feed (potential premium tier).
 - **Cross-registry federation** — exchange reports with other x402 trust services with provenance labels, if partners emerge.

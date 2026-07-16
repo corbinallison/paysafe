@@ -34,7 +34,7 @@ paysafe.observe(fetchedPageText, { sourceUrl }); // tag what your agent just rea
 await paysafe.guardOutgoing(payment);            // throws PaySafeBlockedError on a block verdict
 ```
 
-The SDK ([`sdk/`](sdk/), zero dependencies) also verifies every verdict's Ed25519 attestation against a pinned key, tracks your free-call quota, and can subscribe to [plans](#api) autonomously. Wallet authors get standalone `verifyAttestation()` / `computePaymentCommitment()`.
+The SDK ([`sdk/`](sdk/), zero dependencies) also verifies every verdict's Ed25519 attestation against a pinned key, tracks your free-call quota, and can subscribe to [plans](#api) autonomously. Wallet authors get standalone `verifyAttestation()` / `computePaymentCommitment()` — and the **enforcement kit**: `PaySafeEnforcer.guardSigner(account)` wraps any viem/ethers signer so it physically refuses to sign an x402 payment authorization without a fresh, payment-bound allow-verdict.
 
 ## What it catches
 
@@ -63,6 +63,8 @@ The SDK ([`sdk/`](sdk/), zero dependencies) also verifies every verdict's Ed2551
 | Deep content analysis | Base64-encoded and zero-width/homoglyph-obfuscated injection payloads, decoded/normalized and rescanned — bypassed below `MICRO_BYPASS_USD` (default $0.005), overridable per request via `policy.force_deep` |
 
 **Signed verdicts.** Every response carries an Ed25519 `attestation` over `scan_id|direction|verdict|risk_score|scanned_at|payment_commitment|expires_at` (public key at `/.well-known/paysafe-verdict-key`). The `payment_commitment` is `sha256(network|pay_to|asset|amount|nonce)`, so a wallet can confirm an allow-verdict belongs to *this* payment and hasn't been replayed onto another, and reject it after `expires_at`. Wallet policies can require a fresh signed allow-verdict before signing — turning the firewall from advisory into enforceable, still without PaySafe touching funds.
+
+**Wallet-side enforcement.** The SDK ships that policy turnkey: `PaySafeEnforcer.guardSigner(account)` wraps any signer with a `signTypedData` method (viem accounts, ethers v6 signers) in a Proxy that recomputes the payment commitment *from the typed data being signed* (EIP-3009 / ERC-2612) and refuses the signature unless a fresh, pinned-key-verified allow-verdict exists for exactly that commitment. Approvals are single-use and expire with the attestation; a compromised agent that scans payment A cannot sign payment B, and one that skips scanning cannot sign at all. Fail-closed and fully local — see [`sdk/README.md`](sdk/README.md#enforcement-a-wallet-that-refuses-unscanned-payments).
 
 **Tamper-evident audit log.** Every scan decision is appended to a hash-chained log (`AUDIT_LOG=on`) that stores a SHA-256 of the payment plus non-sensitive transaction facts — never the plaintext PII/secrets it scans. `GET /v1/audit/verify` recomputes the chain and reports any tampering; `GET /v1/audit/head` returns the current head hash for external anchoring. See `SECURITY-AUDIT.md`.
 
@@ -241,7 +243,7 @@ examples/         replay-demo.ts — reused-nonce attack blocked end-to-end
 auditlog.ts       Tamper-evident hash-chained decision log
   commitment.ts     Payment hashing (attestation binding + audit digest)
 test/             155-test suite (detectors, hardening, plans, crypto, audit, dashboards — npm test)
-sdk/              TypeScript client SDK (npm: paysafe-x402-client, 32 tests)
+sdk/              TypeScript client SDK + wallet enforcement kit (npm: paysafe-x402-client, 54 tests)
 sdk-python/       Python client SDK (PyPI: paysafe-x402, 34 tests)
 ```
 

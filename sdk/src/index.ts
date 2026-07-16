@@ -25,6 +25,9 @@
  */
 import { createHash, createPublicKey, verify as edVerify } from "node:crypto";
 
+// Wallet-side enforcement kit: PaySafeEnforcer, guardSigner, paymentFromTypedData.
+export * from "./enforce.ts";
+
 // ---------------------------------------------------------------------------
 // Types (mirrors the server's public API)
 // ---------------------------------------------------------------------------
