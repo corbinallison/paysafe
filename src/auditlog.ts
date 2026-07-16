@@ -43,6 +43,22 @@ export interface AuditRecord {
   entry_hash: string;
 }
 
+/** All-time aggregates derived from the audit log (owner dashboard). */
+export interface AuditStats {
+  count: number;
+  by_verdict: { allow: number; flag: number; block: number };
+  by_direction: { outgoing: number; incoming: number };
+  first_ts: string | null;
+  last_ts: string | null;
+  /** Per-UTC-day scan counts for the most recent N days, zero-filled. */
+  daily: Array<{ date: string; total: number; block: number }>;
+  /** Most frequently fired check ids, descending. */
+  top_checks: Array<{ id: string; count: number }>;
+  distinct_agents: number;
+  /** Sum of scanned payment values (USD) where the amount was known. */
+  total_scanned_usd: number;
+}
+
 const GENESIS = "0".repeat(64);
 
 function hashEntry(entryWithoutHash: Omit<AuditRecord, "entry_hash">): string {
@@ -112,6 +128,57 @@ export class AuditLog {
       .split("\n")
       .filter(Boolean)
       .map((l) => JSON.parse(l) as AuditRecord);
+  }
+
+  /**
+   * All-time aggregates for the owner dashboard. Derived from the full log,
+   * so it covers every scan ever recorded — including anonymous (keyless)
+   * scans that the per-key counters can't attribute. Aggregates only: no
+   * agent ids, addresses, or payment digests leave this method.
+   */
+  stats(days = 30): AuditStats {
+    const recs = this.records();
+    const by_verdict = { allow: 0, flag: 0, block: 0 };
+    const by_direction = { outgoing: 0, incoming: 0 };
+    const checkCounts = new Map<string, number>();
+    const agents = new Set<string>();
+    const dayTotals = new Map<string, { total: number; block: number }>();
+    let total_scanned_usd = 0;
+    for (const r of recs) {
+      if (r.verdict in by_verdict) by_verdict[r.verdict] += 1;
+      if (r.direction in by_direction) by_direction[r.direction] += 1;
+      for (const id of r.fired) checkCounts.set(id, (checkCounts.get(id) ?? 0) + 1);
+      if (r.agent_id) agents.add(r.agent_id);
+      if (typeof r.amount_usd === "number" && Number.isFinite(r.amount_usd)) total_scanned_usd += r.amount_usd;
+      const day = r.ts.slice(0, 10);
+      const d = dayTotals.get(day) ?? { total: 0, block: 0 };
+      d.total += 1;
+      if (r.verdict === "block") d.block += 1;
+      dayTotals.set(day, d);
+    }
+    // Last `days` UTC days including today, zero-filled so charts are gapless.
+    const daily: Array<{ date: string; total: number; block: number }> = [];
+    const today = Date.now();
+    for (let i = days - 1; i >= 0; i--) {
+      const date = new Date(today - i * 86400_000).toISOString().slice(0, 10);
+      const d = dayTotals.get(date) ?? { total: 0, block: 0 };
+      daily.push({ date, total: d.total, block: d.block });
+    }
+    const top_checks = [...checkCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([id, count]) => ({ id, count }));
+    return {
+      count: recs.length,
+      by_verdict,
+      by_direction,
+      first_ts: recs.length ? recs[0].ts : null,
+      last_ts: recs.length ? recs[recs.length - 1].ts : null,
+      daily,
+      top_checks,
+      distinct_agents: agents.size,
+      total_scanned_usd: Number(total_scanned_usd.toFixed(2)),
+    };
   }
 
   /** Recompute the whole chain; returns the first break (if any). */

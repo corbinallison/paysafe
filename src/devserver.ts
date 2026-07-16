@@ -12,6 +12,7 @@ import { VerdictSigner } from "./verdictsign.ts";
 import { RateLimiter } from "./ratelimit.ts";
 import {
   createApiKey,
+  handleAdminStats,
   handlePlansCatalog,
   handlePlanSubscribe,
   handleReputationLookup,
@@ -23,6 +24,7 @@ import {
 import { x402Manifest, agentCard } from "./manifest.ts";
 import { openApiDoc } from "./openapi.ts";
 import { dashboardHtml } from "./dashboard.ts";
+import { adminDashboardHtml } from "./admindash.ts";
 import type { ApiResult } from "./api.ts";
 
 const cfg = { ...loadConfig(), mode: "dev" as const };
@@ -91,16 +93,18 @@ const server = createServer(async (req, res) => {
       out = handlePlansCatalog(cfg);
     else if (method === "GET" && path === "/v1/usage")
       out = handleUsage(cfg, store, req.headers["x-api-key"] as string | undefined);
-    else if (method === "GET" && path === "/dashboard") {
+    else if (method === "GET" && (path === "/dashboard" || path === "/admin")) {
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
         "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
         "x-content-type-options": "nosniff",
         "referrer-policy": "no-referrer",
       });
-      res.end(dashboardHtml());
+      res.end(path === "/admin" ? adminDashboardHtml() : dashboardHtml());
       return;
     }
+    else if (method === "GET" && path === "/v1/admin/stats")
+      out = handleAdminStats(cfg, store, req.headers["x-api-key"] as string | undefined);
     else if (method === "POST" && path === "/v1/plans/subscribe")
       // Dev mode: no payments — activates directly, for local testing.
       out = handlePlanSubscribe(await readBody(req), cfg, store, req.headers["x-api-key"] as string | undefined);

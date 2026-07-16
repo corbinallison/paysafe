@@ -53,6 +53,10 @@ export interface PaySafeConfig {
   maxStoreEntries: number;
   /** Shared secret for GET /v1/audit/export (X-Admin-Token header). Empty = endpoint disabled. */
   adminToken: string;
+  /** SHA-256 hex of the owner's API key. Unlocks GET /v1/admin/stats (and the
+   * /admin dashboard) for that ONE key. Empty = endpoint disabled (404).
+   * Only the hash lives in config — consistent with keys-hashed-at-rest (M-3). */
+  adminKeyHash: string;
 }
 
 function num(v: string | undefined, d: number): number {
@@ -95,5 +99,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     auditLog: env.AUDIT_LOG !== "off",
     maxStoreEntries: num(env.MAX_STORE_ENTRIES, 100_000),
     adminToken: env.ADMIN_TOKEN ?? "",
+    adminKeyHash: (env.ADMIN_KEY_SHA256 ?? "").trim().toLowerCase(),
   };
 }

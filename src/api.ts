@@ -2,7 +2,7 @@
  * Framework-agnostic API handlers. Both the production Express app (index.ts)
  * and the zero-dependency dev server (devserver.ts) route into these.
  */
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import type { PaySafeConfig } from "./config.ts";
 import type { Store } from "./store.ts";
 import type { VerdictSigner } from "./verdictsign.ts";
@@ -223,6 +223,55 @@ export function handleUsage(cfg: PaySafeConfig, store: Store, apiKey: string | u
         block: scans.block,
         block_rate: scans.total ? Number((scans.block / scans.total).toFixed(4)) : 0,
       },
+    },
+  };
+}
+
+/**
+ * Owner-only, all-time service stats (the /admin dashboard's data source).
+ * Unlocked by the ONE key whose SHA-256 matches cfg.adminKeyHash
+ * (ADMIN_KEY_SHA256 env var) — compared in constant time. 404 when
+ * unconfigured so the route doesn't advertise itself; 401 otherwise uses the
+ * same shape as /v1/usage so probes learn nothing. Aggregates only — no
+ * per-customer keys, agent ids, addresses, or payment data are returned.
+ */
+export function handleAdminStats(cfg: PaySafeConfig, store: Store, apiKey: string | undefined): ApiResult {
+  if (!cfg.adminKeyHash) return { status: 404, body: { error: "Not found" } };
+  if (!apiKey) {
+    return { status: 401, body: { error: "Provide your API key in the X-API-Key header." } };
+  }
+  const given = Buffer.from(hashKey(apiKey), "utf8");
+  const want = Buffer.from(cfg.adminKeyHash, "utf8");
+  if (given.length !== want.length || !timingSafeEqual(given, want)) {
+    return { status: 401, body: { error: "Unknown or invalid API key." } };
+  }
+
+  // Per-key counters (exist only for keyed scans, since the dashboard feature).
+  const keyed = { total: 0, allow: 0, flag: 0, block: 0 };
+  let withPlan = 0;
+  let active7d = 0;
+  const weekAgo = Date.now() - 7 * 86400_000;
+  for (const rec of store.keys.values()) {
+    if (rec.scans) {
+      keyed.total += rec.scans.total;
+      keyed.allow += rec.scans.allow;
+      keyed.flag += rec.scans.flag;
+      keyed.block += rec.scans.block;
+    }
+    if (rec.plan) withPlan += 1;
+    if (rec.last_used_at && Date.parse(rec.last_used_at) > weekAgo) active7d += 1;
+  }
+
+  return {
+    status: 200,
+    body: {
+      accounts: { total_keys: store.keys.size, with_plan: withPlan, active_7d: active7d },
+      keyed_scans: keyed,
+      registry: { reports: store.reports.length, pins: store.pins.size, badlist: store.badlist.size },
+      // All-time truth (includes anonymous scans): derived from the audit log.
+      audit: store.auditLog
+        ? { head: store.auditLog.head(), ...store.auditLog.stats(30) }
+        : null,
     },
   };
 }

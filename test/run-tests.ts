@@ -9,13 +9,14 @@ import { loadConfig } from "../src/config.ts";
 import { addReport, summarize } from "../src/reputation.ts";
 import { VerdictSigner } from "../src/verdictsign.ts";
 import { CANONICAL_USDC } from "../src/detectors/asset.ts";
-import { handleScan, createApiKey, consumeFreeCall, freeCallsRemaining, handlePlanSubscribe, handleUsage } from "../src/api.ts";
+import { handleScan, createApiKey, consumeFreeCall, freeCallsRemaining, handlePlanSubscribe, handleUsage, handleAdminStats } from "../src/api.ts";
 import { PLANS, HARD_CEILINGS, activePlan, resolveEffectiveConfig, plansCatalog } from "../src/plans.ts";
 import { sanitizeScanRequest } from "../src/sanitize.ts";
 import { RateLimiter } from "../src/ratelimit.ts";
 import { AuditLog } from "../src/auditlog.ts";
 import { paymentCommitment, paymentDigest } from "../src/commitment.ts";
 import { dashboardHtml } from "../src/dashboard.ts";
+import { adminDashboardHtml } from "../src/admindash.ts";
 import type { ScanRequest, ScanResponse } from "../src/types.ts";
 
 const cfg = loadConfig({ PAYSAFE_MODE: "dev", PAY_TO: "0xtest" });
@@ -631,6 +632,65 @@ console.log("\n— dashboard HTML sanity —");
   check("dashboard calls only the read-only usage endpoint", html.includes('fetch("/v1/usage"') && (html.match(/fetch\(/g) ?? []).length === 1);
   check("dashboard renders via textContent (no HTML sinks)", !html.includes("innerHTML") && !html.includes("document.write") && !html.includes("insertAdjacentHTML"));
   check("dashboard key input is a password field", html.includes('type="password"'));
+}
+
+console.log("\n— owner/admin stats —");
+{
+  const store = new Store(null);
+  store.auditLog = new AuditLog(null);
+  const adminKey = (createApiKey(store, cfg) as { body: { api_key: string } }).body.api_key;
+  const adminHash = createHash("sha256").update(adminKey, "utf8").digest("hex");
+  const cfgAdmin = { ...cfg, adminKeyHash: adminHash };
+
+  // Unconfigured: the endpoint does not exist (404), even with a valid key.
+  check("admin stats 404 when ADMIN_KEY_SHA256 unset", (handleAdminStats(cfg, store, adminKey) as { status: number }).status === 404);
+
+  // Configured: only the bound key gets in; everyone else gets the usage-style 401.
+  check("admin stats 401 without a key", (handleAdminStats(cfgAdmin, store, undefined) as { status: number }).status === 401);
+  const otherKey = (createApiKey(store, cfg) as { body: { api_key: string } }).body.api_key;
+  check("admin stats 401 for a non-admin (but valid) key", (handleAdminStats(cfgAdmin, store, otherKey) as { status: number }).status === 401);
+  check("admin stats 401 for a bogus key", (handleAdminStats(cfgAdmin, store, "psk_bogus") as { status: number }).status === 401);
+
+  // Record scans: two keyed (one block via nonce reuse), one anonymous.
+  const clean = { ...basePayment, pay_to: "0xNiceMerchant0000000000000000000000000002" };
+  handleScan("outgoing", { payment: { ...clean, nonce: "0xa1" }, context: { origin: "planning" } }, cfg, store, null, otherKey);
+  handleScan("outgoing", { payment: { ...clean, nonce: "0xa1" }, context: { origin: "planning" } }, cfg, store, null, otherKey); // reuse -> block
+  handleScan("outgoing", { payment: { ...clean, nonce: "0xa2" }, context: { origin: "planning" } }, cfg, store, null, undefined); // anonymous
+
+  const r = handleAdminStats(cfgAdmin, store, adminKey) as { status: number; body: any };
+  check("admin stats 200 for the bound key", r.status === 200);
+  check("audit stats count ALL scans incl. anonymous", r.body.audit.count === 3, r.body.audit?.count);
+  check("audit verdict split recorded", r.body.audit.by_verdict.block === 1, r.body.audit?.by_verdict);
+  check("keyed counters exclude anonymous scans", r.body.keyed_scans.total === 2, r.body.keyed_scans);
+  check("accounts totals reported", r.body.accounts.total_keys === store.keys.size);
+  check("audit head exposed for anchoring", r.body.audit.head.seq === 3 && /^[0-9a-f]{64}$/.test(r.body.audit.head.hash));
+  check("daily series is 30 gapless days", r.body.audit.daily.length === 30 && r.body.audit.daily[29].total === 3, r.body.audit?.daily?.length);
+  check("top fired checks aggregated", r.body.audit.top_checks.some((c: { id: string }) => c.id === "replay.nonce_reuse"));
+  const flat = JSON.stringify(r.body);
+  check("admin stats never echo any key", flat.indexOf(adminKey) === -1 && flat.indexOf(otherKey) === -1);
+  check("admin stats leak no addresses or agent ids", flat.indexOf(clean.pay_to) === -1);
+
+  // Audit disabled: aggregates still work, audit section is null.
+  const store2 = new Store(null);
+  const r2 = handleAdminStats(cfgAdmin, store2, adminKey) as { body: any };
+  check("audit-off degrades to null audit section", r2.body.audit === null);
+}
+
+console.log("\n— admin dashboard HTML sanity —");
+{
+  const html = adminDashboardHtml();
+  check("admin page is a complete HTML document", html.startsWith("<!DOCTYPE html>") && html.includes("</html>"));
+  check(
+    "admin page loads zero external resources",
+    !/(?:src|href)\s*=\s*["']\s*(?:https?:)?\/\//i.test(html) && !/@import/i.test(html) && !html.includes("<link"),
+  );
+  check("admin page sends the key via header, never the URL", html.includes('"X-API-Key"') && !html.includes("/v1/admin/stats?"));
+  check(
+    "admin page calls only read-only endpoints",
+    html.includes('fetch("/v1/admin/stats"') && html.includes('fetch("/v1/audit/verify")') && (html.match(/fetch\(/g) ?? []).length === 2,
+  );
+  check("admin page renders via textContent (no HTML sinks)", !html.includes("innerHTML") && !html.includes("document.write") && !html.includes("insertAdjacentHTML"));
+  check("admin page key input is a password field", html.includes('type="password"'));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

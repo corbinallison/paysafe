@@ -36,6 +36,7 @@ import {
   handlePlanSubscribe,
   handleReputationLookup,
   handleReputationReport,
+  handleAdminStats,
   handleScan,
   handleUsage,
   serviceInfo,
@@ -44,6 +45,7 @@ import { PLANS, resolveEffectiveConfig, type Plan } from "./plans.ts";
 import { x402Manifest, agentCard } from "./manifest.ts";
 import { openApiDoc } from "./openapi.ts";
 import { dashboardHtml } from "./dashboard.ts";
+import { adminDashboardHtml } from "./admindash.ts";
 
 const cfg = loadConfig();
 const store = new Store(cfg.dataDir, {
@@ -375,6 +377,25 @@ app.get("/dashboard", (_req, res) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.type("html").send(dashboardHtml());
+});
+
+// Owner-only all-time stats (see handleAdminStats: 404 unless ADMIN_KEY_SHA256
+// is set; 401 for any key but the owner's). Free, never payment-gated.
+app.get("/v1/admin/stats", (req, res) => {
+  const r = handleAdminStats(cfg, store, req.header("x-api-key"));
+  res.status(r.status).json(r.body);
+});
+
+// Owner dashboard — same CSP posture as /dashboard: zero external resources,
+// key via header only, read-only endpoints.
+app.get("/admin", (_req, res) => {
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  );
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.type("html").send(adminDashboardHtml());
 });
 
 // Payment for this route is enforced by the gate above (x402 at the plan's
