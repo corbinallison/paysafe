@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "crewai-paysafe"
+version = "0.1.0"
+description = "PaySafe payment security for CrewAI agents: scan x402 payments before settling, auto-tag provenance for prompt-injection detection via a tool-call hook, and guard payment tools so blocked payments can never execute."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "PaySafe", email = "contact@paysafe-agent.com" }]
+keywords = ["crewai", "x402", "payments", "security", "ai-agents", "prompt-injection", "usdc"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Security",
+]
+dependencies = ["paysafe-x402>=0.3.0", "crewai>=0.100"]
+
+[project.urls]
+Homepage = "https://paysafe-agent.com"
+Repository = "https://github.com/corbinallison/paysafe"
+Documentation = "https://github.com/corbinallison/paysafe/tree/main/integrations/crewai-paysafe"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/crewai_paysafe"]

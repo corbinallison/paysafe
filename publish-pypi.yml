@@ -1,0 +1,119 @@
+# Publishes the PyPI packages via trusted publishing (OIDC — no tokens):
+#   - paysafe-x402       (sdk-python/: client SDK + enforcement kit + payment-path wrapper)
+#   - langchain-paysafe  (integrations/langchain-paysafe/: LangChain tools + provenance callback)
+# Trigger manually: GitHub → Actions → publish-pypi → Run workflow → pick package.
+#
+# One-time setup for langchain-paysafe on PyPI (it's a NEW project, so use a
+# PENDING publisher): pypi.org → Your account → Publishing → "Add a new
+# pending publisher": project `langchain-paysafe`, owner `corbinallison`,
+# repository `paysafe`, workflow `publish-pypi.yml` (exact, .yml), environment
+# `pypi`. The first successful publish creates the project and converts the
+# pending publisher into a normal trusted publisher.
+#
+# Supply-chain hardening (see SECURITY-AUDIT-2.md):
+#  - every action pinned to a full commit SHA, not a movable tag
+#  - single job per package: no artifact upload/download actions in the chain
+#  - least privilege: read-only default; id-token:write only where needed
+#  - tests run before every publish; the `pypi` environment should have
+#    required-reviewer protection so a push alone can never publish
+name: publish-pypi
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Which package to publish"
+        required: true
+        type: choice
+        options: [sdk, langchain, crewai, all]
+
+permissions:
+  contents: read
+
+jobs:
+  publish-sdk:
+    if: inputs.package == 'sdk' || inputs.package == 'all'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write # required for PyPI trusted publishing (OIDC)
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Version gate (consistency + not-already-published)
+        run: node scripts/check-versions.mjs python --registry
+      - name: Run SDK tests
+        working-directory: sdk-python
+        run: |
+          python -m pip install cryptography
+          python tests/run_tests.py
+      - name: Build sdist + wheel
+        working-directory: sdk-python
+        run: |
+          python -m pip install build
+          python -m build
+      - name: Publish paysafe-x402 to PyPI (OIDC)
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          packages-dir: sdk-python/dist
+
+  publish-langchain:
+    if: inputs.package == 'langchain' || inputs.package == 'all'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write # required for PyPI trusted publishing (OIDC)
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Version gate (consistency + not-already-published)
+        run: node scripts/check-versions.mjs langchain --registry
+      - name: Run integration tests against REAL langchain-core
+        working-directory: integrations/langchain-paysafe
+        run: |
+          python -m pip install cryptography langchain-core
+          python tests/run_tests.py
+      - name: Build sdist + wheel
+        working-directory: integrations/langchain-paysafe
+        run: |
+          python -m pip install build
+          python -m build
+      - name: Publish langchain-paysafe to PyPI (OIDC)
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          packages-dir: integrations/langchain-paysafe/dist
+
+  publish-crewai:
+    if: inputs.package == 'crewai' || inputs.package == 'all'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write # required for PyPI trusted publishing (OIDC)
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Version gate (consistency + not-already-published)
+        run: node scripts/check-versions.mjs crewai --registry
+      - name: Run integration tests against REAL crewai
+        working-directory: integrations/crewai-paysafe
+        run: |
+          python -m pip install cryptography crewai
+          python tests/run_tests.py
+      - name: Build sdist + wheel
+        working-directory: integrations/crewai-paysafe
+        run: |
+          python -m pip install build
+          python -m build
+      - name: Publish crewai-paysafe to PyPI (OIDC)
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          packages-dir: integrations/crewai-paysafe/dist
