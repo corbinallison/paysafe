@@ -74,6 +74,7 @@ def wrap_transport_with_paysafe(
     scan_offer: bool = True,
     expected_price_usd: Optional[Any] = None,  # float or callable(offer)->float
     on_scan: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+    report_outcomes: bool = True,
 ) -> Transport:
     """Wrap an x402 payment-capable transport so every payment is scanned first.
 
@@ -84,6 +85,11 @@ def wrap_transport_with_paysafe(
     strict:            also refuse "flag" verdicts (default: only "block").
     scan_offer:        scan the 402 offer as an incoming request too (default True).
     on_scan:           callable(phase, scan) for telemetry; phases "outgoing"/"incoming".
+    report_outcomes:   automatically record the delivery outcome of every paid
+                       request (default True): 2xx -> delivered; anything else
+                       (incl. a second 402 after paying) -> not_delivered, with
+                       mechanical evidence. Commitment-bound to the outgoing
+                       scan; a reporting failure never affects the response.
     """
     probe_transport = base_transport or _urllib_transport
 
@@ -128,6 +134,34 @@ def wrap_transport_with_paysafe(
                 raise PaySafeBlockedError(incoming)
 
         # 3) Verdicts passed — let the paying transport do the x402 dance.
-        return payment_transport(method, url, headers, body)
+        import threading
+        import time as _time
+
+        started = _time.monotonic()
+        paid_status, paid_headers, paid_body = payment_transport(method, url, headers, body)
+
+        # 4) Delivery-outcome capture: x402 delivery is synchronous — the
+        # resource arrives in this very response. Reported on a daemon thread;
+        # a reporting failure never affects the response. Quality judgment
+        # stays with report(): we only auto-judge what is mechanical.
+        if report_outcomes:
+            outcome = "delivered" if 200 <= paid_status < 300 else "not_delivered"
+            latency = int((_time.monotonic() - started) * 1000)
+            evidence = {
+                "status": paid_status,
+                "content_type": paid_headers.get("content-type"),
+                "bytes_received": len(paid_body) if paid_body is not None else None,
+                "latency_ms": latency,
+            }
+
+            def _report() -> None:
+                try:
+                    paysafe.report_outcome(outgoing, outcome, **evidence)
+                except Exception:
+                    pass
+
+            threading.Thread(target=_report, daemon=True).start()
+
+        return paid_status, paid_headers, paid_body
 
     return guarded_transport

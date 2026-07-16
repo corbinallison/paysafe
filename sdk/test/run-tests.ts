@@ -48,6 +48,7 @@ interface Seen {
   subscribes: number;
 }
 const seen: Seen = { scans: [], subscribes: 0 };
+const seenOutcomes: any[] = [];
 const mockApprovals = new Map<string, { payment: PaymentDetails; scan: ScanResponse; polls: number; behavior: "approve" | "deny" | "stall" | "forge" }>();
 
 function readBody(req: IncomingMessage): Promise<any> {
@@ -153,6 +154,11 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
   }
   if (req.method === "POST" && path === "/v1/reputation/report") {
     return send(201, { accepted: true });
+  }
+  if (req.method === "POST" && path === "/v1/outcomes") {
+    const body = await readBody(req);
+    seenOutcomes.push(body);
+    return send(201, { recorded: true, scan_id: body.scan_id, outcome: body.outcome });
   }
   send(404, { error: `no mock route: ${req.method} ${path}` });
 });
@@ -524,6 +530,10 @@ const merchant = createServer((req: IncomingMessage, res: ServerResponse) => {
     return res.end(JSON.stringify({ data: "free" }));
   }
   if (req.headers["x-payment"]) {
+    if (u.pathname === "/paid-broken") {
+      res.writeHead(500, { "content-type": "application/json" });
+      return res.end(JSON.stringify({ error: "server exploded after taking your money" }));
+    }
     res.writeHead(200, { "content-type": "application/json" });
     return res.end(JSON.stringify({ data: "premium" }));
   }
@@ -633,6 +643,44 @@ const payingFetch: typeof fetch = async (input, init) => {
   const single = wrapFetchWithPaySafe(payingFetch, paysafe2, { scanOffer: false });
   await single(`${MERCHANT}/paid`);
   check("scanOffer:false runs a single outgoing scan", seen.scans.length === scansBefore + 1);
+}
+
+{
+  // Delivery-outcome auto-capture: paid 200 -> delivered, bound to the scan.
+  const paysafe = new PaySafeClient({ baseUrl: BASE, agentId: "outcome-test" });
+  const guardedFetch = wrapFetchWithPaySafe(payingFetch, paysafe);
+  const before = seenOutcomes.length;
+  await guardedFetch(`${MERCHANT}/paid`);
+  for (let i = 0; i < 40 && seenOutcomes.length === before; i++) await new Promise((r) => setTimeout(r, 25));
+  const o = seenOutcomes[before];
+  check("paid 2xx auto-reports a delivered outcome", o?.outcome === "delivered" && typeof o?.scan_id === "string");
+  check("outcome is commitment-bound and carries mechanical evidence", /^[0-9a-f]{64}$/.test(o?.payment_commitment ?? "") && o?.evidence?.status === 200);
+
+  // Paid 5xx -> not_delivered (searched by evidence, immune to stragglers
+  // from earlier wrap tests whose auto-reports land asynchronously).
+  await guardedFetch(`${MERCHANT}/paid-broken`);
+  for (let i = 0; i < 40 && !seenOutcomes.some((x) => x?.evidence?.status === 500); i++) await new Promise((r) => setTimeout(r, 25));
+  const broken = seenOutcomes.find((x) => x?.evidence?.status === 500);
+  check("paid 5xx auto-reports not_delivered with the status", broken?.outcome === "not_delivered");
+
+  // Opt-out: drain stragglers until quiet, then assert no growth.
+  let quietLen = seenOutcomes.length;
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    if (seenOutcomes.length === quietLen) break;
+    quietLen = seenOutcomes.length;
+  }
+  const silent = wrapFetchWithPaySafe(payingFetch, new PaySafeClient({ baseUrl: BASE }), { reportOutcomes: false });
+  const before3 = seenOutcomes.length;
+  await silent(`${MERCHANT}/paid`);
+  await new Promise((r) => setTimeout(r, 400));
+  check("reportOutcomes:false disables auto-capture", seenOutcomes.length === before3);
+
+  // Manual reportOutcome for non-wrapper settlement paths.
+  const scan = await paysafe.scanOutgoing({ ...basePayment, nonce: "0xoutman1" });
+  await paysafe.reportOutcome(scan, "wrong_content", { status: 200, bytes: 12 });
+  const manual = seenOutcomes[seenOutcomes.length - 1];
+  check("manual reportOutcome posts the bound outcome", manual?.outcome === "wrong_content" && manual?.scan_id === scan.scan_id && manual?.payment_commitment === scan.attestation?.payment_commitment);
 }
 
 merchant.close();

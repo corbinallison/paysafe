@@ -50,7 +50,7 @@ __all__ = [
     "verify_attestation",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 DEFAULT_BASE_URL = "https://paysafe-agent.com"
 
@@ -435,6 +435,47 @@ class PaySafeClient:
             if time.monotonic() + interval > deadline:
                 raise PaySafeError(f"timed out waiting for approval {approval_id}", 408, state)
             time.sleep(interval)
+
+    def report_outcome(
+        self,
+        scan: Dict[str, Any],
+        outcome: str,
+        status: Optional[int] = None,
+        content_type: Optional[str] = None,
+        bytes_received: Optional[int] = None,
+        latency_ms: Optional[int] = None,
+    ) -> Any:
+        """Record whether a scanned, settled payment actually DELIVERED
+        (outcome: delivered | not_delivered | partial | wrong_content).
+
+        Bound to the scan (scan_id + payment_commitment), so delivery history
+        can't be fabricated without real, scanned payments. One outcome per
+        scan. The payment-path wrapper (wrap_transport_with_paysafe) calls
+        this automatically; call it yourself when you settle another way."""
+        commitment = (scan.get("attestation") or {}).get("payment_commitment")
+        if not commitment:
+            raise PaySafeError(
+                "cannot report an outcome: the scan carries no attestation/payment_commitment (verdict signing disabled?)"
+            )
+        evidence: Dict[str, Any] = {}
+        if status is not None:
+            evidence["status"] = status
+        if content_type is not None:
+            evidence["content_type"] = content_type
+        if bytes_received is not None:
+            evidence["bytes"] = bytes_received
+        if latency_ms is not None:
+            evidence["latency_ms"] = latency_ms
+        return self._request(
+            "POST",
+            "/v1/outcomes",
+            {
+                "scan_id": scan.get("scan_id"),
+                "payment_commitment": commitment,
+                "outcome": outcome,
+                "evidence": evidence or None,
+            },
+        )
 
     def configure_approvals(self, webhook_url: Optional[str], format: str = "json") -> Any:
         """Configure (or disable, with webhook_url=None) human-in-the-loop

@@ -20,6 +20,7 @@ import { adminDashboardHtml } from "../src/admindash.ts";
 import { llmsTxt } from "../src/llms.ts";
 import { handleTrustEvaluate } from "../src/trust.ts";
 import { handleApprovalDecide, handleApprovalInspect, handleApprovalPoll, isPrivateAddress, validateWebhookUrl } from "../src/approvals.ts";
+import { handleOutcomeReport } from "../src/outcomes.ts";
 import { approvePageHtml } from "../src/approvepage.ts";
 import { parseScoutScore, scheduleScoutScoreRefresh } from "../src/detectors/scoutscore.ts";
 import { createServer as createHttpServer } from "node:http";
@@ -1152,6 +1153,82 @@ console.log("\n— human-in-the-loop approvals: end-to-end —");
   check("APPROVALS=off: in-flight approvals stay pollable", (handleApprovalPoll(store, approvalId, newKey) as { status: number }).status === 200);
 
   mock.close();
+}
+
+console.log("\n— delivery outcomes: commitment binding —");
+{
+  const store = new Store(null);
+  const signer = new VerdictSigner(null);
+  const key = (createApiKey(store, cfg) as { body: { api_key: string } }).body.api_key;
+  const seller = { ...basePayment, pay_to: "0xSellerOne0000000000000000000000000000001", resource_url: "https://sellerone.example.net/api", nonce: "0xout1" };
+
+  const scan = (handleScan("outgoing", { payment: seller, expected_price_usd: 0.01, context: { origin: "planning" } }, cfg, store, signer, key) as { body: any }).body;
+  const commitment = scan.attestation.payment_commitment as string;
+  check("scan is indexed for outcome binding", store.scanIndex.get(scan.scan_id)?.commitment === commitment);
+
+  // Binding: unknown scan, wrong commitment, and wrong account are indistinguishable.
+  const wrongC = handleOutcomeReport(store, cfg, key, { scan_id: scan.scan_id, payment_commitment: "f".repeat(64), outcome: "delivered" }) as { status: number; body: unknown };
+  const wrongId = handleOutcomeReport(store, cfg, key, { scan_id: "nope", payment_commitment: commitment, outcome: "delivered" }) as { status: number; body: unknown };
+  const otherKey = (createApiKey(store, cfg) as { body: { api_key: string } }).body.api_key;
+  const wrongKey = handleOutcomeReport(store, cfg, otherKey, { scan_id: scan.scan_id, payment_commitment: commitment, outcome: "delivered" }) as { status: number; body: unknown };
+  check("wrong commitment / unknown scan / wrong account are indistinguishable 404s",
+    wrongC.status === 404 && JSON.stringify(wrongC.body) === JSON.stringify(wrongId.body) && JSON.stringify(wrongId.body) === JSON.stringify(wrongKey.body));
+  check("invalid outcome value is a 400", (handleOutcomeReport(store, cfg, key, { scan_id: scan.scan_id, payment_commitment: commitment, outcome: "meh" }) as { status: number }).status === 400);
+
+  const ok = handleOutcomeReport(store, cfg, key, { scan_id: scan.scan_id, payment_commitment: commitment, outcome: "delivered", evidence: { status: 200, bytes: 5120 } }) as { status: number; body: any };
+  check("bound outcome recorded against the scanned counterparty", ok.status === 201 && ok.body.counterparty === seller.pay_to.toLowerCase());
+  check("repeat of the same outcome is idempotent", (handleOutcomeReport(store, cfg, key, { scan_id: scan.scan_id, payment_commitment: commitment, outcome: "delivered" }) as { status: number }).status === 200);
+  check("conflicting outcome is refused (outcomes are final)", (handleOutcomeReport(store, cfg, key, { scan_id: scan.scan_id, payment_commitment: commitment, outcome: "not_delivered" }) as { status: number }).status === 409);
+
+  // Anonymous scans: possession of (scan_id, commitment) is the credential.
+  const anonScan = (handleScan("outgoing", { payment: { ...seller, nonce: "0xout2" }, expected_price_usd: 0.01, context: { origin: "planning" } }, cfg, store, signer, undefined) as { body: any }).body;
+  check("anonymous scan outcome accepted without a key",
+    (handleOutcomeReport(store, cfg, undefined, { scan_id: anonScan.scan_id, payment_commitment: anonScan.attestation.payment_commitment, outcome: "delivered" }) as { status: number }).status === 201);
+
+  // Rotation: outcome reporting follows the account.
+  const rotScan = (handleScan("outgoing", { payment: { ...seller, nonce: "0xout3" }, expected_price_usd: 0.01, context: { origin: "planning" } }, cfg, store, signer, key) as { body: any }).body;
+  const newKey = (handleKeyRotate(store, cfg, key, { grace_seconds: 0 }) as { body: any }).body.api_key as string;
+  check("post-rotation outcome reporting works with the new key",
+    (handleOutcomeReport(store, cfg, newKey, { scan_id: rotScan.scan_id, payment_commitment: rotScan.attestation.payment_commitment, outcome: "delivered" }) as { status: number }).status === 201);
+
+  // The reputation summary carries the measured delivery section.
+  const rep = summarize(store, seller.pay_to);
+  check("reputation summary includes measured delivery stats", rep.delivery?.outcomes_total === 3 && rep.delivery?.delivered === 3 && rep.delivery?.delivery_rate === 1);
+  check("no outcome history reads as null, never suspicion", summarize(store, "0xNeverSeen000000000000000000000000000001").delivery === null);
+}
+
+console.log("\n— delivery outcomes: scan-time check —");
+{
+  const store = new Store(null);
+  const signer = new VerdictSigner(null);
+  const key = (createApiKey(store, cfg) as { body: { api_key: string } }).body.api_key;
+
+  const seed = (payTo: string, domain: string, outcomes: string[]) => {
+    outcomes.forEach((o, i) => {
+      const p = { ...basePayment, pay_to: payTo, resource_url: `https://${domain}/api`, nonce: `0xseed${payTo.slice(-4)}${i}` };
+      const sc = (handleScan("outgoing", { agent_id: `agent-${domain}`, payment: p, expected_price_usd: 0.01, context: { origin: "planning" } }, cfg, store, signer, key) as { body: any }).body;
+      handleOutcomeReport(store, cfg, key, { scan_id: sc.scan_id, payment_commitment: sc.attestation.payment_commitment, outcome: o });
+    });
+  };
+
+  // Low delivery rate over enough volume -> flag (never block).
+  const flaky = "0xFlakySeller000000000000000000000000000fa1";
+  seed(flaky, "flaky.example.net", ["delivered", "not_delivered", "not_delivered", "not_delivered", "not_delivered"]);
+  const flakyScan = (handleScan("outgoing", { agent_id: "agent-flaky.example.net", payment: { ...basePayment, pay_to: flaky, resource_url: "https://flaky.example.net/api", nonce: "0xjudge1" }, expected_price_usd: 0.01, context: { origin: "planning" } }, cfg, store, signer, key) as { body: any }).body;
+  check("low delivery rate flags the counterparty", flakyScan.verdict === "flag" && flakyScan.checks.some((c: any) => c.id === "delivery.low_rate"), flakyScan.checks.filter((c: any) => c.verdict !== "allow"));
+  check("delivery history can NEVER block (H-2)", flakyScan.checks.filter((c: any) => c.id.startsWith("delivery.")).every((c: any) => c.verdict !== "block"));
+
+  // Repeated failures with zero successes flags even below the volume floor.
+  const ghost = "0xGhostSeller000000000000000000000000000b2";
+  seed(ghost, "ghost.example.net", ["not_delivered", "not_delivered", "wrong_content"]);
+  const ghostScan = (handleScan("outgoing", { agent_id: "agent-ghost.example.net", payment: { ...basePayment, pay_to: ghost, resource_url: "https://ghost.example.net/api", nonce: "0xjudge2" }, expected_price_usd: 0.01, context: { origin: "planning" } }, cfg, store, signer, key) as { body: any }).body;
+  check("failures with zero confirmed deliveries flag below the volume floor", ghostScan.checks.some((c: any) => c.id === "delivery.no_confirmed" && c.verdict === "flag"));
+
+  // A healthy seller passes with an informational history line.
+  const solid = "0xSolidSeller000000000000000000000000000c3";
+  seed(solid, "solid.example.net", ["delivered", "delivered", "delivered", "delivered", "delivered", "delivered"]);
+  const solidScan = (handleScan("outgoing", { agent_id: "agent-solid.example.net", payment: { ...basePayment, pay_to: solid, resource_url: "https://solid.example.net/api", nonce: "0xjudge3" }, expected_price_usd: 0.01, context: { origin: "planning" } }, cfg, store, signer, key) as { body: any }).body;
+  check("healthy delivery history stays allow with an info line", solidScan.verdict === "allow" && solidScan.checks.some((c: any) => c.id === "delivery.history" && c.verdict === "allow"), solidScan.checks.filter((c: any) => c.verdict !== "allow"));
 }
 
 console.log("\n— approve page HTML sanity —");

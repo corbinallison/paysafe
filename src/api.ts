@@ -123,6 +123,18 @@ export function handleScan(
   // Per-key aggregate stats for the usage dashboard (counts only — no payment
   // data, no PII). Only recorded for a recognized key; anonymous paid scans
   // aren't attributable to an account.
+  // Rolling scan index: lets a later outcome report (POST /v1/outcomes) be
+  // verified as belonging to a scan we actually performed, and pins the
+  // counterparty it aggregates against to what was scanned.
+  const indexedKeyHash = apiKey ? store.resolveKey(apiKey).hash : null;
+  store.scanIndex.set(scan.scan_id, {
+    commitment: paymentCommitment(req.payment),
+    pay_to: (req.payment.pay_to ?? "").trim().toLowerCase(),
+    verdict: scan.verdict,
+    ...(indexedKeyHash ? { key_hash: indexedKeyHash } : {}),
+    at: scan.scanned_at,
+  });
+
   let approval: ReturnType<typeof maybeCreateApproval> = null;
   if (apiKey) {
     const { rec, hash } = store.resolveKey(apiKey);
@@ -448,7 +460,7 @@ export function serviceInfo(cfg: PaySafeConfig): ApiResult {
     body: {
       name: "PaySafe",
       tagline: "Payment security firewall for x402 micropayments. Advisory, non-custodial.",
-      version: "1.2.0",
+      version: "1.3.0",
       mode: cfg.mode,
       endpoints: {
         "POST /v1/keys": `Free (rate-limited: ${cfg.keysPerIpPerDay}/IP/day). Issue an API key with a free-call allowance.`,
@@ -462,6 +474,7 @@ export function serviceInfo(cfg: PaySafeConfig): ApiResult {
         "POST /v1/trust/evaluate": `Free (rate-limited: ${cfg.trustQueriesPerIpPerHour}/IP/hour). x402 trust-provider interface: TrustQuery about a payer in, TrustEvaluation (PASS/FAIL/UNCERTAIN + evidence) out — for sellers gating settlement.`,
         "POST /v1/approvals/config": "Free (X-API-Key). Configure human-in-the-loop approvals: on a flag verdict, your webhook gets the payment facts + a one-time decide link; a human click mints a short-lived signed override verdict.",
         "GET /v1/approvals/{id}": "Free (X-API-Key). Poll a pending approval; on approve you receive the signed override:allow verdict bound to that exact payment.",
+        "POST /v1/outcomes": `Free (rate-limited: ${cfg.outcomesPerIpPerHour}/IP/hour). Record whether a scanned, settled payment actually DELIVERED (delivered/not_delivered/partial/wrong_content). Must present the scan_id + payment_commitment of a real scan — outcomes are commitment-bound, one per scan. Delivery rates feed reputation lookups and future scans.`,
         "POST /v1/plans/subscribe": "x402-paid at the plan's price. Upgrade your API key to a plan; renew by paying again.",
         "GET /v1/usage": "Free. Your own key's usage stats (X-API-Key header): scan/verdict counts, free-tier quota, plan status.",
         "GET /dashboard": "Free. Browser usage dashboard for your key — key is sent via header only, never a URL.",
@@ -484,6 +497,7 @@ export function serviceInfo(cfg: PaySafeConfig): ApiResult {
         "scout: ScoutScore external trust signal for merchant domains (opt-in, async + cached, flag-only)",
         "velocity: rate, hourly spend cap, first-contact size cap (outgoing)",
         "reputation: shared counterparty report registry",
+        "delivery: measured, commitment-bound delivery-outcome history per counterparty (flag-only — a clean payment to a seller who never ships still fails you)",
       ],
       attestation:
         "Verdicts are Ed25519-signed (see /.well-known/paysafe-verdict-key). Wallet policies can require a fresh allow-verdict before signing.",

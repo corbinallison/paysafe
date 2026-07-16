@@ -1,6 +1,6 @@
 {
   "name": "paysafe-x402",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "mcpName": "com.paysafe-agent/paysafe",
   "description": "PaySafe — a payment security firewall for x402 micropayment traffic. Advisory scanning: PII/secret leaks, replay, overpayment, prompt-injection-triggered payments, counterparty reputation. Non-custodial. Includes an MCP server: npx paysafe-x402",
   "type": "module",

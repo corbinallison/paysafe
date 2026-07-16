@@ -30,6 +30,9 @@ surface; minting a new key is cheap.
 
 ## 1. Reputation registry v2 — fairness & abuse resistance
 
+- ✅ **Delivery-outcome ledger** — BUILT 2026-07-16 (the strongest v2 item; prompted by CDP-Discord feedback: "a perfectly clean payment to a seller who never ships still fails the agent"). `POST /v1/outcomes` records delivered/not_delivered/partial/wrong_content per settlement, BOUND to a scan PaySafe performed (scan_id + payment_commitment verified against a rolling scan index; one outcome per scan; keyed scans only from the scanning account) — fabricating delivery history requires real, scanned payments. SDK payment-path wrappers auto-capture outcomes mechanically (x402 delivery is synchronous: paid 2xx → delivered, 5xx/second-402 → not_delivered with evidence; `reportOutcomes:false` opts out) plus manual `reportOutcome`/`report_outcome`. Delivery rates surface in reputation lookups and a scan-time `delivery` check: low rate (<70% over ≥5 outcomes) or repeated no-ships with zero successes → FLAG only (H-2 applies to measured history too); no history reads as no history. Aggregation keys off the pay_to captured at scan time, never reporter input. Rotation migrates the scan index with the account. 14 server + 5 TS + 5 Py new tests (264/86/89 green). Measured outcomes also dilute false accusations naturally — the best fairness lever in this section.
+
+
 The registry records accusations, not verdicts, and reports can only ever `flag` (never `block`) — so mistakes are survivable. These make it fairer and harder to game:
 
 - **Time decay** — report weight decays with age (e.g. half-life ~90 days), so a wallet's 2026 mistakes don't follow it forever. `first_reported`/`last_reported` already exist in the summary; risk grading should use them.

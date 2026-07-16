@@ -502,7 +502,8 @@ export function handleApprovalPoll(store: Store, approvalId: string, apiKey: str
   };
 }
 
-/** Key rotation moves the account to a new hash — approvals follow it. */
+/** Key rotation moves the account to a new hash — approvals, and the scan
+ * index entries that gate outcome reporting, follow it. */
 export function migrateApprovalsOnRotate(store: Store, oldHash: string, newHash: string): void {
   const config = store.approvalConfigs.get(oldHash);
   if (config) {
@@ -511,6 +512,9 @@ export function migrateApprovalsOnRotate(store: Store, oldHash: string, newHash:
   }
   for (const record of store.approvals.values()) {
     if (record.key_hash === oldHash) record.key_hash = newHash;
+  }
+  for (const entry of store.scanIndex.values()) {
+    if (entry.key_hash === oldHash) entry.key_hash = newHash;
   }
   store.markDirty();
 }

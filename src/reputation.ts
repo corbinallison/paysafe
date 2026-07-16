@@ -10,6 +10,7 @@
  */
 import type { CheckResult, ReportCategory, ReputationReport, ReputationSummary } from "./types.ts";
 import type { Store } from "./store.ts";
+import { deliverySummary } from "./outcomes.ts";
 
 const CATEGORIES: ReportCategory[] = [
   "scam", "non_delivery", "prompt_injection", "overcharge", "impersonation", "replay_abuse", "other",
@@ -79,6 +80,9 @@ export function summarize(store: Store, addressRaw: string): ReputationSummary {
     categories,
     first_reported: times[0],
     last_reported: times[times.length - 1],
+    // Measured, commitment-bound delivery history (see outcomes.ts) — a
+    // categorically stronger signal than the self-asserted reports above.
+    delivery: deliverySummary(store, address),
   };
 }
 

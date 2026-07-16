@@ -510,6 +510,34 @@ export class PaySafeClient {
     return this.requestJson("POST", "/v1/approvals/config", { webhook_url: webhookUrl, format: opts.format });
   }
 
+  // -- delivery outcomes ---------------------------------------------------------
+
+  /**
+   * Record whether a scanned, settled payment actually DELIVERED. The report
+   * is bound to the scan (scan_id + payment_commitment), so delivery history
+   * can't be fabricated without real, scanned payments. One outcome per scan.
+   * The payment-path wrapper (wrapFetchWithPaySafe) calls this automatically;
+   * call it yourself when you settle payments some other way.
+   */
+  async reportOutcome(
+    scan: ScanResponse,
+    outcome: "delivered" | "not_delivered" | "partial" | "wrong_content",
+    evidence?: { status?: number; contentType?: string; bytes?: number; latencyMs?: number },
+  ): Promise<unknown> {
+    const commitment = scan.attestation?.payment_commitment;
+    if (!commitment) {
+      throw new PaySafeError("cannot report an outcome: the scan carries no attestation/payment_commitment (verdict signing disabled?)");
+    }
+    return this.requestJson("POST", "/v1/outcomes", {
+      scan_id: scan.scan_id,
+      payment_commitment: commitment,
+      outcome,
+      evidence: evidence
+        ? { status: evidence.status, content_type: evidence.contentType, bytes: evidence.bytes, latency_ms: evidence.latencyMs }
+        : undefined,
+    });
+  }
+
   // -- reputation --------------------------------------------------------------
 
   /** File a counterparty report (always free). */

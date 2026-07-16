@@ -4,7 +4,7 @@
 
 [![x402](https://img.shields.io/badge/x402-v2-blue)](https://github.com/x402-foundation/x402)
 [![network](https://img.shields.io/badge/settles%20on-Base%20(USDC)-0052FF)](https://docs.cdp.coinbase.com/x402/quickstart-for-sellers)
-[![tests](https://img.shields.io/badge/tests-244%2F244-brightgreen)](test/run-tests.ts)
+[![tests](https://img.shields.io/badge/tests-264%2F264-brightgreen)](test/run-tests.ts)
 [![npm](https://img.shields.io/npm/v/paysafe-x402-client?label=sdk)](https://www.npmjs.com/package/paysafe-x402-client)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
@@ -62,6 +62,7 @@ Each exposes the same three tools (scan / check reputation / report) plus a fram
 | Prompt-injection-triggered payments | Payments whose *decision* originated from content the agent just read (tool result / fetched page) rather than its own planning step; escalates on injection tells in that content; blocks when the `pay_to` address itself came from it |
 | Resource URL risk (incoming) | IP-literal hosts, punycode/homoglyphs, link shorteners, `user@host` tricks, non-HTTPS, credential demands ("send your seed phrase") |
 | Counterparty reputation | Shared post-hoc report registry, cross-checked on every scan; reporting is always free |
+| Delivery outcomes | Measured, commitment-bound delivery history per counterparty — a clean payment to a seller who never ships still fails you. Sellers with low delivery rates or repeated no-ships get flagged (never blocked: H-2 applies to measured history too) |
 
 **Zero-latency hardening tier** — checks that hold even when the calling agent's narration is compromised:
 
@@ -95,6 +96,7 @@ Each exposes the same three tools (scan / check reputation / report) plus a fram
 | `POST /v1/keys/revoke` | free | Permanently kill a leaked key and its account (requires `{"confirm": true}`; irreversible) |
 | `POST /v1/approvals/config` | free | Enable [human-in-the-loop approvals](#human-in-the-loop-step-up-approvals): flag verdicts pause for a human decision via your webhook |
 | `GET /v1/approvals/:id` | free | Poll a pending approval; on approve, returns the signed `override:allow` verdict |
+| `POST /v1/outcomes` | free | Record whether a scanned, settled payment [actually delivered](#delivery-outcomes) (commitment-bound; the SDK wrappers do this automatically) |
 | `GET /v1/plans` | free | Machine-readable plan catalog (tiers, limits, subscribe mechanics) |
 | `GET /v1/usage` | free | Your key's own usage stats: scan/verdict counts, free-tier quota, plan status |
 | `POST /v1/trust/evaluate` | free | [x402 trust-provider interface](https://github.com/x402-foundation/x402/issues/2299) — sellers gate settlement on a payer's history (TrustQuery → PASS/FAIL/UNCERTAIN + evidence) |
@@ -111,7 +113,7 @@ Each exposes the same three tools (scan / check reputation / report) plus a fram
 
 Send the key from `POST /v1/keys` in the `X-API-Key` header; the first `FREE_CALLS` (default 100) calls bypass payment. After that, unpaid calls get a standard x402 `402 Payment Required` — any x402 client (`@x402/fetch`, `x402-requests`, …) handles pay-and-retry automatically.
 
-**Key lifecycle.** The account is the identity; the `psk_` secret is just a credential pointing at it. If a key leaks, `POST /v1/keys/rotate` mints a replacement secret bound to the same account — usage history, remaining free calls, and any active plan carry over unchanged (rotation never resets the free tier, so it can't be farmed). The old secret keeps scanning through an optional grace window (`grace_seconds`, default 900, `0` = dies instantly, max 24 h) so a fleet can switch over without downtime, but during grace it can no longer rotate or revoke — a leaked old secret can't take over the account. `POST /v1/keys/revoke` (with `{"confirm": true}`) is the kill switch: key and account die permanently, and the tombstone persists so the dead key keeps failing with a named reason instead of a mystery 401.
+**Key lifecycle.** The account is the identity; the `psk_` secret is just a credential pointing at it. If a key leaks, `POST /v1/keys/rotate` mints a replacement secret bound to the same account — usage history, remaining free calls, and any active plan carry over unchanged (rotation never resets the free tier, so it can't be farmed). The old secret keeps scanning through an optional grace window (`grace_seconds`, default 900, `0` = dies instantly, max 24 h) so a fleet can switch over without downtime, but during grace it can no longer rotate or revoke — a leaked old secret can't take over the account. `POST /v1/keys/revoke` (with `{"confirm": true}`) is the kill switch: key and account die permanently, and the tombstone persists so the dead key keeps failing with a named reason instead of a mystery 401. Rotating the owner key? Update `ADMIN_KEY_SHA256` to the `api_key_sha256` in the rotate response.
 
 ### Example: scan an outgoing payment
 
@@ -172,9 +174,11 @@ POST /v1/scan/outgoing
 }
 ```
 
-## Dashboard
+## Dashboards
 
-`GET /dashboard`.** A single self-contained page where any key holder can see their own scan counts, verdict breakdown, free-tier quota, and plan status. Paste your `psk_` key and hit View; the key is sent only as an `X-API-Key` header to `GET /v1/usage` (never in a URL, so it can't leak via history, referrers, or server logs), and each key can only ever see its own account. Served with a locked-down CSP (`default-src 'none'`, zero external resources) and rendered exclusively via `textContent`.
+**Usage dashboard — `GET /dashboard`.** A single self-contained page where any key holder can see their own scan counts, verdict breakdown, free-tier quota, and plan status. Paste your `psk_` key and hit View; the key is sent only as an `X-API-Key` header to `GET /v1/usage` (never in a URL, so it can't leak via history, referrers, or server logs), and each key can only ever see its own account. Served with a locked-down CSP (`default-src 'none'`, zero external resources) and rendered exclusively via `textContent`.
+
+**Owner dashboard — `GET /admin`.** Same interface, but sourced from the tamper-evident audit log: all-time scan totals and verdict split (including anonymous scans), a 30-day activity chart, most-fired checks, account/registry counts, and the audit-chain head with a one-click full-chain verify. Access is bound to a single key: set `ADMIN_KEY_SHA256` to the SHA-256 hex of your key and only that key unlocks `GET /v1/admin/stats` (constant-time compare; the endpoint 404s when unconfigured). Only the hash lives in config — consistent with keys being hashed at rest. Responses are aggregates only: no customer keys, agent ids, or addresses.
 
 ## Human-in-the-loop step-up approvals
 
@@ -204,6 +208,16 @@ if (scan.verdict === "flag" && scan.approval) {
 
 **Disabling.** Per key: `POST /v1/approvals/config` with `{"webhook_url": null}` — the response carries an advisory reminding you that flags return to advisory-only (nothing pauses, no overrides are minted, and an `acceptOverrides` wallet has no flag→payment path anymore); pending approvals stay decidable until they expire. Server-wide: `APPROVALS=off` refuses new configs and opens no new approvals, with the same advisory, while in-flight approvals remain decidable so a mid-flight disable strands nothing.
 
+## Delivery outcomes
+
+Every scan check validates the *payment* — well-formed, un-manipulated. None of them can tell you the seller will actually **deliver**: a perfectly clean payment to a seller who never ships still fails the agent. The outcome loop closes that gap with measured history instead of accusations:
+
+- x402 delivery is usually **synchronous** — the resource arrives in the paid response — so the SDK payment-path wrappers (`wrapFetchWithPaySafe` / `wrap_transport_with_paysafe`) observe it mechanically and report it **automatically**: paid 2xx → `delivered`, paid 5xx/second-402 → `not_delivered`, with status/bytes/latency evidence (opt out with `reportOutcomes: false`). Settling some other way? `POST /v1/outcomes` or `client.reportOutcome(scan, ...)` directly.
+- Every outcome is **bound to a scan PaySafe performed**: the report must present the `scan_id` + `payment_commitment` pair, one outcome per scan, keyed scans only from the scanning account. Fabricating delivery history requires making real, scanned payments — an anti-Sybil property free-text reports can't have.
+- Aggregated delivery rates surface in `GET /v1/reputation/:address` and in a `delivery` check on every future scan of that counterparty: low rates and repeated no-ships **flag** (never block — measured history is still third-party signal, audit H-2 applies).
+
+Honest limits: this measures that content *arrived*, not that it was *good* — quality judgments stay with `POST /v1/reputation/report` — and it covers digital, synchronous x402 delivery, not physical shipment.
+
 ## Local development
 
 For contributors and anyone auditing the detectors — runs entirely offline, payments disabled, no wallet needed:
@@ -214,7 +228,7 @@ npm install
 
 npm run dev            # local dev server — payments off
 npm run demo:replay    # replay-attack demo: fresh nonce ALLOW → reused nonce BLOCK
-npm test               # 244-test detector + hardening + plans + audit-log + dashboard + key-lifecycle + approvals suite
+npm test               # 264-test detector + hardening + plans + audit-log + dashboard + key-lifecycle + approvals + outcomes suite
 ```
 
 ## Performance
@@ -280,18 +294,21 @@ src/
   detectors/      pii · replay · overpayment · injection (fast + deep) · urlrisk
                   asset · badlist · pinning · poisoning · scoutscore · velocity
   reputation.ts   Shared report registry
+  outcomes.ts     Delivery-outcome ledger (commitment-bound) + delivery check
+  approvals.ts    Human-in-the-loop step-up approvals (webhook + overrides)
+  approvepage.ts  Human decide page (GET /approve)
   dashboard.ts    Self-contained usage dashboard (GET /dashboard)
   admindash.ts    Owner dashboard, audit-log-backed (GET /admin)
   verdictsign.ts  Ed25519 verdict attestation
   manifest.ts     /.well-known/x402 + agent card
   store.ts        JSON-file-backed state (tiny interface)
-mcp/server.ts     MCP server (9 tools — npx paysafe-x402)
+mcp/server.ts     MCP server (10 tools — npx paysafe-x402)
 examples/         replay-demo.ts — reused-nonce attack blocked end-to-end
 auditlog.ts       Tamper-evident hash-chained decision log
   commitment.ts     Payment hashing (attestation binding + audit digest)
-test/             244-test suite (detectors, hardening, plans, crypto, audit, dashboards, key lifecycle, approvals — npm test)
-sdk/              TypeScript client SDK + wallet enforcement kit + payment-path wrapper (npm: paysafe-x402-client, 81 tests)
-sdk-python/       Python client SDK + wallet enforcement kit + payment-path wrapper (PyPI: paysafe-x402, 84 tests)
+test/             264-test suite (detectors, hardening, plans, crypto, audit, dashboards, key lifecycle, approvals, outcomes — npm test)
+sdk/              TypeScript client SDK + wallet enforcement kit + payment-path wrapper (npm: paysafe-x402-client, 86 tests)
+sdk-python/       Python client SDK + wallet enforcement kit + payment-path wrapper (PyPI: paysafe-x402, 89 tests)
 ```
 
 Design notes: verdicts aggregate worst-first (any block ⇒ block); `risk_score` is severity-based with compounding for multiple independent findings; the detection core has **zero runtime dependencies**, so the full suite runs with `node --experimental-strip-types` and no install.

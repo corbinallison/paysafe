@@ -32,6 +32,7 @@ import { approvePageHtml } from "./approvepage.ts";
 import { llmsTxt } from "./llms.ts";
 import { handleTrustEvaluate } from "./trust.ts";
 import { handleApprovalDecide, handleApprovalInspect, handleApprovalPoll } from "./approvals.ts";
+import { handleOutcomeReport } from "./outcomes.ts";
 import type { ApiResult } from "./api.ts";
 
 const cfg = { ...loadConfig(), mode: "dev" as const };
@@ -48,6 +49,7 @@ const keyLimiter = new RateLimiter(cfg.keysPerIpPerDay, 24 * 3600_000);
 const reportLimiter = new RateLimiter(cfg.reportsPerIpPerHour, 3600_000);
 const trustLimiter = new RateLimiter(cfg.trustQueriesPerIpPerHour, 3600_000);
 const approvalLimiter = new RateLimiter(cfg.approvalActionsPerIpPerHour, 3600_000);
+const outcomesLimiter = new RateLimiter(cfg.outcomesPerIpPerHour, 3600_000);
 const LIMITED: ApiResult = { status: 429, body: { error: "Rate limit exceeded for this endpoint. Try again later." } };
 
 function readBody(req: import("node:http").IncomingMessage): Promise<unknown> {
@@ -139,6 +141,10 @@ const server = createServer(async (req, res) => {
     }
     else if (method === "GET" && /^\/v1\/approvals\/[^/]+$/.test(path))
       out = handleApprovalPoll(store, decodeURIComponent(path.split("/").pop() ?? ""), req.headers["x-api-key"] as string | undefined);
+    else if (method === "POST" && path === "/v1/outcomes") {
+      if (!outcomesLimiter.allow(ip)) out = LIMITED;
+      else out = handleOutcomeReport(store, cfg, req.headers["x-api-key"] as string | undefined, await readBody(req));
+    }
     else if (method === "GET" && path === "/v1/admin/stats")
       out = handleAdminStats(cfg, store, req.headers["x-api-key"] as string | undefined);
     else if (method === "POST" && path === "/v1/plans/subscribe")

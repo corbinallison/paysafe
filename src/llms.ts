@@ -100,6 +100,12 @@ advisory into enforceable without PaySafe ever holding funds.
                                   signed override verdict (tag "override:allow", <=5 min). Free.
 - GET  /v1/approvals/{id}         Poll a pending approval; on approve you receive the signed
                                   override bound to exactly that payment. Free.
+- POST /v1/outcomes               AFTER a scanned payment settles: record whether the seller
+                                  actually DELIVERED (delivered / not_delivered / partial /
+                                  wrong_content), citing the scan_id + payment_commitment.
+                                  Builds measured delivery rates that protect every agent's
+                                  next scan of that counterparty. The SDK payment wrappers do
+                                  this automatically. Free.
 - POST /v1/trust/evaluate         For SELLERS: x402 trust-provider interface (TrustQuery in,
                                   TrustEvaluation out) to gate settlement on a payer's history. Free.
 
@@ -109,8 +115,9 @@ PII/secret leakage in payment metadata, nonce replay, overpayment vs the quoted
 price, prompt-injection-triggered payments (fast + deep tiers, including
 base64/unicode-obfuscated payloads), incoming resource-URL risk, canonical-USDC
 verification (lookalike tokens), address-poisoning, known-bad lists, TOFU
-merchant pinning, velocity and spend caps, external trust signals, and a shared
-counterparty report registry.
+merchant pinning, velocity and spend caps, external trust signals, a shared
+counterparty report registry, and measured delivery-outcome history (does this
+seller actually ship?) bound to scans PaySafe performed.
 
 ## Pricing
 

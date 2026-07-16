@@ -55,6 +55,14 @@ export interface PaySafeConfig {
   trustQueriesPerIpPerHour: number;
   /** Approval inspect/decide calls per IP per hour (token-authed endpoints) */
   approvalActionsPerIpPerHour: number;
+  /** Outcome reports (POST /v1/outcomes) per IP per hour — one per settlement, so generous */
+  outcomesPerIpPerHour: number;
+
+  // --- delivery-outcome check (flag-only, audit H-2) ---
+  /** Minimum commitment-bound outcomes before the delivery-rate check fires */
+  deliveryMinOutcomes: number;
+  /** Delivery rate below this flags the counterparty (never blocks) */
+  deliveryFlagRate: number;
 
   // --- human-in-the-loop step-up approvals ---
   /** Feature switch (APPROVALS=off disables: no new configs, no new approvals;
@@ -120,6 +128,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     reportsPerIpPerHour: num(env.REPORTS_PER_IP_PER_HOUR, 30),
     trustQueriesPerIpPerHour: num(env.TRUST_QUERIES_PER_IP_PER_HOUR, 120),
     approvalActionsPerIpPerHour: num(env.APPROVAL_ACTIONS_PER_IP_PER_HOUR, 60),
+    outcomesPerIpPerHour: num(env.OUTCOMES_PER_IP_PER_HOUR, 600),
+
+    deliveryMinOutcomes: num(env.DELIVERY_MIN_OUTCOMES, 5),
+    deliveryFlagRate: Math.min(Math.max(num(env.DELIVERY_FLAG_RATE, 0.7), 0), 1),
 
     approvalsEnabled: env.APPROVALS !== "off",
     approvalsPendingTtlMinutes: num(env.APPROVALS_PENDING_TTL_MINUTES, 10),

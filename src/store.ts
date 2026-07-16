@@ -116,6 +116,36 @@ export interface ApprovalRecord {
   override?: unknown;
 }
 
+/** Rolling index of recent scans: lets an outcome report be VERIFIED against a
+ * scan PaySafe actually performed (scan_id + commitment must both match), and
+ * enforces one outcome per scan. Size-capped; outcomes must be reported while
+ * the entry is retained. */
+export interface ScanIndexEntry {
+  commitment: string;
+  pay_to: string; // lowercased; "" when the scan had none
+  verdict: string;
+  /** Hash of the key that made the scan (absent for anonymous scans). When
+   * present, only that account may report the outcome. */
+  key_hash?: string;
+  at: string;
+  /** Consumed marker: the single outcome reported for this scan. */
+  outcome?: string;
+}
+
+/** Aggregated delivery outcomes for one counterparty (keyed by pay_to). Counts
+ * only commitment-bound outcomes — each corresponds to a scan we performed. */
+export interface CounterpartyOutcomes {
+  delivered: number;
+  not_delivered: number;
+  partial: number;
+  wrong_content: number;
+  /** Distinct reporter tokens (key hashes, or "anon"), capped — enough to
+   * distinguish one noisy reporter from many independent ones. */
+  reporters: string[];
+  first_at: string;
+  last_at: string;
+}
+
 export interface VelocityEvent {
   t: number;   // epoch ms
   usd: number; // scanned payment value (0 if unknown)
@@ -145,6 +175,8 @@ interface Snapshot {
   revoked?: Record<string, RevokedKeyRecord>;
   approval_configs?: Record<string, ApprovalConfig>;
   approvals?: Record<string, ApprovalRecord>;
+  scan_index?: Record<string, ScanIndexEntry>;
+  outcomes?: Record<string, CounterpartyOutcomes>;
   velocity: Record<string, VelocityEvent[]>;
   counterparties: Record<string, string[]>;
   pins: Record<string, PinRecord>;
@@ -164,6 +196,8 @@ export class Store {
   revoked: Map<string, RevokedKeyRecord> = new Map();
   approvalConfigs: Map<string, ApprovalConfig> = new Map();
   approvals: Map<string, ApprovalRecord> = new Map();
+  scanIndex: Map<string, ScanIndexEntry> = new Map();
+  outcomes: Map<string, CounterpartyOutcomes> = new Map();
   velocity: Map<string, VelocityEvent[]> = new Map();
   counterparties: Map<string, string[]> = new Map();
   pins: Map<string, PinRecord> = new Map();
@@ -200,6 +234,8 @@ export class Store {
       this.revoked = new Map(Object.entries(snap.revoked ?? {}));
       this.approvalConfigs = new Map(Object.entries(snap.approval_configs ?? {}));
       this.approvals = new Map(Object.entries(snap.approvals ?? {}));
+      this.scanIndex = new Map(Object.entries(snap.scan_index ?? {}));
+      this.outcomes = new Map(Object.entries(snap.outcomes ?? {}));
       this.velocity = new Map(Object.entries(snap.velocity ?? {}));
       this.counterparties = new Map(Object.entries(snap.counterparties ?? {}));
       this.pins = new Map(Object.entries(snap.pins ?? {}));
@@ -312,6 +348,8 @@ export class Store {
     Store.evict(this.keys, max);
     Store.evict(this.revoked, max);
     Store.evict(this.approvalConfigs, max);
+    Store.evict(this.scanIndex, max);
+    Store.evict(this.outcomes, max);
     // approvals are NOT evicted here: dropping an in-flight approval would
     // orphan a legitimately-approved override. Creation refuses when full
     // (fail-closed) and pruneApprovals() expires stale pendings on the timer.
@@ -331,6 +369,8 @@ export class Store {
       revoked: Object.fromEntries(this.revoked),
       approval_configs: Object.fromEntries(this.approvalConfigs),
       approvals: Object.fromEntries(this.approvals),
+      scan_index: Object.fromEntries(this.scanIndex),
+      outcomes: Object.fromEntries(this.outcomes),
       velocity: Object.fromEntries(this.velocity),
       counterparties: Object.fromEntries(this.counterparties),
       pins: Object.fromEntries(this.pins),

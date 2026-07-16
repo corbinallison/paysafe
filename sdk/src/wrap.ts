@@ -39,6 +39,12 @@ export interface WrapFetchOptions {
   expectedPriceUsd?: number | ((offer: PaymentDetails) => number | undefined);
   /** Observe scans as they happen (telemetry/logging). */
   onScan?: (phase: "incoming" | "outgoing", scan: ScanResponse) => void;
+  /** Automatically report the delivery outcome of every paid request (default
+   * true): 2xx → delivered; 5xx/4xx/second-402 after payment → not_delivered,
+   * with mechanical evidence. Fire-and-forget — never delays the response.
+   * The outcome is commitment-bound to the outgoing scan, feeding measured
+   * delivery rates for every agent's future scans of this counterparty. */
+  reportOutcomes?: boolean;
 }
 
 /** Defensive mapping from an x402 402 body's requirements entry to payment fields. */
@@ -119,6 +125,27 @@ export function wrapFetchWithPaySafe(
     }
 
     // 3) Verdict passed — let the payment-capable fetch do the x402 dance.
-    return paymentFetch(input, init);
+    const started = Date.now();
+    const paid = await paymentFetch(input, init);
+
+    // 4) Delivery-outcome capture: x402 delivery is synchronous — the resource
+    // arrives in this very response — so "did they ship?" is mechanically
+    // observable right here. Reported async; a reporting failure never
+    // affects the response. Quality judgment stays with report(): we only
+    // auto-judge what is mechanical.
+    if ((opts.reportOutcomes ?? true) && paysafe.reportOutcome) {
+      const contentLength = Number(paid.headers.get("content-length"));
+      const outcome: "delivered" | "not_delivered" =
+        paid.status >= 200 && paid.status < 300 ? "delivered" : "not_delivered"; // incl. a SECOND 402 after paying
+      void paysafe
+        .reportOutcome(outgoing, outcome, {
+          status: paid.status,
+          contentType: paid.headers.get("content-type") ?? undefined,
+          bytes: Number.isFinite(contentLength) ? contentLength : undefined,
+          latencyMs: Date.now() - started,
+        })
+        .catch(() => undefined);
+    }
+    return paid;
   } as typeof fetch;
 }

@@ -15,6 +15,7 @@ import { checkAddressPoisoning } from "./detectors/poisoning.ts";
 import { checkScoutScore, scheduleScoutScoreRefresh } from "./detectors/scoutscore.ts";
 import { checkVelocity } from "./detectors/velocity.ts";
 import { checkReputation } from "./reputation.ts";
+import { checkDelivery } from "./outcomes.ts";
 
 const SEVERITY_SCORE: Record<string, number> = {
   info: 0,
@@ -152,6 +153,11 @@ export function runScan(
   }
 
   checks.push(checkReputation(store, payment.pay_to));
+
+  // Delivery outcomes: measured, commitment-bound delivery history for this
+  // counterparty (flag-only — H-2 applies to measured history too).
+  const delivery = checkDelivery(store, payment, cfg);
+  if (delivery) checks.push(delivery);
 
   const { verdict, risk } = aggregate(checks);
 

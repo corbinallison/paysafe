@@ -414,6 +414,49 @@ export function openApiDoc(cfg: PaySafeConfig): object {
           },
         },
       },
+      "/v1/outcomes": {
+        post: {
+          operationId: "reportOutcome",
+          summary: "Record whether a scanned, settled payment actually delivered (commitment-bound)",
+          description:
+            "The delivery-outcome leg: scans validate the payment; this records whether the seller shipped. The report must present the scan_id AND payment_commitment of a scan PaySafe performed (one outcome per scan; keyed scans only from the scanning account) — so delivery history cannot be fabricated without making real, scanned payments. Aggregated per counterparty into delivery rates that feed GET /v1/reputation/{address} and the flag-only `delivery` check on future scans. The official SDK payment-path wrappers report outcomes automatically.",
+          tags: ["Reputation"],
+          security: [],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["scan_id", "payment_commitment", "outcome"],
+                  properties: {
+                    scan_id: { type: "string", description: "From the scan response" },
+                    payment_commitment: { type: "string", description: "From the scan's attestation.payment_commitment" },
+                    outcome: { type: "string", enum: ["delivered", "not_delivered", "partial", "wrong_content"] },
+                    evidence: {
+                      type: "object",
+                      properties: {
+                        status: { type: "integer" },
+                        content_type: { type: "string" },
+                        bytes: { type: "integer" },
+                        latency_ms: { type: "integer" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "201": { description: "Outcome recorded and aggregated against the scanned counterparty" },
+            "200": { description: "Idempotent repeat of the already-recorded outcome" },
+            "400": { description: "Invalid outcome value" },
+            "404": { description: "Unknown scan, commitment mismatch, or wrong account (indistinguishable)" },
+            "409": { description: "A different outcome is already recorded (outcomes are final)" },
+            "429": { description: "Rate limited" },
+          },
+        },
+      },
       "/v1/keys/rotate": {
         post: {
           operationId: "rotateApiKey",

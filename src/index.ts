@@ -51,6 +51,7 @@ import { dashboardHtml } from "./dashboard.ts";
 import { adminDashboardHtml } from "./admindash.ts";
 import { approvePageHtml } from "./approvepage.ts";
 import { handleApprovalDecide, handleApprovalInspect, handleApprovalPoll } from "./approvals.ts";
+import { handleOutcomeReport } from "./outcomes.ts";
 import { llmsTxt } from "./llms.ts";
 import { handleTrustEvaluate } from "./trust.ts";
 
@@ -67,6 +68,7 @@ const keyLimiter = new RateLimiter(cfg.keysPerIpPerDay, 24 * 3600_000);
 const reportLimiter = new RateLimiter(cfg.reportsPerIpPerHour, 3600_000);
 const trustLimiter = new RateLimiter(cfg.trustQueriesPerIpPerHour, 3600_000);
 const approvalLimiter = new RateLimiter(cfg.approvalActionsPerIpPerHour, 3600_000);
+const outcomesLimiter = new RateLimiter(cfg.outcomesPerIpPerHour, 3600_000);
 
 if (cfg.mode === "live" && !cfg.payTo) {
   console.error("PAY_TO (receiving wallet address) is required in live mode. Set PAYSAFE_MODE=dev to run without payments.");
@@ -464,6 +466,17 @@ app.post("/v1/approvals/decide", (req, res) => {
     return;
   }
   const r = handleApprovalDecide(store, cfg, signer, req.body);
+  res.status(r.status).json(r.body);
+});
+
+// Delivery-outcome ledger: record whether a scanned, settled payment actually
+// delivered. Free, commitment-bound (see outcomes.ts), never payment-gated.
+app.post("/v1/outcomes", (req, res) => {
+  if (!outcomesLimiter.allow(req.ip ?? "unknown")) {
+    res.status(429).json({ error: `Rate limit: max ${cfg.outcomesPerIpPerHour} outcome reports per IP per hour.` });
+    return;
+  }
+  const r = handleOutcomeReport(store, cfg, req.header("x-api-key"), req.body);
   res.status(r.status).json(r.body);
 });
 

@@ -126,4 +126,16 @@ export interface ReputationSummary {
   categories: Record<string, number>;
   first_reported?: string;
   last_reported?: string;
+  /** Measured, commitment-bound delivery outcomes (null = no outcome history). */
+  delivery?: {
+    outcomes_total: number;
+    delivered: number;
+    not_delivered: number;
+    partial: number;
+    wrong_content: number;
+    delivery_rate: number;
+    distinct_reporters: number;
+    first_at: string;
+    last_at: string;
+  } | null;
 }

@@ -118,6 +118,7 @@ rogue_pub_hex = Ed25519PrivateKey.generate().public_key().public_bytes(Encoding.
 
 seen = {"scans": [], "subscribes": 0}
 mock_approvals: dict = {}
+seen_outcomes: list = []
 
 
 def make_scan(payment: dict, direction: str) -> dict:
@@ -226,6 +227,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"plan": body.get("plan"), "expires_at": expires})
         if path == "/v1/reputation/report":
             return self._send(201, {"accepted": True})
+        if path == "/v1/outcomes":
+            seen_outcomes.append(body)
+            return self._send(201, {"recorded": True, "scan_id": body.get("scan_id"), "outcome": body.get("outcome")})
         if path == "/v1/approvals/config":
             if body.get("webhook_url") is None:
                 return self._send(200, {"enabled": False})
@@ -677,6 +681,50 @@ scans_before = len(seen["scans"])
 single = wrap_transport_with_paysafe(paying_transport, paysafe2, base_transport=merchant_transport(), scan_offer=False)
 single("GET", "https://merchant.example/premium", {}, None)
 check("scan_offer=False runs a single outgoing scan", len(seen["scans"]) == scans_before + 1)
+
+print("\n-- delivery outcomes --")
+
+def wait_for(cond, timeout_s=3.0):
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if cond():
+            return True
+        time.sleep(0.03)
+    return cond()
+
+# Auto-capture: paid 2xx -> delivered, commitment-bound with evidence.
+oc_client = PaySafeClient(base_url=BASE, agent_id="outcome-py")
+oc_guarded = wrap_transport_with_paysafe(paying_transport, oc_client, base_transport=merchant_transport())
+oc_guarded("GET", "https://merchant.example/premium", {}, None)
+check("paid 2xx auto-reports a delivered outcome", wait_for(lambda: any(o.get("outcome") == "delivered" and o.get("evidence", {}).get("status") == 200 for o in seen_outcomes)))
+oc = next(o for o in seen_outcomes if o.get("outcome") == "delivered" and o.get("evidence", {}).get("status") == 200)
+check("outcome is commitment-bound with byte evidence", len(oc.get("payment_commitment", "")) == 64 and isinstance(oc["evidence"].get("bytes"), int))
+
+# Paid 5xx -> not_delivered.
+def broken_paying_transport(method, url, headers, body):
+    return 500, {"content-type": "application/json"}, b'{"error":"took the money, no goods"}'
+
+oc_broken = wrap_transport_with_paysafe(broken_paying_transport, oc_client, base_transport=merchant_transport())
+oc_broken("GET", "https://merchant.example/premium2", {}, None)
+check("paid 5xx auto-reports not_delivered", wait_for(lambda: any(o.get("outcome") == "not_delivered" and o.get("evidence", {}).get("status") == 500 for o in seen_outcomes)))
+
+# Opt-out: drain stragglers until quiet, then assert no growth.
+quiet = len(seen_outcomes)
+for _ in range(20):
+    time.sleep(0.1)
+    if len(seen_outcomes) == quiet:
+        break
+    quiet = len(seen_outcomes)
+silent = wrap_transport_with_paysafe(paying_transport, PaySafeClient(base_url=BASE), base_transport=merchant_transport(), report_outcomes=False)
+before_silent = len(seen_outcomes)
+silent("GET", "https://merchant.example/premium3", {}, None)
+time.sleep(0.4)
+check("report_outcomes=False disables auto-capture", len(seen_outcomes) == before_silent)
+
+# Manual report_outcome for non-wrapper settlement paths.
+manual_scan = oc_client.scan_outgoing({**base_payment, "nonce": "0xpyoutman1"})
+oc_client.report_outcome(manual_scan, "wrong_content", status=200, bytes_received=12)
+check("manual report_outcome posts the bound outcome", seen_outcomes[-1].get("outcome") == "wrong_content" and seen_outcomes[-1].get("scan_id") == manual_scan["scan_id"])
 
 print("\n-- human-in-the-loop approvals --")
 hitl_client = PaySafeClient(base_url=BASE, agent_id="py-hitl")
