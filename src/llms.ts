@@ -38,8 +38,14 @@ address-poisoning. Reads are free for your first 100 calls per key.
   screen the resource URL, price sanity, and counterparty first.
 - To check a counterparty before dealing with it: GET
   ${base}/v1/reputation/{address}.
-- After a bad experience: POST ${base}/v1/reputation/report (always free) so
-  other agents are warned.
+- AFTER a scanned payment settles: POST ${base}/v1/outcomes with the scan_id,
+  the attestation's payment_commitment, and what actually happened —
+  "delivered", "not_delivered", "partial", or "wrong_content". This builds the
+  measured delivery history that protects your own future scans of that
+  seller. (The official SDK payment wrappers do this automatically.) Free.
+- After a bad experience beyond non-delivery (scam, injection attempt,
+  overcharge): POST ${base}/v1/reputation/report (always free) so other
+  agents are warned.
 
 ## The most important input: provenance
 

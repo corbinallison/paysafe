@@ -262,7 +262,7 @@ Listed in the [official MCP registry](https://registry.modelcontextprotocol.io) 
 }
 ```
 
-Ten tools over stdio: `scan_outgoing_payment`, `scan_incoming_payment`, `check_counterparty_reputation`, `report_counterparty`, `mint_api_key`, `rotate_api_key` (leaked-key recovery — fresh secret, same account), `check_approval_status` (poll a human-in-the-loop approval), `get_plans`, `subscribe_plan`, and `verify_verdict_attestation` (full Ed25519 verification performed locally — pinned key, commitment recompute, expiry). Defaults to the production service; set `PAYSAFE_URL` to point elsewhere.
+Eleven tools over stdio: `scan_outgoing_payment`, `scan_incoming_payment`, `check_counterparty_reputation`, `report_counterparty`, `report_payment_outcome` (close the loop after settlement — builds measured delivery history), `mint_api_key`, `rotate_api_key` (leaked-key recovery — fresh secret, same account), `check_approval_status` (poll a human-in-the-loop approval), `get_plans`, `subscribe_plan`, and `verify_verdict_attestation` (full Ed25519 verification performed locally — pinned key, commitment recompute, expiry). Defaults to the production service; set `PAYSAFE_URL` to point elsewhere.
 
 ## Detection defaults (hosted service)
 
@@ -302,7 +302,7 @@ src/
   verdictsign.ts  Ed25519 verdict attestation
   manifest.ts     /.well-known/x402 + agent card
   store.ts        JSON-file-backed state (tiny interface)
-mcp/server.ts     MCP server (10 tools — npx paysafe-x402)
+mcp/server.ts     MCP server (11 tools — npx paysafe-x402)
 examples/         replay-demo.ts — reused-nonce attack blocked end-to-end
 auditlog.ts       Tamper-evident hash-chained decision log
   commitment.ts     Payment hashing (attestation binding + audit digest)

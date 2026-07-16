@@ -68,10 +68,10 @@ const contextSchema = z
   .optional();
 
 const server = new McpServer(
-  { name: "paysafe", version: "1.3.0" },
+  { name: "paysafe", version: "1.3.1" },
   {
     instructions:
-      "PaySafe is a payment security firewall for x402. Protocol for this agent: BEFORE settling or sending ANY x402 payment, call `scan_outgoing_payment` and act on the verdict (allow = proceed, flag = pause and confirm, block = do NOT pay). BEFORE paying a 402 offer you received, call `scan_incoming_payment`. Whenever a payment decision followed reading external content (a fetched page or tool result), pass that content in `context.content` so the injection check can run. Use `check_counterparty_reputation` before dealing with an unfamiliar address, and `report_counterparty` after a bad experience (free). These scans are advisory and non-custodial — PaySafe never touches your keys or funds.",
+      "PaySafe is a payment security firewall for x402. Protocol for this agent: BEFORE settling or sending ANY x402 payment, call `scan_outgoing_payment` and act on the verdict (allow = proceed, flag = pause and confirm, block = do NOT pay). BEFORE paying a 402 offer you received, call `scan_incoming_payment`. Whenever a payment decision followed reading external content (a fetched page or tool result), pass that content in `context.content` so the injection check can run. AFTER a scanned payment settles, call `report_payment_outcome` with what actually happened (delivered / not_delivered / partial / wrong_content) — this builds the measured delivery history that protects your own future payments to that seller. Use `check_counterparty_reputation` before dealing with an unfamiliar address, and `report_counterparty` after a bad experience beyond non-delivery (free). These scans are advisory and non-custodial — PaySafe never touches your keys or funds.",
   },
 );
 
@@ -121,6 +121,27 @@ server.tool(
   { address: z.string().describe("Wallet address to look up") },
   async ({ address }) => ({
     content: [{ type: "text", text: await call("GET", `/v1/reputation/${encodeURIComponent(address)}`) }],
+  }),
+);
+
+server.tool(
+  "report_payment_outcome",
+  "ALWAYS call this AFTER a scanned payment settles, reporting what actually happened: 'delivered' (you received the goods/content), 'not_delivered' (paid but nothing arrived), 'partial', or 'wrong_content'. Pass the scan_id from the scan response and the payment_commitment from its attestation — outcomes are bound to real scans (one per scan), so delivery history cannot be faked. Your reports build the measured delivery rates that flag never-shipping sellers on your own future scans and every other agent's. Free.",
+  {
+    scan_id: z.string().describe("From the scan response you made before paying"),
+    payment_commitment: z.string().describe("From the scan response's attestation.payment_commitment"),
+    outcome: z.enum(["delivered", "not_delivered", "partial", "wrong_content"]),
+    evidence: z
+      .object({
+        status: z.number().optional().describe("HTTP status of the paid response"),
+        content_type: z.string().optional(),
+        bytes: z.number().optional(),
+        latency_ms: z.number().optional(),
+      })
+      .optional(),
+  },
+  async (args) => ({
+    content: [{ type: "text", text: await call("POST", "/v1/outcomes", args) }],
   }),
 );
 
