@@ -22,6 +22,20 @@ except PaySafeBlockedError as e:
     print("Payment blocked:", e.scan["checks"])  # machine-readable reasons
 ```
 
+## The one-line diff: scan every payment by default
+
+Wrap your x402 payment-capable transport and every payment is scanned before it settles:
+
+```python
+from paysafe_x402 import PaySafeClient, wrap_transport_with_paysafe
+
+paysafe = PaySafeClient(agent_id="my-agent")
+guarded = wrap_transport_with_paysafe(my_x402_transport, paysafe)
+# use `guarded` anywhere a transport goes
+```
+
+Non-402 responses pass through untouched (zero overhead). On a 402, the payment is guarded as an outgoing payment (overpayment, address poisoning, velocity, injection provenance — anything you `observe()`d feeds the detector), the offer is scanned as an incoming request (URL risk, credential demands, asset verification, reputation), and only passing verdicts reach the paying transport. A block raises `PaySafeBlockedError` **before any payment is signed**; unparseable 402 offers fail closed. Options: `strict`, `scan_offer`, `expected_price_usd`, `on_scan` telemetry, `base_transport`.
+
 ## The important part: provenance tagging
 
 PaySafe's strongest detector catches **payments triggered by prompt-injected content** — but it needs to know where your agent's decision came from. Tell it:
@@ -101,6 +115,7 @@ paysafe.reputation("0xsomeone...")                           # report summary (p
 ## API surface
 
 `PaySafeClient` — `scan_outgoing`, `scan_incoming`, `guard_outgoing`, `guard_incoming`, `observe`, `note_planning`, `note_user_instruction`, `get_plans`, `subscribe`, `report`, `reputation`, `ensure_api_key`, `verdict_key`, plus `free_calls_remaining` / `plan` state.
+Payment path — `wrap_transport_with_paysafe`, `payment_from_offer`.
 Enforcement — `PaySafeEnforcer` (`approve`, `guard_signer`, `assert_approved`, `revoke`, `clear`), `payment_from_typed_data`.
 Standalone — `verify_attestation`, `compute_payment_commitment`.
 Errors — `PaySafeError` (`.status`, `.body`), `PaySafeBlockedError` (`.scan`), `AttestationError`, `PaySafeEnforcementError` (`.commitment`, `.primary_type`).

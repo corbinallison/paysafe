@@ -24,8 +24,8 @@ import {
 import { x402Manifest, agentCard } from "./manifest.ts";
 import { openApiDoc } from "./openapi.ts";
 import { dashboardHtml } from "./dashboard.ts";
-import { llmsTxt } from "./llms.ts";
 import { adminDashboardHtml } from "./admindash.ts";
+import { llmsTxt } from "./llms.ts";
 import type { ApiResult } from "./api.ts";
 
 const cfg = { ...loadConfig(), mode: "dev" as const };
@@ -72,6 +72,11 @@ const server = createServer(async (req, res) => {
       out = { status: 200, body: { ok: true, mode: cfg.mode, time: new Date().toISOString() } };
     else if (method === "GET" && path === "/.well-known/x402")
       out = { status: 200, body: x402Manifest(cfg) };
+    else if (method === "GET" && (path === "/llms.txt" || path === "/.well-known/llms.txt")) {
+      res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+      res.end(llmsTxt(cfg));
+      return;
+    }
     else if (method === "GET" && path === "/openapi.json")
       out = { status: 200, body: openApiDoc(cfg) };
     else if (method === "GET" && path === "/.well-known/agent-card.json")
@@ -102,11 +107,6 @@ const server = createServer(async (req, res) => {
         "referrer-policy": "no-referrer",
       });
       res.end(path === "/admin" ? adminDashboardHtml() : dashboardHtml());
-      return;
-    }
-    else if (method === "GET" && (path === "/llms.txt" || path === "/.well-known/llms.txt")) {
-      res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
-      res.end(llmsTxt(cfg));
       return;
     }
     else if (method === "GET" && path === "/v1/admin/stats")

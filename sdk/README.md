@@ -25,6 +25,21 @@ try {
 }
 ```
 
+## The one-line diff: scan every payment by default
+
+If you already follow the [official x402 buyer quickstart](https://docs.x402.org/getting-started/quickstart-for-buyers), you have a line like `wrapFetchWithPayment(fetch, x402Client)`. Wrap it:
+
+```ts
+import { PaySafeClient, wrapFetchWithPaySafe } from "paysafe-x402-client";
+import { wrapFetchWithPayment } from "@x402/fetch";
+
+const paysafe = new PaySafeClient({ agentId: "my-agent" });
+const fetchWithPay = wrapFetchWithPaySafe(wrapFetchWithPayment(fetch, x402Client), paysafe);
+// use fetchWithPay exactly as before
+```
+
+Every x402 payment your agent makes is now scanned before it settles. Non-402 responses pass through untouched (zero overhead). On a 402, the payment is guarded as an outgoing payment (overpayment, address poisoning, velocity, injection provenance — anything you `observe()`d feeds the detector), the offer is scanned as an incoming request (URL risk, credential demands, asset verification, reputation), and only passing verdicts reach the paying fetch. A block throws `PaySafeBlockedError` **before any payment is signed**; unparseable 402 offers fail closed. Options: `strict` (refuse flags too), `scanOffer`, `expectedPriceUsd`, `onScan` telemetry, `baseFetch`.
+
 ## The important part: provenance tagging
 
 PaySafe's strongest detector catches **payments triggered by prompt-injected content** — but it needs to know where your agent's decision came from. Tell it:
@@ -116,6 +131,7 @@ await paysafe.reputation("0xsomeone…"); // report summary (paid / free-tier)
 ## API surface
 
 `PaySafeClient` — `scanOutgoing`, `scanIncoming`, `guardOutgoing`, `guardIncoming`, `observe`, `notePlanning`, `noteUserInstruction`, `getPlans`, `subscribe`, `report`, `reputation`, `ensureApiKey`, `verdictKey`, plus `freeCallsRemaining` / `plan` state.
+Payment path — `wrapFetchWithPaySafe`, `paymentFromOffer`.
 Enforcement — `PaySafeEnforcer` (`approve`, `guardSigner`, `assertApproved`, `revoke`, `clear`), `paymentFromTypedData`.
 Standalone — `verifyAttestation`, `computePaymentCommitment`.
 Errors — `PaySafeError` (`.status`, `.body`), `PaySafeBlockedError` (`.scan`), `AttestationError`, `PaySafeEnforcementError` (`.commitment`, `.primaryType`).

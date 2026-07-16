@@ -282,7 +282,7 @@ export function serviceInfo(cfg: PaySafeConfig): ApiResult {
     body: {
       name: "PaySafe",
       tagline: "Payment security firewall for x402 micropayments. Advisory, non-custodial.",
-      version: "1.1.0",
+      version: "1.1.2",
       mode: cfg.mode,
       endpoints: {
         "POST /v1/keys": `Free (rate-limited: ${cfg.keysPerIpPerDay}/IP/day). Issue an API key with a free-call allowance.`,

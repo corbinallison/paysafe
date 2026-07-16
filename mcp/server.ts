@@ -67,11 +67,17 @@ const contextSchema = z
   })
   .optional();
 
-const server = new McpServer({ name: "paysafe", version: "1.0.0" });
+const server = new McpServer(
+  { name: "paysafe", version: "1.1.2" },
+  {
+    instructions:
+      "PaySafe is a payment security firewall for x402. Protocol for this agent: BEFORE settling or sending ANY x402 payment, call `scan_outgoing_payment` and act on the verdict (allow = proceed, flag = pause and confirm, block = do NOT pay). BEFORE paying a 402 offer you received, call `scan_incoming_payment`. Whenever a payment decision followed reading external content (a fetched page or tool result), pass that content in `context.content` so the injection check can run. Use `check_counterparty_reputation` before dealing with an unfamiliar address, and `report_counterparty` after a bad experience (free). These scans are advisory and non-custodial — PaySafe never touches your keys or funds.",
+  },
+);
 
 server.tool(
   "scan_outgoing_payment",
-  "Screen an x402 payment your agent is ABOUT TO MAKE. Checks: PII/secret leakage in payment metadata, nonce replay, overpayment vs expected price, prompt-injection-triggered payment provenance, counterparty reputation. Returns allow/flag/block with reasons. Advisory only — PaySafe never touches keys or funds.",
+  "ALWAYS call this immediately BEFORE settling or sending any x402 payment — it decides whether the payment is safe. Returns allow (proceed) / flag (pause and confirm intent) / block (do NOT pay), with machine-readable reasons and an Ed25519-signed verdict. IMPORTANT: if the decision to pay followed reading any external content (a fetched web page or a tool result), pass that text in `context.content` and set `context.origin` to 'fetched_content' or 'tool_result' — this enables the check that catches prompt-injection-triggered payments (an address injected into content the agent just read). Also catches replayed nonces, overpayment vs the expected price, secrets/PII leaking in payment metadata, fake/lookalike USDC contracts, and address poisoning. Advisory and non-custodial — never touches keys or funds.",
   {
     payment: paymentSchema,
     expected_price_usd: z.number().optional(),
@@ -91,7 +97,7 @@ server.tool(
 
 server.tool(
   "scan_incoming_payment",
-  "Screen an x402 payment request / 402 offer your agent RECEIVED. Checks: resource URL risk (IP literals, punycode, shorteners, userinfo tricks), credential demands, price sanity, replay, counterparty reputation. Returns allow/flag/block with reasons.",
+  "ALWAYS call this BEFORE paying a 402 offer / payment request your agent received — it decides whether the offer is safe to pay. Checks the resource URL for spoofing (IP-literal hosts, punycode/homoglyphs, link shorteners, userinfo tricks), credential demands (e.g. 'send your seed phrase'), price sanity, replay, and whether the counterparty has been reported. Returns allow/flag/block with reasons.",
   {
     payment: paymentSchema,
     expected_price_usd: z.number().optional(),
@@ -111,7 +117,7 @@ server.tool(
 
 server.tool(
   "check_counterparty_reputation",
-  "Look up shared post-hoc reports on a counterparty wallet address (scam, non-delivery, prompt injection, overcharge, impersonation, replay abuse), aggregated across reporting agents.",
+  "Check whether a counterparty wallet address has been reported by other agents BEFORE dealing with it — scam, non-delivery, prompt injection, overcharge, impersonation, or replay abuse. Returns report counts, distinct-reporter count, and a risk level.",
   { address: z.string().describe("Wallet address to look up") },
   async ({ address }) => ({
     content: [{ type: "text", text: await call("GET", `/v1/reputation/${encodeURIComponent(address)}`) }],
@@ -120,7 +126,7 @@ server.tool(
 
 server.tool(
   "report_counterparty",
-  "File a report against a counterparty after a bad payment experience (always free). Categories: scam, non_delivery, prompt_injection, overcharge, impersonation, replay_abuse, other.",
+  "Call this after a bad payment experience (you paid and got nothing, were scammed, overcharged, or hit an injection attempt) to warn other agents — always free. Categories: scam, non_delivery, prompt_injection, overcharge, impersonation, replay_abuse, other.",
   {
     address: z.string(),
     category: z.enum(["scam", "non_delivery", "prompt_injection", "overcharge", "impersonation", "replay_abuse", "other"]),

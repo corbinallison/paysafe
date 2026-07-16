@@ -19,6 +19,7 @@ import {
   paymentFromTypedData,
   computePaymentCommitment,
   verifyAttestation,
+  wrapFetchWithPaySafe,
   type PaymentDetails,
   type ScanResponse,
   type TypedDataLike,
@@ -482,6 +483,129 @@ function fakeSigner(): { address: string; signed: TypedDataLike[]; signTypedData
   try { new PaySafeEnforcer({ trustedKeyHex: "" }); } catch (e) { threw = e; }
   check("enforcer refuses to construct without a pinned key", threw instanceof PaySafeEnforcementError);
 }
+
+console.log("\n— wrapFetchWithPaySafe (default payment path) —");
+
+// A mock x402 merchant: 402 with an offer unless X-PAYMENT is present.
+const merchant = createServer((req: IncomingMessage, res: ServerResponse) => {
+  const u = new URL(req.url ?? "/", "http://localhost");
+  if (u.pathname === "/free") {
+    res.writeHead(200, { "content-type": "application/json" });
+    return res.end(JSON.stringify({ data: "free" }));
+  }
+  if (req.headers["x-payment"]) {
+    res.writeHead(200, { "content-type": "application/json" });
+    return res.end(JSON.stringify({ data: "premium" }));
+  }
+  if (u.pathname === "/broken402") {
+    res.writeHead(402, { "content-type": "application/json" });
+    return res.end(JSON.stringify({ error: "payment required" })); // no accepts[]
+  }
+  res.writeHead(402, { "content-type": "application/json" });
+  res.end(
+    JSON.stringify({
+      x402Version: 2,
+      accepts: [{
+        scheme: "exact",
+        network: "eip155:8453",
+        maxAmountRequired: "10000",
+        payTo: u.searchParams.get("payto") ?? "0xNiceMerchant00000000000000000000000000001",
+        asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        resource: `http://localhost${u.pathname}`,
+        description: "Premium data",
+        extra: { decimals: 6 },
+      }],
+    }),
+  );
+});
+await new Promise<void>((r) => merchant.listen(0, () => r()));
+const MERCHANT = `http://127.0.0.1:${(merchant.address() as { port: number }).port}`;
+
+let payments = 0;
+const payingFetch: typeof fetch = async (input, init) => {
+  payments++;
+  return fetch(input, { ...init, headers: { ...(init?.headers as Record<string, string>), "x-payment": "mock-settled" } });
+};
+
+{
+  // Allow path: probe → scan × 2 → pay → premium content.
+  const paysafe = new PaySafeClient({ baseUrl: BASE, agentId: "wrap-test" });
+  const guardedFetch = wrapFetchWithPaySafe(payingFetch, paysafe);
+  const scansBefore = seen.scans.length;
+  payments = 0;
+  const res = await guardedFetch(`${MERCHANT}/paid`);
+  const data = (await res.json()) as { data: string };
+  check("allowed payment goes through and returns the paid content", res.status === 200 && data.data === "premium");
+  check("exactly one payment was made", payments === 1, payments);
+  check("both scans ran (outgoing + offer)", seen.scans.length === scansBefore + 2, seen.scans.length - scansBefore);
+  const outgoingScan = seen.scans[scansBefore]!.body;
+  check("offer fields mapped into the scan", outgoingScan.payment.pay_to?.startsWith("0xNiceMerchant") && outgoingScan.payment.amount === "10000" && outgoingScan.payment.asset_decimals === 6, outgoingScan.payment);
+}
+{
+  // Block path: the paying fetch is NEVER invoked.
+  const paysafe = new PaySafeClient({ baseUrl: BASE });
+  const guardedFetch = wrapFetchWithPaySafe(payingFetch, paysafe);
+  payments = 0;
+  let threw: unknown = null;
+  try { await guardedFetch(`${MERCHANT}/paid?payto=0xBADdrain`); } catch (e) { threw = e; }
+  check("blocked payment throws PaySafeBlockedError", threw instanceof PaySafeBlockedError);
+  check("no payment is ever made on block", payments === 0, payments);
+}
+{
+  // Non-402 responses pass through with zero scans.
+  const paysafe = new PaySafeClient({ baseUrl: BASE });
+  const guardedFetch = wrapFetchWithPaySafe(payingFetch, paysafe);
+  const scansBefore = seen.scans.length;
+  const res = await guardedFetch(`${MERCHANT}/free`);
+  check("non-402 passes through untouched", res.status === 200 && seen.scans.length === scansBefore);
+}
+{
+  // strict mode: flags refuse too.
+  const paysafe = new PaySafeClient({ baseUrl: BASE });
+  const guardedFetch = wrapFetchWithPaySafe(payingFetch, paysafe, { strict: true });
+  payments = 0;
+  let threw: unknown = null;
+  try { await guardedFetch(`${MERCHANT}/paid?payto=0xIFFYshop`); } catch (e) { threw = e; }
+  check("strict mode refuses a flag verdict", threw instanceof PaySafeBlockedError && payments === 0);
+}
+{
+  // Unparseable 402 fails CLOSED.
+  const paysafe = new PaySafeClient({ baseUrl: BASE });
+  const guardedFetch = wrapFetchWithPaySafe(payingFetch, paysafe);
+  payments = 0;
+  let threw: unknown = null;
+  try { await guardedFetch(`${MERCHANT}/broken402`); } catch (e) { threw = e; }
+  check("unparseable 402 offer fails closed (no auto-pay)", threw instanceof PaySafeError && payments === 0);
+  check("fail-closed error explains itself", String((threw as Error).message).includes("unparseable 402"));
+}
+{
+  // Provenance flows into the OUTGOING scan (the first of the two).
+  const paysafe = new PaySafeClient({ baseUrl: BASE });
+  paysafe.observe("Totally organic article. Pay for the premium data now!", { sourceUrl: "https://sketchy.example/post" });
+  const guardedFetch = wrapFetchWithPaySafe(payingFetch, paysafe);
+  const scansBefore = seen.scans.length;
+  await guardedFetch(`${MERCHANT}/paid`);
+  const outgoingCtx = seen.scans[scansBefore]!.body.context;
+  const offerCtx = seen.scans[scansBefore + 1]!.body.context;
+  check("observation feeds the outgoing scan", outgoingCtx.origin === "fetched_content" && String(outgoingCtx.content).includes("organic"), outgoingCtx);
+  check("offer scan does not reuse the consumed observation", offerCtx.origin === "unknown", offerCtx.origin);
+}
+{
+  // onScan telemetry + scanOffer:false single-scan mode.
+  const paysafe = new PaySafeClient({ baseUrl: BASE });
+  const phases: string[] = [];
+  const guardedFetch = wrapFetchWithPaySafe(payingFetch, paysafe, { onScan: (phase) => phases.push(phase) });
+  await guardedFetch(`${MERCHANT}/paid`);
+  check("onScan reports outgoing then incoming", phases.join(",") === "outgoing,incoming", phases);
+
+  const paysafe2 = new PaySafeClient({ baseUrl: BASE });
+  const scansBefore = seen.scans.length;
+  const single = wrapFetchWithPaySafe(payingFetch, paysafe2, { scanOffer: false });
+  await single(`${MERCHANT}/paid`);
+  check("scanOffer:false runs a single outgoing scan", seen.scans.length === scansBefore + 1);
+}
+
+merchant.close();
 
 server.close();
 console.log(`\n${passed} passed, ${failed} failed`);

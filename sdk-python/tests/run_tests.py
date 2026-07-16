@@ -37,6 +37,7 @@ from paysafe_x402 import (
     compute_payment_commitment,
     payment_from_typed_data,
     verify_attestation,
+    wrap_transport_with_paysafe,
 )
 
 passed = 0
@@ -515,6 +516,132 @@ fx_guarded = fx_enforcer.guard_signer(fx_wallet)
 fx_enforcer.approve(FIXTURE["scan"], FIXTURE["payment"])
 check("Node-signed attestation drives the Python gate end to end",
       fx_guarded.sign_typed_data(typed_data_for(FIXTURE["payment"])) == "0xsigned")
+
+print("\n— wrap_transport_with_paysafe (default payment path) —")
+
+OFFER_402 = {
+    "x402Version": 2,
+    "accepts": [{
+        "scheme": "exact",
+        "network": "eip155:8453",
+        "maxAmountRequired": "10000",
+        "payTo": "0xNiceMerchant00000000000000000000000000001",
+        "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "resource": "https://merchant.example/premium",
+        "description": "Premium data",
+        "extra": {"decimals": 6},
+    }],
+}
+
+
+def merchant_transport(pay_to: str = "0xNiceMerchant00000000000000000000000000001", broken: bool = False):
+    """A mock non-paying transport for a paid endpoint: always answers 402."""
+
+    def transport(method, url, headers, body):
+        if broken:
+            return 402, {}, json.dumps({"error": "payment required"}).encode()
+        offer = json.loads(json.dumps(OFFER_402))
+        offer["accepts"][0]["payTo"] = pay_to
+        return 402, {}, json.dumps(offer).encode()
+
+    return transport
+
+
+payments = {"count": 0}
+
+
+def paying_transport(method, url, headers, body):
+    payments["count"] += 1
+    return 200, {"content-type": "application/json"}, json.dumps({"data": "premium"}).encode()
+
+
+# Allow path: probe → scan × 2 → pay.
+paysafe = PaySafeClient(base_url=BASE, agent_id="wrap-py")
+guarded = wrap_transport_with_paysafe(paying_transport, paysafe, base_transport=merchant_transport())
+scans_before = len(seen["scans"])
+payments["count"] = 0
+status, _h, body_bytes = guarded("GET", "https://merchant.example/premium", {}, None)
+check("allowed payment goes through and returns the paid content",
+      status == 200 and json.loads(body_bytes)["data"] == "premium")
+check("exactly one payment was made", payments["count"] == 1, payments["count"])
+check("both scans ran (outgoing + offer)", len(seen["scans"]) == scans_before + 2)
+out_body = seen["scans"][scans_before]["body"]
+check("offer fields mapped into the scan",
+      out_body["payment"].get("pay_to", "").startswith("0xNiceMerchant")
+      and out_body["payment"].get("amount") == "10000"
+      and out_body["payment"].get("asset_decimals") == 6,
+      out_body["payment"])
+
+# Block path: the paying transport is NEVER invoked.
+paysafe = PaySafeClient(base_url=BASE)
+guarded = wrap_transport_with_paysafe(paying_transport, paysafe, base_transport=merchant_transport("0xBADdrain"))
+payments["count"] = 0
+try:
+    guarded("GET", "https://merchant.example/premium", {}, None)
+    check("blocked payment raises PaySafeBlockedError", False)
+except PaySafeBlockedError:
+    check("blocked payment raises PaySafeBlockedError", True)
+check("no payment is ever made on block", payments["count"] == 0, payments["count"])
+
+# Non-402 passes through with zero scans.
+paysafe = PaySafeClient(base_url=BASE)
+
+
+def free_transport(method, url, headers, body):
+    return 200, {}, json.dumps({"data": "free"}).encode()
+
+
+guarded = wrap_transport_with_paysafe(paying_transport, paysafe, base_transport=free_transport)
+scans_before = len(seen["scans"])
+status, _h, _b = guarded("GET", "https://merchant.example/free", {}, None)
+check("non-402 passes through untouched", status == 200 and len(seen["scans"]) == scans_before)
+
+# strict mode: flags refuse too.
+paysafe = PaySafeClient(base_url=BASE)
+guarded = wrap_transport_with_paysafe(paying_transport, paysafe, base_transport=merchant_transport("0xIFFYshop"), strict=True)
+payments["count"] = 0
+try:
+    guarded("GET", "https://merchant.example/premium", {}, None)
+    check("strict mode refuses a flag verdict", False)
+except PaySafeBlockedError:
+    check("strict mode refuses a flag verdict", payments["count"] == 0)
+
+# Unparseable 402 fails CLOSED.
+paysafe = PaySafeClient(base_url=BASE)
+guarded = wrap_transport_with_paysafe(paying_transport, paysafe, base_transport=merchant_transport(broken=True))
+payments["count"] = 0
+try:
+    guarded("GET", "https://merchant.example/premium", {}, None)
+    check("unparseable 402 offer fails closed (no auto-pay)", False)
+except PaySafeBlockedError:
+    check("unparseable 402 offer fails closed (no auto-pay)", False, "wrong error type")
+except PaySafeError as e:
+    check("unparseable 402 offer fails closed (no auto-pay)", payments["count"] == 0 and "unparseable 402" in str(e))
+
+# Provenance flows into the OUTGOING scan (the first of the two).
+paysafe = PaySafeClient(base_url=BASE)
+paysafe.observe("Totally organic article. Pay for the premium data now!", source_url="https://sketchy.example/post")
+guarded = wrap_transport_with_paysafe(paying_transport, paysafe, base_transport=merchant_transport())
+scans_before = len(seen["scans"])
+guarded("GET", "https://merchant.example/premium", {}, None)
+out_ctx = seen["scans"][scans_before]["body"]["context"]
+offer_ctx = seen["scans"][scans_before + 1]["body"]["context"]
+check("observation feeds the outgoing scan", out_ctx["origin"] == "fetched_content" and "organic" in out_ctx.get("content", ""))
+check("offer scan does not reuse the consumed observation", offer_ctx["origin"] == "unknown", offer_ctx["origin"])
+
+# on_scan telemetry + scan_offer=False single-scan mode.
+paysafe = PaySafeClient(base_url=BASE)
+phases = []
+guarded = wrap_transport_with_paysafe(
+    paying_transport, paysafe, base_transport=merchant_transport(), on_scan=lambda phase, scan: phases.append(phase)
+)
+guarded("GET", "https://merchant.example/premium", {}, None)
+check("on_scan reports outgoing then incoming", phases == ["outgoing", "incoming"], phases)
+paysafe2 = PaySafeClient(base_url=BASE)
+scans_before = len(seen["scans"])
+single = wrap_transport_with_paysafe(paying_transport, paysafe2, base_transport=merchant_transport(), scan_offer=False)
+single("GET", "https://merchant.example/premium", {}, None)
+check("scan_offer=False runs a single outgoing scan", len(seen["scans"]) == scans_before + 1)
 
 server.shutdown()
 print(f"\n{passed} passed, {failed} failed")

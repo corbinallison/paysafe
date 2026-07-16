@@ -45,8 +45,8 @@ import { PLANS, resolveEffectiveConfig, type Plan } from "./plans.ts";
 import { x402Manifest, agentCard } from "./manifest.ts";
 import { openApiDoc } from "./openapi.ts";
 import { dashboardHtml } from "./dashboard.ts";
-import { llmsTxt } from "./llms.ts";
 import { adminDashboardHtml } from "./admindash.ts";
+import { llmsTxt } from "./llms.ts";
 
 const cfg = loadConfig();
 const store = new Store(cfg.dataDir, {
@@ -319,6 +319,14 @@ app.get("/.well-known/x402", (_req, res) => {
   res.json(x402Manifest(cfg));
 });
 
+// Agent/LLM-facing discovery page (intent-first, plain text).
+app.get("/llms.txt", (_req, res) => {
+  res.type("text/plain; charset=utf-8").send(llmsTxt(cfg));
+});
+app.get("/.well-known/llms.txt", (_req, res) => {
+  res.type("text/plain; charset=utf-8").send(llmsTxt(cfg));
+});
+
 app.get("/.well-known/agent-card.json", (_req, res) => {
   res.json(agentCard(cfg));
 });
@@ -379,15 +387,6 @@ app.get("/dashboard", (_req, res) => {
   res.setHeader("Referrer-Policy", "no-referrer");
   res.type("html").send(dashboardHtml());
 });
-
-// Agent-/LLM-facing service description (llms.txt convention). Served at both
-// the conventional root path and under /.well-known for crawlers that check it.
-const serveLlmsTxt = (_req: express.Request, res: express.Response) => {
-  res.setHeader("Cache-Control", "public, max-age=3600");
-  res.type("text/plain; charset=utf-8").send(llmsTxt(cfg));
-};
-app.get("/llms.txt", serveLlmsTxt);
-app.get("/.well-known/llms.txt", serveLlmsTxt);
 
 // Owner-only all-time stats (see handleAdminStats: 404 unless ADMIN_KEY_SHA256
 // is set; 401 for any key but the owner's). Free, never payment-gated.

@@ -44,11 +44,13 @@ __all__ = [
     "PaySafeEnforcer",
     "PaySafeEnforcementError",
     "payment_from_typed_data",
+    "wrap_transport_with_paysafe",
+    "payment_from_offer",
     "compute_payment_commitment",
     "verify_attestation",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 DEFAULT_BASE_URL = "https://paysafe-agent.com"
 
@@ -445,4 +447,10 @@ from .enforce import (  # noqa: E402
     PaySafeEnforcementError,
     PaySafeEnforcer,
     payment_from_typed_data,
+)
+
+# Default-payment-path wrapper (same end-of-module reasoning as above).
+from .wrap import (  # noqa: E402
+    payment_from_offer,
+    wrap_transport_with_paysafe,
 )

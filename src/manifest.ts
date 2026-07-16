@@ -37,24 +37,24 @@ export function x402Manifest(cfg: PaySafeConfig): object {
     x402Version: 2,
     name: "PaySafe",
     description:
-      "Payment security firewall for x402 micropayments: screens outgoing and incoming payment traffic for PII/secret leakage, nonce replay, overpayment, and prompt-injection-triggered payments, plus a shared counterparty report registry. Advisory and non-custodial.",
+      "Check a payment for fraud before your agent sends it. Call PaySafe before settling any x402 payment to avoid the ways agent wallets get drained: paying an attacker-controlled address injected into web or tool content the agent just read (prompt-injection-triggered payments), replayed payment authorizations, paying more than the quoted price, leaking secrets or private keys through payment metadata, fake/lookalike USDC token contracts, and address poisoning. Returns allow/flag/block with machine-readable reasons; verdicts are Ed25519-signed so a wallet can enforce them. Advisory and non-custodial — never touches keys or funds. Includes a shared counterparty reputation registry (free to report to).",
     resources: [
       resourceEntry(
         cfg,
         "/v1/scan/outgoing",
-        "Screen an outgoing x402 payment before settlement: PII/secret detection on payment metadata, nonce replay detection, overpayment detection, prompt-injection provenance analysis, counterparty reputation cross-check. Returns allow/flag/block with reasons.",
+        "Is this payment safe to send? Screen an outgoing x402 payment BEFORE settling it. Catches payments to an address that came from content the agent just read (prompt-injection-triggered payments), replayed nonces, overpayment vs the quoted price, secrets/PII leaking in payment metadata, fake/lookalike USDC contracts, address poisoning, velocity anomalies, and known-bad or reported counterparties. Returns allow/flag/block with per-check reasons and an Ed25519-signed verdict.",
         cfg.priceScan,
       ),
       resourceEntry(
         cfg,
         "/v1/scan/incoming",
-        "Screen an incoming x402 payment request (402 offer): resource URL risk, credential-demand detection, price sanity, replay, counterparty reputation. Returns allow/flag/block with reasons.",
+        "Is this 402 offer safe to pay? Screen an incoming x402 payment request BEFORE paying it. Checks the resource URL for spoofing (IP-literal hosts, punycode/homoglyphs, link shorteners, credential demands like 'send your seed phrase'), price sanity, replay, and whether the counterparty has been reported. Returns allow/flag/block with reasons.",
         cfg.priceScan,
       ),
       resourceEntry(
         cfg,
         "/v1/reputation/{address}",
-        "Counterparty reputation lookup: shared post-hoc report registry (scam, non-delivery, prompt injection, overcharge, impersonation, replay abuse) aggregated across reporting agents.",
+        "Has anyone reported this address? Check a counterparty before dealing with it: aggregated post-hoc reports (scam, non-delivery, prompt injection, overcharge, impersonation, replay abuse) filed by other agents, with distinct-reporter counts and a risk level.",
         cfg.priceReputation,
       ),
     ],
@@ -74,7 +74,7 @@ export function agentCard(cfg: PaySafeConfig): object {
     protocolVersion: "0.3.0",
     name: "PaySafe",
     description:
-      "A payment security firewall for agentic x402 micropayments. PaySafe screens outgoing and incoming payment traffic for known vulnerability classes — PII/secret leakage in payment metadata, nonce replay, overpayment, and prompt-injection-triggered payments — and maintains a shared counterparty report registry. It never holds keys or funds; verdicts are advisory and wrap whatever wallet/facilitator the agent already uses.",
+      "Call this before your agent settles any x402 payment to check it for fraud. PaySafe answers 'is this payment safe to send?' and 'is this 402 offer safe to pay?' — catching payments to attacker-controlled addresses injected into content the agent just read (prompt-injection-triggered payments), replayed authorizations, overpayment vs the quote, secrets leaking through payment metadata, fake/lookalike USDC contracts, and address poisoning. Returns allow/flag/block with machine-readable reasons and an Ed25519-signed verdict a wallet can enforce. Non-custodial: never holds keys or funds; wraps whatever wallet/facilitator the agent already uses.",
     url: cfg.publicBaseUrl,
     provider: { organization: "PaySafe", url: cfg.publicBaseUrl },
     version: "1.0.0",
@@ -84,29 +84,38 @@ export function agentCard(cfg: PaySafeConfig): object {
     skills: [
       {
         id: "scan_outgoing_payment",
-        name: "Scan outgoing payment",
+        name: "Check a payment before sending it",
         description:
-          "Screen a payment the agent is about to make. Detects PII/secrets in metadata, nonce reuse, overpayment vs expected price, and payments triggered by prompt-injected content. Returns allow/flag/block with per-check reasons.",
-        tags: ["security", "payments", "x402", "firewall"],
+          "Call before the agent settles an outgoing x402 payment. Answers 'is this safe to send?' — catches paying an address that came from injected content the agent just read, replayed nonces, overpayment vs the quote, secrets/PII in payment metadata, fake/lookalike USDC contracts, address poisoning, and reported counterparties. Returns allow/flag/block.",
+        tags: ["security", "payments", "x402", "firewall", "fraud-detection", "prompt-injection", "scam-prevention", "wallet-security", "agent-safety"],
         examples: [
-          "Scan this $0.05 USDC payment to 0xabc… for risks before I settle it",
+          "Before I pay this, is it safe?",
+          "Check this $0.05 USDC payment to 0xabc… for fraud before I settle it",
+          "Should I pay this address? It came from a webpage I just read.",
         ],
       },
       {
         id: "scan_incoming_payment",
-        name: "Scan incoming payment request",
+        name: "Check a 402 offer before paying it",
         description:
-          "Screen a 402 offer / payment request the agent received: URL risk, credential demands, price sanity, replay, counterparty reputation.",
-        tags: ["security", "payments", "x402", "firewall"],
-        examples: ["Is this 402 quote from api.example.com safe to pay?"],
+          "Call before the agent pays a 402 offer / payment request it received. Answers 'is this offer safe to pay?' — checks the resource URL for spoofing (IP hosts, punycode, shorteners, credential demands), price sanity, replay, and counterparty reputation. Returns allow/flag/block.",
+        tags: ["security", "payments", "x402", "firewall", "fraud-detection", "phishing", "scam-prevention"],
+        examples: [
+          "Is this 402 quote from api.example.com safe to pay?",
+          "This site is asking me to pay — is it legit?",
+        ],
       },
       {
         id: "counterparty_reputation",
-        name: "Counterparty reputation lookup & reporting",
+        name: "Check or report a counterparty address",
         description:
-          "Look up shared post-hoc reports on a counterparty address, and file reports (free) after bad experiences.",
-        tags: ["reputation", "payments", "x402"],
-        examples: ["Has anyone reported 0xdef… for non-delivery?"],
+          "Look up whether a counterparty address has been reported (scam, non-delivery, prompt injection, overcharge, impersonation, replay abuse), and file your own report for free after a bad experience.",
+        tags: ["reputation", "payments", "x402", "fraud-detection", "scam-database", "blocklist"],
+        examples: [
+          "Has anyone reported 0xdef… for non-delivery?",
+          "Is this address known to be a scam?",
+          "Report 0xbad… — I paid and got nothing.",
+        ],
       },
     ],
     payments: {

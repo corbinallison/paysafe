@@ -17,6 +17,7 @@ import { AuditLog } from "../src/auditlog.ts";
 import { paymentCommitment, paymentDigest } from "../src/commitment.ts";
 import { dashboardHtml } from "../src/dashboard.ts";
 import { adminDashboardHtml } from "../src/admindash.ts";
+import { llmsTxt } from "../src/llms.ts";
 import { parseScoutScore, scheduleScoutScoreRefresh } from "../src/detectors/scoutscore.ts";
 import { createServer as createHttpServer } from "node:http";
 import type { ScanRequest, ScanResponse } from "../src/types.ts";
@@ -778,6 +779,16 @@ console.log("\n— usage dashboard stats —");
   const before = store.keys.size;
   handleScan("outgoing", { payment: { ...clean, nonce: "anon1" }, context: { origin: "planning" } }, cfg, store, null, undefined);
   check("anonymous scan creates no account", store.keys.size === before);
+}
+
+console.log("\n— llms.txt discovery page —");
+{
+  const txt = llmsTxt(cfg);
+  check("llms.txt is plain text (no HTML)", !txt.includes("<html") && !txt.includes("<script"), txt.slice(0, 60));
+  check("llms.txt states the scan-before-pay protocol", txt.includes("BEFORE you settle") && txt.includes("/v1/scan/outgoing"));
+  check("llms.txt explains provenance (the key input)", txt.includes("context") && txt.includes("fetched_content"));
+  check("llms.txt lists the well-known specs", txt.includes("/.well-known/x402") && txt.includes("/openapi.json"));
+  check("llms.txt reflects config pricing", txt.includes(cfg.priceScan) && txt.includes(String(cfg.freeCalls)));
 }
 
 console.log("\n— dashboard HTML sanity —");

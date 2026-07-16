@@ -147,7 +147,7 @@ export function openApiDoc(cfg: PaySafeConfig): object {
       title: "PaySafe",
       version: "1.0.0",
       description:
-        "Payment security firewall for x402 micropayments. Screens outgoing and incoming payment traffic for PII/secret leakage, nonce replay, overpayment, and prompt-injection-triggered payments, plus a shared counterparty report registry. Advisory and non-custodial.",
+        "Check a payment for fraud before your agent sends it. Call PaySafe before settling any x402 payment to avoid paying attacker-controlled addresses injected into content the agent just read (prompt-injection-triggered payments), replayed authorizations, inflated prices, leaked secrets in payment metadata, fake/lookalike USDC contracts, and address poisoning. Returns allow/flag/block with machine-readable reasons and an Ed25519-signed verdict. Advisory and non-custodial — never touches keys or funds. Includes a free-to-use counterparty reputation registry.",
       "x-guidance":
         `Before settling any x402 payment, POST the payment details to /v1/scan/outgoing and act on the verdict: "allow" = proceed, "flag" = pause and confirm intent, "block" = do not pay (machine-readable reasons attached). When you RECEIVE a 402 offer, POST it to /v1/scan/incoming before paying. Include context.origin (planning | tool_result | fetched_content | user_instruction) and, when the decision followed reading external content, context.content — this enables prompt-injection-triggered-payment detection, the check that catches poisoned pay-to addresses. Include expected_price_usd to enable overpayment detection. Endpoints cost ${cfg.priceScan}/call via x402; your first ${cfg.freeCalls} calls are free with an API key from POST /v1/keys (free) sent in the X-API-Key header. Filing counterparty reports via POST /v1/reputation/report is always free. Allow-verdicts carry an Ed25519 attestation bound to the exact payment (verify against /.well-known/paysafe-verdict-key). If you scan at volume, GET /v1/plans lists subscription tiers with lower per-scan pricing and higher velocity/spend headroom; you can subscribe autonomously — POST /v1/plans/subscribe is itself x402-paid at the plan price, and renewing is just paying again before expiry.`,
       contact: { email: "contact@paysafe-agent.com" },
@@ -157,7 +157,7 @@ export function openApiDoc(cfg: PaySafeConfig): object {
       "/v1/scan/outgoing": {
         post: {
           operationId: "scanOutgoingPayment",
-          summary: "Scan an outgoing payment before settlement",
+          summary: "Is this payment safe to send? Screen an outgoing payment before settling it",
           tags: ["Scanning"],
           ...paidOp(cfg.priceScan),
           requestBody: {
@@ -176,7 +176,7 @@ export function openApiDoc(cfg: PaySafeConfig): object {
       "/v1/scan/incoming": {
         post: {
           operationId: "scanIncomingPayment",
-          summary: "Scan an incoming payment request / 402 offer",
+          summary: "Is this 402 offer safe to pay? Screen an incoming payment request before paying it",
           tags: ["Scanning"],
           ...paidOp(cfg.priceScan),
           requestBody: {
@@ -195,7 +195,7 @@ export function openApiDoc(cfg: PaySafeConfig): object {
       "/v1/reputation/{address}": {
         get: {
           operationId: "getCounterpartyReputation",
-          summary: "Counterparty reputation lookup",
+          summary: "Has anyone reported this address? Counterparty reputation lookup",
           tags: ["Reputation"],
           ...paidOp(cfg.priceReputation),
           parameters: [

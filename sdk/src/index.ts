@@ -27,6 +27,8 @@ import { createHash, createPublicKey, verify as edVerify } from "node:crypto";
 
 // Wallet-side enforcement kit: PaySafeEnforcer, guardSigner, paymentFromTypedData.
 export * from "./enforce.ts";
+// Default-payment-path wrapper: wrapFetchWithPaySafe (scan before every x402 payment).
+export * from "./wrap.ts";
 
 // ---------------------------------------------------------------------------
 // Types (mirrors the server's public API)
