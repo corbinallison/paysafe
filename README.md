@@ -83,6 +83,7 @@ The SDK ([`sdk/`](sdk/), zero dependencies) also verifies every verdict's Ed2551
 | `POST /v1/plans/subscribe` | plan price | Subscribe/renew a key on a plan — itself paid via x402, so agents upgrade autonomously |
 | `GET /.well-known/x402` | free | x402 manifest |
 | `GET /.well-known/agent-card.json` | free | Agent card |
+| `GET /llms.txt` | free | Agent-/LLM-readable service guide (when to call, minimal integration) |
 | `GET /.well-known/paysafe-verdict-key` | free | Ed25519 public key for verdict attestations |
 | `GET /v1/audit/verify` | free | Verify the audit-log hash chain (integrity check) |
 | `GET /v1/audit/head` | free | Current audit-log head hash + sequence |

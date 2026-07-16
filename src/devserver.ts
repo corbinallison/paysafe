@@ -24,6 +24,7 @@ import {
 import { x402Manifest, agentCard } from "./manifest.ts";
 import { openApiDoc } from "./openapi.ts";
 import { dashboardHtml } from "./dashboard.ts";
+import { llmsTxt } from "./llms.ts";
 import { adminDashboardHtml } from "./admindash.ts";
 import type { ApiResult } from "./api.ts";
 
@@ -101,6 +102,11 @@ const server = createServer(async (req, res) => {
         "referrer-policy": "no-referrer",
       });
       res.end(path === "/admin" ? adminDashboardHtml() : dashboardHtml());
+      return;
+    }
+    else if (method === "GET" && (path === "/llms.txt" || path === "/.well-known/llms.txt")) {
+      res.writeHead(200, { "content-type": "text/plain; charset=utf-8" });
+      res.end(llmsTxt(cfg));
       return;
     }
     else if (method === "GET" && path === "/v1/admin/stats")
