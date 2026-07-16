@@ -12,6 +12,7 @@ import { checkAsset } from "./detectors/asset.ts";
 import { checkBadlist } from "./detectors/badlist.ts";
 import { checkPinning, checkCdpPinStatus, scheduleCdpPinVerify } from "./detectors/pinning.ts";
 import { checkAddressPoisoning } from "./detectors/poisoning.ts";
+import { checkScoutScore, scheduleScoutScoreRefresh } from "./detectors/scoutscore.ts";
 import { checkVelocity } from "./detectors/velocity.ts";
 import { checkReputation } from "./reputation.ts";
 
@@ -136,6 +137,14 @@ export function runScan(
         // unparseable URL already reported by other checks
       }
     }
+  }
+
+  // ScoutScore external trust signal: reads only the cache (zero latency);
+  // the refresh runs out-of-band, same pattern as the CDP pin cross-check.
+  if (cfg.scoutScore) {
+    const scout = checkScoutScore(payment, store);
+    if (scout) checks.push(scout);
+    if (pinDomain !== null) scheduleScoutScoreRefresh(store, pinDomain, cfg.scoutScoreUrl);
   }
 
   if (direction === "outgoing") {

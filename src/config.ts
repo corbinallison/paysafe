@@ -35,6 +35,12 @@ export interface PaySafeConfig {
   pinning: boolean;
   /** Async (non-blocking) CDP Bazaar cross-check of pins. Off by default; enable in live deployments. */
   cdpPinVerify: boolean;
+  /** Async (non-blocking) ScoutScore trust lookup for merchant domains. Off by
+   * default — enabling shares scanned resource DOMAINS (nothing else) with
+   * scoutscore.ai. External signal: can only ever flag, never block. */
+  scoutScore: boolean;
+  /** ScoutScore API base URL (tests point this at a mock) */
+  scoutScoreUrl: string;
   /** Ed25519-sign verdicts so wallets can require a PaySafe allow-verdict */
   verdictSigning: boolean;
   /** Path to a JSON array of known-bad addresses (default: <dataDir>/badlist.json) */
@@ -90,6 +96,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     allowNonUsdc: env.ALLOW_NON_USDC === "on",
     pinning: env.PINNING !== "off",
     cdpPinVerify: env.CDP_PIN_VERIFY === "on",
+    scoutScore: env.SCOUTSCORE === "on",
+    scoutScoreUrl: (env.SCOUTSCORE_URL ?? "https://scoutscore.ai").replace(/\/+$/, ""),
     verdictSigning: env.VERDICT_SIGNING !== "off",
     badlistPath: env.BADLIST_PATH ?? null,
 

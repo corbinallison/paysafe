@@ -4,7 +4,7 @@
 
 [![x402](https://img.shields.io/badge/x402-v2-blue)](https://github.com/x402-foundation/x402)
 [![network](https://img.shields.io/badge/settles%20on-Base%20(USDC)-0052FF)](https://docs.cdp.coinbase.com/x402/quickstart-for-sellers)
-[![tests](https://img.shields.io/badge/tests-139%2F139-brightgreen)](test/run-tests.ts)
+[![tests](https://img.shields.io/badge/tests-155%2F155-brightgreen)](test/run-tests.ts)
 [![npm](https://img.shields.io/npm/v/paysafe-x402-client?label=sdk)](https://www.npmjs.com/package/paysafe-x402-client)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
@@ -58,6 +58,7 @@ The SDK ([`sdk/`](sdk/), zero dependencies) also verifies every verdict's Ed2551
 | Asset verification | `asset` contract that isn't canonical USDC on the declared network (lookalike-token attack) |
 | Merchant pinning (TOFU) | `pay_to` rotation on a known resource domain → block; optional non-blocking CDP Bazaar cross-check |
 | Address poisoning | `pay_to` that matches a known counterparty or pinned merchant on its first + last characters but differs in the middle — the truncated-display ("0x2096…287C") vanity-address attack → block. Blocked payments are rolled back out of trust state, so repeat attempts keep detecting |
+| ScoutScore trust signal (opt-in) | Merchant domains rated LOW/VERY_LOW by [ScoutScore](https://scoutscore.ai) (spam farms, template clones, dead endpoints) → flag, clearly labeled as an external third-party signal. Lookups are async + cached (zero scan latency), share the domain only, and can never block on their own. Enable with `SCOUTSCORE=on` |
 | Known-bad list | O(1) membership against a curated/synced badlist |
 | Deep content analysis | Base64-encoded and zero-width/homoglyph-obfuscated injection payloads, decoded/normalized and rescanned — bypassed below `MICRO_BYPASS_USD` (default $0.005), overridable per request via `policy.force_deep` |
 
@@ -164,7 +165,7 @@ npm install
 
 npm run dev            # local dev server — payments off
 npm run demo:replay    # replay-attack demo: fresh nonce ALLOW → reused nonce BLOCK
-npm test               # 139-test detector + hardening + plans + audit-log + dashboard suite
+npm test               # 155-test detector + hardening + plans + audit-log + dashboard suite
 ```
 
 ## Performance
@@ -214,6 +215,7 @@ Published for transparency — these are the thresholds your scans are judged ag
 | Asset check | non-canonical USDC on the declared network → block |
 | Merchant pinning | TOFU per resource domain; rotation → block |
 | Address poisoning | ≥4 shared hex chars on both ends of a known address (but not equal) → block |
+| ScoutScore signal | opt-in (`SCOUTSCORE=on`); LOW/VERY_LOW-rated domains → flag (never block); cached 24h |
 | Verdict signing | Ed25519, always on, 5-minute attestation expiry |
 
 Local dev configuration for contributors is documented in [`.env.example`](.env.example).
@@ -227,7 +229,7 @@ src/
   api.ts          Framework-agnostic handlers (both servers route here)
   scanner.ts      Detector orchestration, tiering, verdict aggregation
   detectors/      pii · replay · overpayment · injection (fast + deep) · urlrisk
-                  asset · badlist · pinning · poisoning · velocity
+                  asset · badlist · pinning · poisoning · scoutscore · velocity
   reputation.ts   Shared report registry
   dashboard.ts    Self-contained usage dashboard (GET /dashboard)
   admindash.ts    Owner dashboard, audit-log-backed (GET /admin)
@@ -238,7 +240,7 @@ mcp/server.ts     MCP server (9 tools — npx paysafe-x402)
 examples/         replay-demo.ts — reused-nonce attack blocked end-to-end
 auditlog.ts       Tamper-evident hash-chained decision log
   commitment.ts     Payment hashing (attestation binding + audit digest)
-test/             139-test suite (detectors, hardening, plans, crypto, audit, dashboards — npm test)
+test/             155-test suite (detectors, hardening, plans, crypto, audit, dashboards — npm test)
 sdk/              TypeScript client SDK (npm: paysafe-x402-client, 32 tests)
 sdk-python/       Python client SDK (PyPI: paysafe-x402, 34 tests)
 ```

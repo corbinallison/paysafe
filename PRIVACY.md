@@ -1,6 +1,6 @@
 # PaySafe — Privacy Policy
 
-**Last updated: 2026-07-14**
+**Last updated: 2026-07-16**
 
 > **DRAFT — not legal advice.** Prepared as a starting point and not reviewed by a lawyer. Have qualified counsel review and adapt it (especially for GDPR/CCPA obligations, data-subject rights, and any jurisdiction-specific requirements) before relying on it. Replace every **[BRACKETED]** placeholder.
 
@@ -48,6 +48,7 @@ We rely on a small number of service providers who may process data on our behal
 - **Render** (render.com) — application hosting and storage of the audit log/state.
 - **Coinbase Developer Platform (CDP)** — the x402 facilitator that verifies and settles payments. Note: the *payment itself* is initiated by your wallet and settles on-chain; PaySafe is advisory and does not route your funds.
 - **Zoho** — business email for our contact addresses.
+- **ScoutScore** (scoutscore.ai) — optional external trust ratings for merchant domains (only when the operator enables `SCOUTSCORE=on`). When enabled, we query ScoutScore with the **resource domain only** (e.g. `api.example.com`) from scanned payments — never wallet addresses, amounts, API keys, payload contents, or your identity. Responses are cached server-side and surfaced in scan results as a clearly labeled third-party signal.
 
 We do not otherwise disclose data except where required by law, to enforce our Terms, or to protect the rights and safety of users or the public.
 

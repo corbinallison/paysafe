@@ -47,6 +47,15 @@ export interface PinRecord {
   cdp_status: "unchecked" | "verified" | "mismatch";
 }
 
+/** Cached ScoutScore trust rating for a merchant domain (external signal). */
+export interface ScoutScoreRecord {
+  /** null while unavailable (endpoint down / paid-only / parse failure) */
+  score: number | null;
+  level: "HIGH" | "MEDIUM" | "LOW" | "VERY_LOW" | "unavailable";
+  flags: string[];
+  checked_at: string;
+}
+
 interface Snapshot {
   nonces: Record<string, NonceRecord>;
   reports: ReputationReport[];
@@ -54,6 +63,7 @@ interface Snapshot {
   velocity: Record<string, VelocityEvent[]>;
   counterparties: Record<string, string[]>;
   pins: Record<string, PinRecord>;
+  scout_scores?: Record<string, ScoutScoreRecord>;
 }
 
 export interface StoreLimits {
@@ -69,6 +79,7 @@ export class Store {
   velocity: Map<string, VelocityEvent[]> = new Map();
   counterparties: Map<string, string[]> = new Map();
   pins: Map<string, PinRecord> = new Map();
+  scoutScores: Map<string, ScoutScoreRecord> = new Map();
   badlist: Set<string> = new Set();
 
   /** Attached by the server; every scan decision is appended here. */
@@ -101,6 +112,7 @@ export class Store {
       this.velocity = new Map(Object.entries(snap.velocity ?? {}));
       this.counterparties = new Map(Object.entries(snap.counterparties ?? {}));
       this.pins = new Map(Object.entries(snap.pins ?? {}));
+      this.scoutScores = new Map(Object.entries(snap.scout_scores ?? {}));
       this.reindexReports();
     } catch {
       // Corrupt snapshot: start fresh rather than crash an advisory service.
@@ -156,6 +168,7 @@ export class Store {
     Store.evict(this.velocity, max);
     Store.evict(this.counterparties, max);
     Store.evict(this.pins, max);
+    Store.evict(this.scoutScores, max);
     Store.evict(this.keys, max);
     if (this.reports.length > max) {
       this.reports = this.reports.slice(this.reports.length - max);
@@ -173,6 +186,7 @@ export class Store {
       velocity: Object.fromEntries(this.velocity),
       counterparties: Object.fromEntries(this.counterparties),
       pins: Object.fromEntries(this.pins),
+      scout_scores: Object.fromEntries(this.scoutScores),
     };
     try {
       const tmp = `${this.file}.tmp`;

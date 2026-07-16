@@ -46,4 +46,5 @@ The product surface now exceeds distribution. Cheapest-first:
 ## 6. Registry network effects
 
 - **Badlist syndication** — curated known-bad list as a syndicated feed (potential premium tier).
-- **Cross-registry federation** — exchange reports with other x402 trust services (ScoutScore, AgentRadar-style oracles) with provenance labels, if partners emerge.
+- **Cross-registry federation** — exchange reports with other x402 trust services with provenance labels, if partners emerge.
+  - ✅ **ScoutScore consume-side BUILT 2026-07-16**: `src/detectors/scoutscore.ts` — opt-in (`SCOUTSCORE=on`) async cached lookups of merchant-domain trust ratings; LOW/VERY_LOW surfaces as a labeled external flag (never a block). Free-tier only: a 402 from their API caches as "unavailable" (PaySafe holds no wallet and never pays for lookups). Contribute-side (feeding our reports out) still open.

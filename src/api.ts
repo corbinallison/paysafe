@@ -310,6 +310,7 @@ export function serviceInfo(cfg: PaySafeConfig): ApiResult {
         "badlist: known-bad address list",
         "pin: TOFU merchant pinning (domain -> pay_to) + optional async CDP cross-check",
         "poison: address-poisoning detection (pay_to matching a known counterparty/pinned merchant on first+last chars but differing in the middle)",
+        "scout: ScoutScore external trust signal for merchant domains (opt-in, async + cached, flag-only)",
         "velocity: rate, hourly spend cap, first-contact size cap (outgoing)",
         "reputation: shared counterparty report registry",
       ],

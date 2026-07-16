@@ -17,6 +17,8 @@ import { AuditLog } from "../src/auditlog.ts";
 import { paymentCommitment, paymentDigest } from "../src/commitment.ts";
 import { dashboardHtml } from "../src/dashboard.ts";
 import { adminDashboardHtml } from "../src/admindash.ts";
+import { parseScoutScore, scheduleScoutScoreRefresh } from "../src/detectors/scoutscore.ts";
+import { createServer as createHttpServer } from "node:http";
 import type { ScanRequest, ScanResponse } from "../src/types.ts";
 
 const cfg = loadConfig({ PAYSAFE_MODE: "dev", PAY_TO: "0xtest" });
@@ -414,6 +416,90 @@ console.log("\n— address poisoning —");
     }, store);
     check(`non-EVM pay_to handled without poisoning hit (${weird.slice(0, 12) || "empty"})`, !hasCheck(r, "poison.lookalike"));
   }
+}
+
+console.log("\n— ScoutScore external trust signal —");
+{
+  const cfgScout = { ...cfg, scoutScore: true };
+  const now = new Date().toISOString();
+  const mkReq = (url: string, nonce: string): ScanRequest => ({
+    agent_id: "scout-agent",
+    payment: { ...basePayment, resource_url: url, nonce },
+    expected_price_usd: 0.01,
+    context: { origin: "planning" },
+  });
+
+  // VERY_LOW cached rating → flag (never block), high severity.
+  const store = new Store(null);
+  store.scoutScores.set("sketchy.example.com", { score: 4, level: "VERY_LOW", flags: ["WALLET_SPAM_FARM"], checked_at: now });
+  const r1 = runScan("outgoing", mkReq("https://sketchy.example.com/pay", "0xsc1"), cfgScout, store);
+  check("VERY_LOW rating flags the scan", r1.verdict === "flag" && hasCheck(r1, "scout.low_trust"), r1.checks);
+  check("external signal can never block on its own", r1.verdict !== "block");
+  const scoutCheck = r1.checks.find((c) => c.id === "scout.low_trust");
+  check("scout reason is labeled as external and cites flags", (scoutCheck?.reason ?? "").includes("External signal") && (scoutCheck?.reason ?? "").includes("WALLET_SPAM_FARM"));
+  check("VERY_LOW carries high severity", scoutCheck?.severity === "high");
+
+  // LOW → medium severity; HIGH / unavailable / uncached → silent.
+  store.scoutScores.set("meh.example.com", { score: 38, level: "LOW", flags: [], checked_at: now });
+  const r2 = runScan("outgoing", mkReq("https://meh.example.com/x", "0xsc2"), cfgScout, store);
+  check("LOW rating flags with medium severity", r2.checks.find((c) => c.id === "scout.low_trust")?.severity === "medium");
+  store.scoutScores.set("good.example.com", { score: 92, level: "HIGH", flags: [], checked_at: now });
+  const r3 = runScan("outgoing", mkReq("https://good.example.com/x", "0xsc3"), cfgScout, store);
+  check("HIGH rating stays silent", !hasCheck(r3, "scout.low_trust"));
+  store.scoutScores.set("down.example.com", { score: null, level: "unavailable", flags: [], checked_at: now });
+  const r4 = runScan("outgoing", mkReq("https://down.example.com/x", "0xsc4"), cfgScout, store);
+  check("unavailable rating stays silent", !hasCheck(r4, "scout.low_trust"));
+  const r5 = runScan("outgoing", mkReq("https://never-seen.example.com/x", "0xsc5"), cfgScout, store);
+  check("uncached domain stays silent", !hasCheck(r5, "scout.low_trust"));
+
+  // Disabled (default) → no signal even with a bad cached rating.
+  const r6 = runScan("outgoing", mkReq("https://sketchy.example.com/pay", "0xsc6"), cfg, store);
+  check("signal is off by default (SCOUTSCORE unset)", !hasCheck(r6, "scout.low_trust"));
+
+  // Defensive parsing of API responses.
+  check("parse: valid response accepted", parseScoutScore({ score: 12, level: "LOW", flags: ["A"] })?.level === "LOW");
+  check("parse: unknown level rejected", parseScoutScore({ score: 12, level: "BANANA" }) === null);
+  check("parse: non-object rejected", parseScoutScore("LOW") === null && parseScoutScore(null) === null);
+  check("parse: garbage flags sanitized", parseScoutScore({ level: "HIGH", flags: [1, "ok", null] })?.flags.join(",") === "ok");
+}
+{
+  // Background refresh against a local mock — fetch, parse, cache. No real
+  // network: SCOUTSCORE_URL points at this ephemeral server.
+  const hits: string[] = [];
+  const mock = createHttpServer((req, res) => {
+    hits.push(req.url ?? "");
+    if ((req.url ?? "").startsWith("/api/score?domain=rated.example.com")) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ domain: "rated.example.com", score: 9, level: "VERY_LOW", flags: ["TEMPLATE_SPAM"] }));
+    } else if ((req.url ?? "").startsWith("/api/score?domain=paid.example.com")) {
+      res.writeHead(402, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "payment required" }));
+    } else {
+      res.writeHead(404); res.end();
+    }
+  });
+  await new Promise<void>((resolve) => mock.listen(0, resolve));
+  const port = (mock.address() as { port: number }).port;
+  const base = `http://127.0.0.1:${port}`;
+  const store = new Store(null);
+
+  scheduleScoutScoreRefresh(store, "rated.example.com", base);
+  scheduleScoutScoreRefresh(store, "paid.example.com", base);
+  const deadline = Date.now() + 3000;
+  while (Date.now() < deadline) {
+    const a = store.scoutScores.get("rated.example.com");
+    const b = store.scoutScores.get("paid.example.com");
+    if (a?.level === "VERY_LOW" && b?.level === "unavailable" && b.score === null) break;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  const rated = store.scoutScores.get("rated.example.com");
+  check("refresh fetches and caches a rating", rated?.level === "VERY_LOW" && rated?.score === 9 && rated?.flags.includes("TEMPLATE_SPAM"), rated);
+  check("402 (paid-only) caches as unavailable — we never pay", store.scoutScores.get("paid.example.com")?.level === "unavailable");
+  const hitsBefore = hits.length;
+  scheduleScoutScoreRefresh(store, "rated.example.com", base); // fresh → no-op
+  await new Promise((r) => setTimeout(r, 100));
+  check("fresh cache entry is not re-fetched", hits.length === hitsBefore, hits);
+  mock.close();
 }
 
 console.log("\n— signed verdicts (bound to payment, H-1) —");
