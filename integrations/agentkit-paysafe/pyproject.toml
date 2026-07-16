@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentkit-paysafe"
+version = "0.1.0"
+description = "PaySafe payment security for Coinbase AgentKit: a scan-before-you-pay action provider for x402 payments, with prompt-injection provenance and signed verdicts. Non-custodial."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "PaySafe", email = "contact@paysafe-agent.com" }]
+keywords = ["coinbase", "agentkit", "x402", "payments", "security", "ai-agents", "prompt-injection", "usdc", "base"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Security",
+]
+dependencies = ["paysafe-x402>=0.3.0", "coinbase-agentkit>=0.1"]
+
+[project.urls]
+Homepage = "https://paysafe-agent.com"
+Repository = "https://github.com/corbinallison/paysafe"
+Documentation = "https://github.com/corbinallison/paysafe/tree/main/integrations/agentkit-paysafe"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agentkit_paysafe"]

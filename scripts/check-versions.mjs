@@ -75,6 +75,13 @@ const PACKAGES = {
       "nemo __version__": match("integrations/nemo-paysafe/src/nemo_paysafe/__init__.py", /__version__ = "([^"]+)"/, "__version__"),
     }),
   },
+  agentkit: {
+    registry: { type: "pypi", name: "agentkit-paysafe" },
+    spots: () => ({
+      "agentkit pyproject.toml": match("integrations/agentkit-paysafe/pyproject.toml", /^version = "([^"]+)"/m, "version"),
+      "agentkit __version__": match("integrations/agentkit-paysafe/src/agentkit_paysafe/__init__.py", /__version__ = "([^"]+)"/, "__version__"),
+    }),
+  },
 };
 
 const semverCmp = (a, b) => {

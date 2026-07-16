@@ -57,6 +57,10 @@ const EDITS = {
     sub("integrations/nemo-paysafe/pyproject.toml", /^(version = ")[^"]+(")/m, `$1${version}$2`);
     sub("integrations/nemo-paysafe/src/nemo_paysafe/__init__.py", /(__version__ = ")[^"]+(")/, `$1${version}$2`);
   },
+  agentkit: () => {
+    sub("integrations/agentkit-paysafe/pyproject.toml", /^(version = ")[^"]+(")/m, `$1${version}$2`);
+    sub("integrations/agentkit-paysafe/src/agentkit_paysafe/__init__.py", /(__version__ = ")[^"]+(")/, `$1${version}$2`);
+  },
 };
 
 if (!EDITS[pkg]) {
