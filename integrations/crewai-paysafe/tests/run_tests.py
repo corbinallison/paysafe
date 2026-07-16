@@ -135,7 +135,10 @@ tools = paysafe_tools(client)
 check("three tools exposed", len(tools) == 3)
 check("tool names match the registry constant", {t.name for t in tools} == set(PAYSAFE_TOOL_NAMES))
 scan_tool = next(t for t in tools if t.name == "paysafe_scan_payment")
-check("scan tool description is imperative", scan_tool.description.startswith("ALWAYS call this immediately BEFORE"))
+# CrewAI's BaseTool wraps the description with "Tool Name/Arguments/Description:"
+# scaffolding, so assert CONTAINMENT (the invariant that matters: the imperative
+# wording reaches the model) rather than a prefix.
+check("scan tool description is imperative", "ALWAYS call this immediately BEFORE" in scan_tool.description)
 check("scan tool has a pydantic args_schema", scan_tool.args_schema is not None)
 check("client stored on the tool instance", scan_tool.client is client)
 

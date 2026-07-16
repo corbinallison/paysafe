@@ -122,7 +122,7 @@ tools = paysafe_tools(client)
 check("three tools exposed", len(tools) == 3)
 check("tool names match the registry constant", {t.name for t in tools} == set(PAYSAFE_TOOL_NAMES))
 scan_tool = next(t for t in tools if t.name == "paysafe_scan_payment")
-check("scan tool description is imperative", scan_tool.description.startswith("ALWAYS call this immediately BEFORE"))
+check("scan tool description is imperative", "ALWAYS call this immediately BEFORE" in scan_tool.description)
 check("descriptions mention injection detection", "prompt-injection" in scan_tool.description)
 
 out = json.loads(scan_tool.invoke({"payment": payment, "expected_price_usd": 0.01}))

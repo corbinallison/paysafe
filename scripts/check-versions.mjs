@@ -68,6 +68,13 @@ const PACKAGES = {
       "crewai __version__": match("integrations/crewai-paysafe/src/crewai_paysafe/__init__.py", /__version__ = "([^"]+)"/, "__version__"),
     }),
   },
+  nemo: {
+    registry: { type: "pypi", name: "nemo-paysafe" },
+    spots: () => ({
+      "nemo pyproject.toml": match("integrations/nemo-paysafe/pyproject.toml", /^version = "([^"]+)"/m, "version"),
+      "nemo __version__": match("integrations/nemo-paysafe/src/nemo_paysafe/__init__.py", /__version__ = "([^"]+)"/, "__version__"),
+    }),
+  },
 };
 
 const semverCmp = (a, b) => {
