@@ -33,7 +33,7 @@ export * from "./wrap.ts";
 // ---------------------------------------------------------------------------
 // Types (mirrors the server's public API)
 // ---------------------------------------------------------------------------
-export type Verdict = "allow" | "flag" | "block";
+export type Verdict = "allow" | "flag" | "block" | "override:allow";
 export type PaymentOrigin = "planning" | "user_instruction" | "tool_result" | "fetched_content" | "unknown";
 
 export interface PaymentDetails {
@@ -82,6 +82,30 @@ export interface ScanResponse {
   attestation?: VerdictAttestation;
   /** Added by the SDK: result of local attestation verification (absent when verification is disabled). */
   attestation_verified?: boolean;
+  /** Present on a flag verdict when the key has human-in-the-loop approvals
+   * configured: a human is being asked to decide. Poll with waitForApproval(). */
+  approval?: PendingApproval;
+}
+
+/** Attached to a flag scan when the operator has approvals configured. */
+export interface PendingApproval {
+  approval_id: string;
+  status: "pending";
+  expires_at: string;
+  poll: string;
+  note: string;
+}
+
+/** GET /v1/approvals/{id} response shape. */
+export interface ApprovalState {
+  approval_id: string;
+  scan_id: string;
+  status: "pending" | "approved" | "denied" | "expired";
+  created_at: string;
+  expires_at: string;
+  decided_at: string | null;
+  /** Scan-shaped override (verdict "override:allow" + attestation), present when approved. */
+  override?: ScanResponse;
 }
 
 export interface ScanOptions {
@@ -424,6 +448,66 @@ export class PaySafeClient {
     const scan = await this.scan("incoming", payment, opts);
     if (scan.verdict === "block" || (opts.strict && scan.verdict === "flag")) throw new PaySafeBlockedError(scan);
     return scan;
+  }
+
+  // -- human-in-the-loop approvals ---------------------------------------------
+
+  /**
+   * Wait for a human decision on a flagged scan (requires the operator to have
+   * configured approvals via POST /v1/approvals/config). Polls until approved,
+   * denied, expired, or timeout.
+   *
+   *   const scan = await paysafe.scanOutgoing(payment);
+   *   if (scan.verdict === "flag" && scan.approval) {
+   *     const override = await paysafe.waitForApproval(scan, { payment });
+   *     enforcer.approve(override, payment); // needs acceptOverrides: true
+   *   }
+   *
+   * Returns the override scan-shaped object (verdict "override:allow", signed
+   * attestation bound to the payment commitment). Throws PaySafeError on deny/
+   * expiry/timeout. When opts.payment is supplied (recommended) and this client
+   * verifies attestations, the override is verified against the pinned key and
+   * that exact payment before being returned.
+   */
+  async waitForApproval(
+    scanOrId: ScanResponse | string,
+    opts: { timeoutMs?: number; intervalMs?: number; payment?: PaymentDetails } = {},
+  ): Promise<ScanResponse> {
+    const approvalId = typeof scanOrId === "string" ? scanOrId : scanOrId.approval?.approval_id;
+    if (!approvalId) {
+      throw new PaySafeError(
+        "no approval to wait for: the scan carries no `approval` (either the verdict was not flag, or the key has no approvals config — POST /v1/approvals/config first)",
+      );
+    }
+    const timeoutMs = opts.timeoutMs ?? 600_000; // matches the default pending TTL
+    const intervalMs = Math.max(opts.intervalMs ?? 3000, 250);
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const state = await this.requestJson<ApprovalState>("GET", `/v1/approvals/${encodeURIComponent(approvalId)}`);
+      if (state.status === "approved" && state.override) {
+        if (this.shouldVerify && state.override.attestation && opts.payment) {
+          verifyAttestation(state.override, opts.payment, await this.verdictKey());
+          state.override.attestation_verified = true;
+        }
+        return state.override;
+      }
+      if (state.status === "denied") throw new PaySafeError(`approval ${approvalId} was DENIED by the operator`, 403, state);
+      if (state.status === "expired") throw new PaySafeError(`approval ${approvalId} expired before a decision`, 410, state);
+      if (Date.now() + intervalMs > deadline) throw new PaySafeError(`timed out waiting for approval ${approvalId}`, 408, state);
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+  }
+
+  /**
+   * Configure (or disable, with webhookUrl: null) human-in-the-loop approvals
+   * for this key. Returns the webhook signing secret ONCE — store it; every
+   * delivery carries X-PaySafe-Signature: sha256=HMAC-SHA256(secret, body).
+   * SECURITY: the decide link each delivery carries is a bearer credential —
+   * point the webhook somewhere the agent itself cannot read.
+   */
+  async configureApprovals(webhookUrl: string | null, opts: { format?: "json" | "slack" } = {}): Promise<{ enabled: boolean; webhook_secret?: string }> {
+    await this.ensureApiKey();
+    return this.requestJson("POST", "/v1/approvals/config", { webhook_url: webhookUrl, format: opts.format });
   }
 
   // -- reputation --------------------------------------------------------------

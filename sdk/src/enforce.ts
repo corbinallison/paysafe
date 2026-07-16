@@ -70,6 +70,12 @@ export interface EnforcerOptions {
   trustedKeyHex: string;
   /** Also accept "flag" verdicts (default false: allow-only). */
   allowFlagged?: boolean;
+  /** Accept human-approved "override:allow" verdicts (default false — OPT IN).
+   * An agent that holds its own API key can configure the approval webhook to
+   * point at itself and "approve" its own flags; overrides are only
+   * trustworthy when the webhook receiver is out of the agent's reach. Turn
+   * this on only when a human you trust controls the decide link. */
+  acceptOverrides?: boolean;
   /** Tighter freshness bound than the attestation's own expires_at, measured
    * from approve() time. Optional. */
   maxAgeMs?: number;
@@ -127,6 +133,7 @@ export function paymentFromTypedData(td: TypedDataLike): PaymentDetails | null {
 export class PaySafeEnforcer {
   private readonly trustedKeyHex: string;
   private readonly allowFlagged: boolean;
+  private readonly acceptOverrides: boolean;
   private readonly maxAgeMs: number | null;
   private readonly reusable: boolean;
   private readonly strictTypes: boolean;
@@ -140,6 +147,7 @@ export class PaySafeEnforcer {
     }
     this.trustedKeyHex = opts.trustedKeyHex;
     this.allowFlagged = opts.allowFlagged ?? false;
+    this.acceptOverrides = opts.acceptOverrides ?? false;
     this.maxAgeMs = opts.maxAgeMs ?? null;
     this.reusable = opts.reusable ?? false;
     this.strictTypes = opts.strictTypes ?? false;
@@ -153,9 +161,19 @@ export class PaySafeEnforcer {
    */
   approve(scan: ScanResponse, payment: PaymentDetails): string {
     verifyAttestation(scan, payment, this.trustedKeyHex);
-    if (scan.verdict !== "allow" && !(scan.verdict === "flag" && this.allowFlagged)) {
+    const acceptable =
+      scan.verdict === "allow" ||
+      (scan.verdict === "flag" && this.allowFlagged) ||
+      (scan.verdict === "override:allow" && this.acceptOverrides);
+    if (!acceptable) {
       throw new PaySafeEnforcementError(
-        `refusing to approve a "${scan.verdict}" verdict for signing${scan.verdict === "flag" ? " (set allowFlagged to accept flags)" : ""}`,
+        `refusing to approve a "${scan.verdict}" verdict for signing${
+          scan.verdict === "flag"
+            ? " (set allowFlagged to accept flags)"
+            : scan.verdict === "override:allow"
+              ? " (human-approved overrides require the acceptOverrides opt-in — see its security note)"
+              : ""
+        }`,
       );
     }
     const commitment = computePaymentCommitment(payment);

@@ -37,6 +37,7 @@ import {
   handleReputationLookup,
   handleReputationReport,
   handleAdminStats,
+  handleApprovalConfig,
   handleKeyRevoke,
   handleKeyRotate,
   handleScan,
@@ -48,6 +49,8 @@ import { x402Manifest, agentCard } from "./manifest.ts";
 import { openApiDoc } from "./openapi.ts";
 import { dashboardHtml } from "./dashboard.ts";
 import { adminDashboardHtml } from "./admindash.ts";
+import { approvePageHtml } from "./approvepage.ts";
+import { handleApprovalDecide, handleApprovalInspect, handleApprovalPoll } from "./approvals.ts";
 import { llmsTxt } from "./llms.ts";
 import { handleTrustEvaluate } from "./trust.ts";
 
@@ -63,6 +66,7 @@ const signer = cfg.verdictSigning ? new VerdictSigner(cfg.dataDir) : null;
 const keyLimiter = new RateLimiter(cfg.keysPerIpPerDay, 24 * 3600_000);
 const reportLimiter = new RateLimiter(cfg.reportsPerIpPerHour, 3600_000);
 const trustLimiter = new RateLimiter(cfg.trustQueriesPerIpPerHour, 3600_000);
+const approvalLimiter = new RateLimiter(cfg.approvalActionsPerIpPerHour, 3600_000);
 
 if (cfg.mode === "live" && !cfg.payTo) {
   console.error("PAY_TO (receiving wallet address) is required in live mode. Set PAYSAFE_MODE=dev to run without payments.");
@@ -429,6 +433,57 @@ app.get("/admin", (_req, res) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Referrer-Policy", "no-referrer");
   res.type("html").send(adminDashboardHtml());
+});
+
+// --- Human-in-the-loop step-up approvals (free, never payment-gated) ---
+
+// Configure the operator webhook (X-API-Key; current key only). Shares the
+// key limiter — config writes must not be free to hammer.
+app.post("/v1/approvals/config", (req, res) => {
+  if (!keyLimiter.allow(req.ip ?? "unknown")) {
+    res.status(429).json({ error: `Rate limit: max ${cfg.keysPerIpPerDay} key operations per IP per day.` });
+    return;
+  }
+  const r = handleApprovalConfig(store, cfg, req.header("x-api-key"), req.body);
+  res.status(r.status).json(r.body);
+});
+
+// Token-authed endpoints for the human decide flow (no API key involved).
+app.post("/v1/approvals/inspect", (req, res) => {
+  if (!approvalLimiter.allow(req.ip ?? "unknown")) {
+    res.status(429).json({ error: `Rate limit: max ${cfg.approvalActionsPerIpPerHour} approval actions per IP per hour.` });
+    return;
+  }
+  const r = handleApprovalInspect(store, req.body);
+  res.status(r.status).json(r.body);
+});
+
+app.post("/v1/approvals/decide", (req, res) => {
+  if (!approvalLimiter.allow(req.ip ?? "unknown")) {
+    res.status(429).json({ error: `Rate limit: max ${cfg.approvalActionsPerIpPerHour} approval actions per IP per hour.` });
+    return;
+  }
+  const r = handleApprovalDecide(store, cfg, signer, req.body);
+  res.status(r.status).json(r.body);
+});
+
+// The owning key polls for the outcome (override attestation on approve).
+app.get("/v1/approvals/:id", (req, res) => {
+  const r = handleApprovalPoll(store, req.params.id, req.header("x-api-key"));
+  res.status(r.status).json(r.body);
+});
+
+// The human decide page — the webhook's decide link lands here with the
+// one-time token in the URL FRAGMENT (never sent to any server). Same CSP
+// posture as the dashboards; facts render via textContent only.
+app.get("/approve", (_req, res) => {
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  );
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.type("html").send(approvePageHtml());
 });
 
 // Payment for this route is enforced by the gate above (x402 at the plan's

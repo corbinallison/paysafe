@@ -95,6 +95,11 @@ advisory into enforceable without PaySafe ever holding funds.
 - GET  /v1/plans                  Machine-readable plan catalog. Free.
 - POST /v1/plans/subscribe        Upgrade a key to a plan; paid over x402, so you can subscribe autonomously.
 - GET  /v1/usage                  Your key's own scan/verdict counts (X-API-Key header). Free.
+- POST /v1/approvals/config       Human-in-the-loop: on a flag verdict your webhook gets the
+                                  payment facts + a one-time decide link; a human click mints a
+                                  signed override verdict (tag "override:allow", <=5 min). Free.
+- GET  /v1/approvals/{id}         Poll a pending approval; on approve you receive the signed
+                                  override bound to exactly that payment. Free.
 - POST /v1/trust/evaluate         For SELLERS: x402 trust-provider interface (TrustQuery in,
                                   TrustEvaluation out) to gate settlement on a payer's history. Free.
 

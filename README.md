@@ -4,7 +4,7 @@
 
 [![x402](https://img.shields.io/badge/x402-v2-blue)](https://github.com/x402-foundation/x402)
 [![network](https://img.shields.io/badge/settles%20on-Base%20(USDC)-0052FF)](https://docs.cdp.coinbase.com/x402/quickstart-for-sellers)
-[![tests](https://img.shields.io/badge/tests-198%2F198-brightgreen)](test/run-tests.ts)
+[![tests](https://img.shields.io/badge/tests-244%2F244-brightgreen)](test/run-tests.ts)
 [![npm](https://img.shields.io/npm/v/paysafe-x402-client?label=sdk)](https://www.npmjs.com/package/paysafe-x402-client)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
@@ -93,6 +93,8 @@ Each exposes the same three tools (scan / check reputation / report) plus a fram
 | `POST /v1/keys` | free | Issue an API key — **first 100 calls free** per key |
 | `POST /v1/keys/rotate` | free | Swap your key's secret for a fresh one — usage, free quota, and plan carry over; old secret honors a grace window (default 15 min, max 24 h) |
 | `POST /v1/keys/revoke` | free | Permanently kill a leaked key and its account (requires `{"confirm": true}`; irreversible) |
+| `POST /v1/approvals/config` | free | Enable [human-in-the-loop approvals](#human-in-the-loop-step-up-approvals): flag verdicts pause for a human decision via your webhook |
+| `GET /v1/approvals/:id` | free | Poll a pending approval; on approve, returns the signed `override:allow` verdict |
 | `GET /v1/plans` | free | Machine-readable plan catalog (tiers, limits, subscribe mechanics) |
 | `GET /v1/usage` | free | Your key's own usage stats: scan/verdict counts, free-tier quota, plan status |
 | `POST /v1/trust/evaluate` | free | [x402 trust-provider interface](https://github.com/x402-foundation/x402/issues/2299) — sellers gate settlement on a payer's history (TrustQuery → PASS/FAIL/UNCERTAIN + evidence) |
@@ -174,6 +176,34 @@ POST /v1/scan/outgoing
 
 `GET /dashboard`.** A single self-contained page where any key holder can see their own scan counts, verdict breakdown, free-tier quota, and plan status. Paste your `psk_` key and hit View; the key is sent only as an `X-API-Key` header to `GET /v1/usage` (never in a URL, so it can't leak via history, referrers, or server logs), and each key can only ever see its own account. Served with a locked-down CSP (`default-src 'none'`, zero external resources) and rendered exclusively via `textContent`.
 
+## Human-in-the-loop step-up approvals
+
+A `flag` verdict no longer has to be a dead end. Configure a webhook once and every flag pauses for a human decision:
+
+```jsonc
+POST /v1/approvals/config   (X-API-Key)
+{ "webhook_url": "https://hooks.your-ops.com/paysafe" }   // "format": "slack" for a Slack-style message
+→ { "enabled": true, "webhook_secret": "psw_..." }        // shown ONCE; deliveries are HMAC-SHA256-signed
+```
+
+On a flag, your webhook receives the payment facts (the **full** `pay_to` — never truncated) and a one-time decide link. The reviewer opens `/approve`, checks the address character by character, and clicks Approve or Deny. Approval mints a short-lived (≤5 min) Ed25519-signed **override verdict** carrying the distinct tag `override:allow` in the signed message itself — an override can never masquerade as an organic allow, and it is bound to exactly the flagged payment's commitment. Blocks are never approvable; decisions are idempotent, single-token, and recorded in the tamper-evident audit log.
+
+The agent side is two lines with the SDK:
+
+```ts
+const scan = await paysafe.scanOutgoing(payment);
+if (scan.verdict === "flag" && scan.approval) {
+  const override = await paysafe.waitForApproval(scan, { payment }); // polls; throws on deny/expiry
+  enforcer.approve(override, payment);                               // requires acceptOverrides: true
+}
+```
+
+(Python: `paysafe.wait_for_approval(scan, payment=payment)` / `PaySafeEnforcer(..., accept_overrides=True)`.)
+
+**Why `acceptOverrides` is opt-in:** an agent that holds its own API key could configure the approval webhook to point somewhere it can read, then "approve" its own flags — no human involved. Overrides are only trustworthy when the webhook receiver is out of the agent's reach (your ops channel, not the agent's environment). The enforcement kit therefore refuses `override:allow` unless the wallet owner explicitly opts in, exactly like `allowFlagged`.
+
+**Disabling.** Per key: `POST /v1/approvals/config` with `{"webhook_url": null}` — the response carries an advisory reminding you that flags return to advisory-only (nothing pauses, no overrides are minted, and an `acceptOverrides` wallet has no flag→payment path anymore); pending approvals stay decidable until they expire. Server-wide: `APPROVALS=off` refuses new configs and opens no new approvals, with the same advisory, while in-flight approvals remain decidable so a mid-flight disable strands nothing.
+
 ## Local development
 
 For contributors and anyone auditing the detectors — runs entirely offline, payments disabled, no wallet needed:
@@ -184,7 +214,7 @@ npm install
 
 npm run dev            # local dev server — payments off
 npm run demo:replay    # replay-attack demo: fresh nonce ALLOW → reused nonce BLOCK
-npm test               # 198-test detector + hardening + plans + audit-log + dashboard + key-lifecycle suite
+npm test               # 244-test detector + hardening + plans + audit-log + dashboard + key-lifecycle + approvals suite
 ```
 
 ## Performance
@@ -218,7 +248,7 @@ Listed in the [official MCP registry](https://registry.modelcontextprotocol.io) 
 }
 ```
 
-Nine tools over stdio: `scan_outgoing_payment`, `scan_incoming_payment`, `check_counterparty_reputation`, `report_counterparty`, `mint_api_key`, `rotate_api_key` (leaked-key recovery — fresh secret, same account), `get_plans`, `subscribe_plan`, and `verify_verdict_attestation` (full Ed25519 verification performed locally — pinned key, commitment recompute, expiry). Defaults to the production service; set `PAYSAFE_URL` to point elsewhere.
+Ten tools over stdio: `scan_outgoing_payment`, `scan_incoming_payment`, `check_counterparty_reputation`, `report_counterparty`, `mint_api_key`, `rotate_api_key` (leaked-key recovery — fresh secret, same account), `check_approval_status` (poll a human-in-the-loop approval), `get_plans`, `subscribe_plan`, and `verify_verdict_attestation` (full Ed25519 verification performed locally — pinned key, commitment recompute, expiry). Defaults to the production service; set `PAYSAFE_URL` to point elsewhere.
 
 ## Detection defaults (hosted service)
 
@@ -259,9 +289,9 @@ mcp/server.ts     MCP server (9 tools — npx paysafe-x402)
 examples/         replay-demo.ts — reused-nonce attack blocked end-to-end
 auditlog.ts       Tamper-evident hash-chained decision log
   commitment.ts     Payment hashing (attestation binding + audit digest)
-test/             198-test suite (detectors, hardening, plans, crypto, audit, dashboards, key lifecycle — npm test)
-sdk/              TypeScript client SDK + wallet enforcement kit + payment-path wrapper (npm: paysafe-x402-client, 68 tests)
-sdk-python/       Python client SDK + wallet enforcement kit + payment-path wrapper (PyPI: paysafe-x402, 72 tests)
+test/             244-test suite (detectors, hardening, plans, crypto, audit, dashboards, key lifecycle, approvals — npm test)
+sdk/              TypeScript client SDK + wallet enforcement kit + payment-path wrapper (npm: paysafe-x402-client, 81 tests)
+sdk-python/       Python client SDK + wallet enforcement kit + payment-path wrapper (PyPI: paysafe-x402, 84 tests)
 ```
 
 Design notes: verdicts aggregate worst-first (any block ⇒ block); `risk_score` is severity-based with compounding for multiple independent findings; the detection core has **zero runtime dependencies**, so the full suite runs with `node --experimental-strip-types` and no install.

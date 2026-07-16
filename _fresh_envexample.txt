@@ -61,18 +61,6 @@ MAX_STORE_ENTRIES=100000
 # Free-endpoint abuse limits
 KEYS_PER_IP_PER_DAY=10
 REPORTS_PER_IP_PER_HOUR=30
-APPROVAL_ACTIONS_PER_IP_PER_HOUR=60
-
-# --- Human-in-the-loop step-up approvals ---
-# Feature switch: "off" disables approvals entirely (no new configs, no new
-# approvals; flags stay advisory-only). In-flight approvals remain decidable.
-APPROVALS=on
-# How long a pending approval waits for a human decision before expiring
-APPROVALS_PENDING_TTL_MINUTES=10
-# Override attestation lifetime (seconds; structurally capped at 300)
-OVERRIDE_TTL_SECONDS=300
-# Max in-flight approval records (creation refuses when full -- fail closed)
-APPROVALS_MAX=10000
 
 # --- Storage ---
 DATA_DIR=./data

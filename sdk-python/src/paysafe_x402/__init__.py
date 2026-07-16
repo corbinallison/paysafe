@@ -50,7 +50,7 @@ __all__ = [
     "verify_attestation",
 ]
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 DEFAULT_BASE_URL = "https://paysafe-agent.com"
 
@@ -382,6 +382,68 @@ class PaySafeClient:
         if scan["verdict"] == "block" or (strict and scan["verdict"] == "flag"):
             raise PaySafeBlockedError(scan)
         return scan
+
+    # -- human-in-the-loop approvals ---------------------------------------------
+    def wait_for_approval(
+        self,
+        scan_or_id: Any,
+        payment: Optional[Dict[str, Any]] = None,
+        timeout_s: float = 600.0,
+        interval_s: float = 3.0,
+    ) -> Dict[str, Any]:
+        """Wait for a human decision on a flagged scan (the operator must have
+        configured approvals via POST /v1/approvals/config). Polls until
+        approved / denied / expired / timeout.
+
+            scan = paysafe.scan_outgoing(payment)
+            if scan["verdict"] == "flag" and scan.get("approval"):
+                override = paysafe.wait_for_approval(scan, payment=payment)
+                enforcer.approve(override, payment)  # needs accept_overrides=True
+
+        Returns the override scan-shaped dict (verdict "override:allow", signed
+        attestation bound to the payment commitment). Raises PaySafeError on
+        deny/expiry/timeout. When `payment` is supplied (recommended) and this
+        client verifies attestations, the override is verified against the
+        pinned key and that exact payment before being returned.
+        """
+        if isinstance(scan_or_id, str):
+            approval_id = scan_or_id
+        else:
+            approval_id = ((scan_or_id or {}).get("approval") or {}).get("approval_id", "")
+        if not approval_id:
+            raise PaySafeError(
+                "no approval to wait for: the scan carries no `approval` (either the verdict was not "
+                "flag, or the key has no approvals config - POST /v1/approvals/config first)"
+            )
+        from urllib.parse import quote
+
+        interval = max(interval_s, 0.25)
+        deadline = time.monotonic() + timeout_s
+        while True:
+            state = self._request("GET", f"/v1/approvals/{quote(approval_id, safe='')}")
+            status = state.get("status")
+            if status == "approved" and state.get("override"):
+                override = state["override"]
+                if self.should_verify and override.get("attestation") and payment is not None:
+                    verify_attestation(override, payment, self.verdict_key())
+                    override["attestation_verified"] = True
+                return override
+            if status == "denied":
+                raise PaySafeError(f"approval {approval_id} was DENIED by the operator", 403, state)
+            if status == "expired":
+                raise PaySafeError(f"approval {approval_id} expired before a decision", 410, state)
+            if time.monotonic() + interval > deadline:
+                raise PaySafeError(f"timed out waiting for approval {approval_id}", 408, state)
+            time.sleep(interval)
+
+    def configure_approvals(self, webhook_url: Optional[str], format: str = "json") -> Any:
+        """Configure (or disable, with webhook_url=None) human-in-the-loop
+        approvals for this key. Returns the webhook signing secret ONCE (header
+        X-PaySafe-Signature: sha256=HMAC-SHA256(secret, body) on every
+        delivery). SECURITY: the decide link each delivery carries is a bearer
+        credential - point the webhook somewhere the agent itself cannot read."""
+        self.ensure_api_key()
+        return self._request("POST", "/v1/approvals/config", {"webhook_url": webhook_url, "format": format})
 
     # -- reputation ------------------------------------------------------------------
     def report(self, address: str, category: str, reason: str, reporter_agent_id: Optional[str] = None, evidence_url: Optional[str] = None) -> Any:

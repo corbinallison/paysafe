@@ -2,14 +2,14 @@
  * Detector test-suite. Zero dependencies; runs with:
  *   node --experimental-strip-types test/run-tests.ts
  */
-import { createHash, createPublicKey, verify as edVerify } from "node:crypto";
+import { createHash, createHmac, createPublicKey, verify as edVerify } from "node:crypto";
 import { runScan } from "../src/scanner.ts";
 import { Store } from "../src/store.ts";
 import { loadConfig } from "../src/config.ts";
 import { addReport, summarize } from "../src/reputation.ts";
 import { VerdictSigner } from "../src/verdictsign.ts";
 import { CANONICAL_USDC } from "../src/detectors/asset.ts";
-import { handleScan, createApiKey, consumeFreeCall, freeCallsRemaining, handlePlanSubscribe, handleUsage, handleAdminStats, handleKeyRotate, handleKeyRevoke } from "../src/api.ts";
+import { handleScan, createApiKey, consumeFreeCall, freeCallsRemaining, handlePlanSubscribe, handleUsage, handleAdminStats, handleKeyRotate, handleKeyRevoke, handleApprovalConfig } from "../src/api.ts";
 import { PLANS, HARD_CEILINGS, activePlan, resolveEffectiveConfig, plansCatalog } from "../src/plans.ts";
 import { sanitizeScanRequest } from "../src/sanitize.ts";
 import { RateLimiter } from "../src/ratelimit.ts";
@@ -19,6 +19,8 @@ import { dashboardHtml } from "../src/dashboard.ts";
 import { adminDashboardHtml } from "../src/admindash.ts";
 import { llmsTxt } from "../src/llms.ts";
 import { handleTrustEvaluate } from "../src/trust.ts";
+import { handleApprovalDecide, handleApprovalInspect, handleApprovalPoll, isPrivateAddress, validateWebhookUrl } from "../src/approvals.ts";
+import { approvePageHtml } from "../src/approvepage.ts";
 import { parseScoutScore, scheduleScoutScoreRefresh } from "../src/detectors/scoutscore.ts";
 import { createServer as createHttpServer } from "node:http";
 import type { ScanRequest, ScanResponse } from "../src/types.ts";
@@ -975,6 +977,190 @@ console.log("\n— admin dashboard HTML sanity —");
   );
   check("admin page renders via textContent (no HTML sinks)", !html.includes("innerHTML") && !html.includes("document.write") && !html.includes("insertAdjacentHTML"));
   check("admin page key input is a password field", html.includes('type="password"'));
+}
+
+console.log("\n— human-in-the-loop approvals: webhook URL validation —");
+{
+  const bad = (u: string) => !(validateWebhookUrl(u, "live") as { ok: boolean }).ok;
+  check("live: http rejected", bad("http://hooks.example.com/x"));
+  check("live: IP literal rejected", bad("https://52.1.2.3/x"));
+  check("live: localhost rejected", bad("https://localhost/x"));
+  check("live: .internal rejected", bad("https://hooks.corp.internal/x"));
+  check("live: bare hostname rejected", bad("https://intranet/x"));
+  check("live: credentials rejected", bad("https://user:pw@hooks.example.com/x"));
+  check("live: public https accepted", (validateWebhookUrl("https://hooks.example.com/paysafe", "live") as { ok: boolean }).ok);
+  check("dev: loopback http accepted (test/dev path)", (validateWebhookUrl("http://127.0.0.1:9/x", "dev") as { ok: boolean }).ok);
+
+  const priv = ["10.1.2.3", "127.0.0.1", "169.254.169.254", "172.16.0.1", "172.31.255.255", "192.168.1.1", "100.64.0.1", "0.0.0.0", "::1", "fe80::1", "fd12::1", "::ffff:10.0.0.1"];
+  check("private/loopback/link-local/ULA addresses all detected", priv.every((a) => isPrivateAddress(a)));
+  check("public addresses not misclassified", ["8.8.8.8", "1.1.1.1", "172.32.0.1", "2606:4700::1111", "::ffff:8.8.8.8"].every((a) => !isPrivateAddress(a)));
+}
+
+console.log("\n— human-in-the-loop approvals: end-to-end —");
+{
+  const store = new Store(null);
+  store.auditLog = new AuditLog(null);
+  const signer = new VerdictSigner(null);
+  const key = (createApiKey(store, cfg) as { body: { api_key: string } }).body.api_key;
+
+  // Webhook receiver: captures raw body + signature header.
+  const deliveries: Array<{ body: string; sig: string }> = [];
+  const mock = createHttpServer((req, res) => {
+    let data = "";
+    req.on("data", (c) => (data += c));
+    req.on("end", () => {
+      deliveries.push({ body: data, sig: (req.headers["x-paysafe-signature"] as string) ?? "" });
+      res.writeHead(200);
+      res.end("ok");
+    });
+  });
+  await new Promise<void>((resolve) => mock.listen(0, resolve));
+  const hookUrl = `http://127.0.0.1:${(mock.address() as { port: number }).port}/hook`;
+
+  const waitForDeliveries = async (n: number) => {
+    const deadline = Date.now() + 4000;
+    while (deliveries.length < n && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
+  };
+  const rawTokenFor = (approvalId: string): string => {
+    for (const d of deliveries) {
+      try {
+        const p = JSON.parse(d.body);
+        if (p.approval_id === approvalId) return (p.decide_url as string).split("&token=")[1];
+      } catch { /* slack format has no approval_id field */ }
+    }
+    return "";
+  };
+
+  // Config: auth + validation + secret shown once.
+  check("config requires a key", (handleApprovalConfig(store, cfg, undefined, { webhook_url: hookUrl }) as { status: number }).status === 401);
+  check("config rejects a garbage URL", (handleApprovalConfig(store, cfg, key, { webhook_url: "not a url" }) as { status: number }).status === 400);
+  const conf = handleApprovalConfig(store, cfg, key, { webhook_url: hookUrl }) as { status: number; body: any };
+  check("config accepts the webhook and returns the HMAC secret once", conf.status === 200 && conf.body.enabled === true && /^psw_[0-9a-f]{48}$/.test(conf.body.webhook_secret));
+  const secret = conf.body.webhook_secret as string;
+
+  // A flag scan (untrusted origin) opens a pending approval + fires the webhook.
+  const flagPayment = { ...basePayment, pay_to: "0xF1a6eedAttentionMerchant0000000000000001", resource_url: "https://flagged.example.net/data", nonce: "0xappr1" };
+  const scanRes = handleScan("outgoing", { payment: flagPayment, expected_price_usd: 0.01, context: { origin: "tool_result" } }, cfg, store, signer, key) as { body: any };
+  check("flag scan carries a pending approval", scanRes.body.verdict === "flag" && scanRes.body.approval?.status === "pending", scanRes.body.approval);
+  const approvalId = scanRes.body.approval.approval_id as string;
+
+  // Allow scans attach nothing; block scans NEVER create approvals.
+  const allowRes = handleScan("outgoing", { payment: { ...basePayment, nonce: "0xappr2" }, expected_price_usd: 0.01, context: { origin: "planning" } }, cfg, store, signer, key) as { body: any };
+  check("allow scan attaches no approval", allowRes.body.verdict === "allow" && allowRes.body.approval === undefined);
+  handleScan("outgoing", { payment: { ...basePayment, nonce: "0xdupA" }, expected_price_usd: 0.01, context: { origin: "planning" } }, cfg, store, signer, key);
+  const blockRes = handleScan("outgoing", { payment: { ...basePayment, nonce: "0xdupA" }, expected_price_usd: 0.01, context: { origin: "planning" } }, cfg, store, signer, key) as { body: any };
+  check("block scan attaches no approval (never approvable)", blockRes.body.verdict === "block" && blockRes.body.approval === undefined);
+
+  // Webhook delivery: HMAC-signed payload with the FULL pay_to + fragment link.
+  await waitForDeliveries(1);
+  check("webhook delivered", deliveries.length >= 1);
+  const delivered = JSON.parse(deliveries[0]?.body ?? "{}");
+  check("payload carries the FULL pay_to", delivered.payment?.pay_to === flagPayment.pay_to);
+  const expectSig = `sha256=${createHmac("sha256", secret).update(deliveries[0]?.body ?? "", "utf8").digest("hex")}`;
+  check("payload signed with the config secret (HMAC-SHA256)", deliveries[0]?.sig === expectSig);
+  check("decide link puts the token in the URL FRAGMENT", typeof delivered.decide_url === "string" && delivered.decide_url.includes("/approve#id=") && delivered.decide_url.includes("&token=pst_"));
+  const token = rawTokenFor(approvalId);
+
+  // Token auth: unknown id and bad token are indistinguishable.
+  const badTok = handleApprovalInspect(store, { approval_id: approvalId, token: "pst_wrong" }) as { status: number; body: unknown };
+  const badId = handleApprovalInspect(store, { approval_id: "no-such-approval", token }) as { status: number; body: unknown };
+  check("bad token and unknown id are indistinguishable", badTok.status === badId.status && JSON.stringify(badTok.body) === JSON.stringify(badId.body));
+
+  // Inspect shows the facts (non-consuming).
+  const facts = handleApprovalInspect(store, { approval_id: approvalId, token }) as { status: number; body: any };
+  check("inspect returns facts with full pay_to + poisoning warning", facts.status === 200 && facts.body.payment.pay_to === flagPayment.pay_to && String(facts.body.warning).includes("FULL"));
+
+  // Decide: approve mints the override; idempotent; conflicts refused.
+  check("decide validates the decision value", (handleApprovalDecide(store, cfg, signer, { approval_id: approvalId, token, decision: "yolo" }) as { status: number }).status === 400);
+  const approved = handleApprovalDecide(store, cfg, signer, { approval_id: approvalId, token, decision: "approve" }) as { status: number; body: any };
+  check("approve succeeds", approved.status === 200 && approved.body.status === "approved");
+  const again = handleApprovalDecide(store, cfg, signer, { approval_id: approvalId, token, decision: "approve" }) as { status: number; body: any };
+  check("repeat decision is idempotent (same outcome, no error)", again.status === 200 && again.body.status === "approved");
+  check("conflicting decision after the fact is refused", (handleApprovalDecide(store, cfg, signer, { approval_id: approvalId, token, decision: "deny" }) as { status: number }).status === 409);
+
+  // Poll: ownership + the override object.
+  check("poll requires a key", (handleApprovalPoll(store, approvalId, undefined) as { status: number }).status === 401);
+  const otherKey = (createApiKey(store, cfg) as { body: { api_key: string } }).body.api_key;
+  check("another key cannot see the approval (uniform 404)", (handleApprovalPoll(store, approvalId, otherKey) as { status: number }).status === 404);
+  const polled = handleApprovalPoll(store, approvalId, key) as { status: number; body: any };
+  check("owner poll returns the override", polled.status === 200 && polled.body.status === "approved" && polled.body.override?.verdict === "override:allow");
+
+  // The override attestation: valid signature, distinct tag, commitment-bound, <=300s.
+  const ov = polled.body.override;
+  const att = ov.attestation;
+  const pub = createPublicKey({ key: Buffer.from(att.public_key_spki_hex, "hex"), format: "der", type: "spki" });
+  check("override attestation signature verifies", edVerify(null, Buffer.from(att.message, "utf8"), pub, Buffer.from(att.signature_hex, "hex")));
+  check("override attestation carries the distinct tag, never plain allow", att.message.split("|")[2] === "override:allow");
+  check("override bound to the scanned payment's commitment", att.payment_commitment === paymentCommitment(flagPayment));
+  check("override TTL <= 300s from approval time", Date.parse(att.expires_at) - Date.parse(ov.scanned_at) <= 300_000 && Date.parse(att.expires_at) > Date.now());
+  const capped = signer.attestOverride({ scan_id: "s", direction: "outgoing", risk_score: 10, approved_at: new Date().toISOString() }, "c".repeat(64), 99_999);
+  check("signer structurally caps override TTL at 300s", Date.parse(capped.expires_at) - Date.now() <= 301_000);
+
+  // Deny path.
+  const scan2 = handleScan("outgoing", { payment: { ...flagPayment, nonce: "0xappr3" }, expected_price_usd: 0.01, context: { origin: "tool_result" } }, cfg, store, signer, key) as { body: any };
+  await waitForDeliveries(2);
+  const rec2 = store.approvals.get(scan2.body.approval.approval_id)!;
+  const denied = handleApprovalDecide(store, cfg, signer, { approval_id: rec2.approval_id, token: rawTokenFor(rec2.approval_id), decision: "deny" }) as { status: number; body: any };
+  check("deny records the refusal and mints nothing", denied.status === 200 && denied.body.status === "denied" && rec2.override === undefined);
+
+  // Expiry: an overdue pending approval cannot be decided.
+  const scan3 = handleScan("outgoing", { payment: { ...flagPayment, nonce: "0xappr4" }, expected_price_usd: 0.01, context: { origin: "tool_result" } }, cfg, store, signer, key) as { body: any };
+  await waitForDeliveries(3);
+  const rec3 = store.approvals.get(scan3.body.approval.approval_id)!;
+  rec3.expires_at = new Date(Date.now() - 1000).toISOString();
+  const late = handleApprovalDecide(store, cfg, signer, { approval_id: rec3.approval_id, token: rawTokenFor(rec3.approval_id), decision: "approve" }) as { status: number };
+  check("expired approval cannot be approved (410)", late.status === 410 && rec3.override === undefined);
+  store.pruneApprovals();
+  check("prune marks overdue pendings expired", store.approvals.get(rec3.approval_id)?.status === "expired");
+
+  // The decide-time verdict guard: even a tampered record can't upgrade a block.
+  const scan4 = handleScan("outgoing", { payment: { ...flagPayment, nonce: "0xappr5" }, expected_price_usd: 0.01, context: { origin: "tool_result" } }, cfg, store, signer, key) as { body: any };
+  await waitForDeliveries(4);
+  const rec4 = store.approvals.get(scan4.body.approval.approval_id)!;
+  rec4.original_verdict = "block"; // simulate a bug/race upstream
+  const tampered = handleApprovalDecide(store, cfg, signer, { approval_id: rec4.approval_id, token: rawTokenFor(rec4.approval_id), decision: "approve" }) as { status: number };
+  check("decide-time guard: non-flag records can never be approved", tampered.status === 409 && rec4.override === undefined);
+
+  // Fail-closed at capacity: no eviction of in-flight approvals, no new ones.
+  const cfgFull = { ...cfg, approvalsMax: store.approvals.size };
+  const scanFull = handleScan("outgoing", { payment: { ...flagPayment, nonce: "0xappr6" }, expected_price_usd: 0.01, context: { origin: "tool_result" } }, cfgFull, store, signer, key) as { body: any };
+  check("at capacity: scan still flags but opens no approval (fail closed)", scanFull.body.verdict === "flag" && scanFull.body.approval === undefined);
+
+  // Key rotation: the approvals config + records follow the account.
+  const rot = handleKeyRotate(store, cfg, key, { grace_seconds: 0 }) as { body: any };
+  const newKey = rot.body.api_key as string;
+  check("rotation migrates approvals to the new key", (handleApprovalPoll(store, approvalId, newKey) as { status: number }).status === 200);
+  check("rotation migrates the webhook config", store.approvalConfigs.size === 1);
+
+  // Audit trail: the human decisions are chained in.
+  check("audit chain still verifies with decision records", (store.auditLog!.verify() as { ok: boolean }).ok === true);
+
+  // Per-key disable: honored with an advisory notice.
+  const off = handleApprovalConfig(store, cfg, newKey, { webhook_url: null }) as { status: number; body: any };
+  check("per-key disable succeeds with an advisory", off.status === 200 && off.body.enabled === false && String(off.body.advisory).includes("advisory-only"));
+  const afterOff = handleScan("outgoing", { payment: { ...flagPayment, nonce: "0xappr7" }, expected_price_usd: 0.01, context: { origin: "tool_result" } }, cfg, store, signer, newKey) as { body: any };
+  check("after disable: flags no longer open approvals", afterOff.body.verdict === "flag" && afterOff.body.approval === undefined);
+
+  // Server-level switch (APPROVALS=off): config refused with advisory; flags advisory-only; in-flight still decidable.
+  const cfgOff = { ...cfg, approvalsEnabled: false };
+  const reconf = handleApprovalConfig(store, cfgOff, newKey, { webhook_url: hookUrl }) as { status: number; body: any };
+  check("APPROVALS=off: new config refused with an advisory", reconf.status === 404 && String(reconf.body.advisory).includes("advisory-only"));
+  handleApprovalConfig(store, cfg, newKey, { webhook_url: hookUrl }); // re-enable per-key (feature on)
+  const offScan = handleScan("outgoing", { payment: { ...flagPayment, nonce: "0xappr8" }, expected_price_usd: 0.01, context: { origin: "tool_result" } }, cfgOff, store, signer, newKey) as { body: any };
+  check("APPROVALS=off: flag scans open no approvals even with a config", offScan.body.verdict === "flag" && offScan.body.approval === undefined);
+  check("APPROVALS=off: per-key opt-out still honored", (handleApprovalConfig(store, cfgOff, newKey, { webhook_url: null }) as { body: any }).body.enabled === false);
+  check("APPROVALS=off: in-flight approvals stay pollable", (handleApprovalPoll(store, approvalId, newKey) as { status: number }).status === 200);
+
+  mock.close();
+}
+
+console.log("\n— approve page HTML sanity —");
+{
+  const html = approvePageHtml();
+  check("approve page renders via textContent (no HTML sinks)", !html.includes("innerHTML") && !html.includes("document.write") && !html.includes("insertAdjacentHTML"));
+  check("approve page reads the token from the fragment, not the query", html.includes("location.hash") && !html.includes("location.search"));
+  check("approve page warns about full-address verification", html.includes("character by character"));
+  check("approve page loads zero external resources", !/(?:src|href)\s*=\s*["']\s*(?:https?:)?\/\//i.test(html) && !html.includes("<link"));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

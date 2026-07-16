@@ -214,6 +214,7 @@ class PaySafeEnforcer:
         self,
         trusted_key_hex: str,
         allow_flagged: bool = False,
+        accept_overrides: bool = False,
         max_age_s: Optional[float] = None,
         reusable: bool = False,
         strict_types: bool = False,
@@ -226,6 +227,11 @@ class PaySafeEnforcer:
             )
         self.trusted_key_hex = trusted_key_hex
         self.allow_flagged = allow_flagged
+        # OPT-IN: an agent that holds its own API key can point the approval
+        # webhook at itself and "approve" its own flags; human-approved
+        # "override:allow" verdicts are only trustworthy when the webhook
+        # receiver is out of the agent's reach.
+        self.accept_overrides = accept_overrides
         self.max_age_s = max_age_s
         self.reusable = reusable
         self.strict_types = strict_types
@@ -241,8 +247,18 @@ class PaySafeEnforcer:
         """
         verify_attestation(scan, payment, self.trusted_key_hex)
         verdict = scan.get("verdict")
-        if verdict != "allow" and not (verdict == "flag" and self.allow_flagged):
-            hint = " (set allow_flagged=True to accept flags)" if verdict == "flag" else ""
+        acceptable = (
+            verdict == "allow"
+            or (verdict == "flag" and self.allow_flagged)
+            or (verdict == "override:allow" and self.accept_overrides)
+        )
+        if not acceptable:
+            if verdict == "flag":
+                hint = " (set allow_flagged=True to accept flags)"
+            elif verdict == "override:allow":
+                hint = " (human-approved overrides require the accept_overrides opt-in - see its security note)"
+            else:
+                hint = ""
             raise PaySafeEnforcementError(f'refusing to approve a "{verdict}" verdict for signing{hint}')
         commitment = compute_payment_commitment(payment)
         self._approvals[commitment] = _Approval(

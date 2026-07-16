@@ -48,6 +48,7 @@ interface Seen {
   subscribes: number;
 }
 const seen: Seen = { scans: [], subscribes: 0 };
+const mockApprovals = new Map<string, { payment: PaymentDetails; scan: ScanResponse; polls: number; behavior: "approve" | "deny" | "stall" | "forge" }>();
 
 function readBody(req: IncomingMessage): Promise<any> {
   return new Promise((resolve) => {
@@ -111,7 +112,36 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
       ? paymentCommitment({ network: "eip155:8453", pay_to: "0xattacker", amount: "1", nonce: "0xother" })
       : paymentCommitment(body.payment ?? {});
     scan.attestation = signer.attest(scan, commitment);
+    // HITL: flags carry a pending approval (behavior encoded in pay_to markers).
+    if (scan.verdict === "flag") {
+      const id = `apr-${mockApprovals.size + 1}`;
+      mockApprovals.set(id, { payment: body.payment ?? {}, scan, polls: 0, behavior: payTo.includes("deny") ? "deny" : payTo.includes("stall") ? "stall" : payTo.includes("forge") ? "forge" : "approve" });
+      (scan as ScanResponse & { approval?: unknown }).approval = { approval_id: id, status: "pending", expires_at: new Date(Date.now() + 600_000).toISOString(), poll: `GET /v1/approvals/${id}`, note: "mock" };
+    }
     return send(200, scan, { "x-free-calls-remaining": "97" });
+  }
+  if (req.method === "GET" && /^\/v1\/approvals\/[^/]+$/.test(path)) {
+    const a = mockApprovals.get(path.split("/").pop() ?? "");
+    if (!a) return send(404, { error: "Unknown approval." });
+    a.polls++;
+    const base = { approval_id: path.split("/").pop(), scan_id: a.scan.scan_id, created_at: a.scan.scanned_at, expires_at: new Date(Date.now() + 600_000).toISOString(), decided_at: new Date().toISOString() };
+    if (a.behavior === "deny") return send(200, { ...base, status: "denied" });
+    if (a.behavior === "stall") return send(200, { ...base, status: "pending", decided_at: null });
+    if (a.polls < 2) return send(200, { ...base, status: "pending", decided_at: null }); // approve on the 2nd poll
+    const approvedAt = new Date().toISOString();
+    const mint = a.behavior === "forge" ? rogueSigner : signer; // forge = signed by the WRONG key
+    const attestation = mint.attestOverride(
+      { scan_id: a.scan.scan_id, direction: a.scan.direction, risk_score: a.scan.risk_score, approved_at: approvedAt },
+      paymentCommitment(a.payment),
+      300,
+    );
+    const override = { scan_id: a.scan.scan_id, direction: a.scan.direction, verdict: "override:allow", risk_score: a.scan.risk_score, checks: [], scanned_at: approvedAt, advisory: "mock override", attestation };
+    return send(200, { ...base, status: "approved", override });
+  }
+  if (req.method === "POST" && path === "/v1/approvals/config") {
+    const body = await readBody(req);
+    if (body.webhook_url === null) return send(200, { enabled: false });
+    return send(200, { enabled: true, webhook_url: body.webhook_url, format: body.format ?? "json", webhook_secret: "psw_mocksecret" });
   }
   if (req.method === "GET" && path === "/v1/plans") {
     return send(200, { plans: [{ id: "pro", name: "Pro", price: "$4.99", duration_days: 30, description: "", limits: {} }], hard_ceilings: {} });
@@ -606,6 +636,61 @@ const payingFetch: typeof fetch = async (input, init) => {
 }
 
 merchant.close();
+
+console.log("\n— human-in-the-loop approvals —");
+{
+  const client = new PaySafeClient({ baseUrl: BASE, agentId: "hitl-agent" });
+
+  // Config helper surfaces the one-time secret.
+  const conf = await client.configureApprovals("https://hooks.example.com/paysafe");
+  check("configureApprovals returns the signing secret once", conf.enabled === true && conf.webhook_secret === "psw_mocksecret");
+
+  // Flag scan carries the pending approval; waitForApproval polls to the override.
+  const iffy: PaymentDetails = { ...basePayment, pay_to: "0xIffyMerchant0000000000000000000000000001", nonce: "0xhitl1" };
+  const scan = await client.scanOutgoing(iffy, { context: { origin: "planning" } });
+  check("flag scan exposes the pending approval", scan.verdict === "flag" && scan.approval?.status === "pending");
+  const override = await client.waitForApproval(scan, { payment: iffy, intervalMs: 300 });
+  check("waitForApproval returns the override verdict", override.verdict === "override:allow");
+  check("override attestation verified against the pinned key + payment", override.attestation_verified === true);
+
+  // waitForApproval with no approval attached fails fast.
+  const clean = await client.scanOutgoing({ ...basePayment, nonce: "0xhitl2" }, { context: { origin: "planning" } });
+  const noApproval = await client.waitForApproval(clean, { payment: basePayment }).then(() => null, (e) => e);
+  check("waitForApproval without an approval throws immediately", noApproval instanceof PaySafeError && String(noApproval.message).includes("no approval"));
+
+  // Denied and stalled paths.
+  const denyScan = await client.scanOutgoing({ ...iffy, pay_to: "0xIffyDenyMerchant000000000000000000000001", nonce: "0xhitl3" }, { context: { origin: "planning" } });
+  const denied = await client.waitForApproval(denyScan, { intervalMs: 100 }).then(() => null, (e) => e);
+  check("operator denial throws with the denial state", denied instanceof PaySafeError && denied.status === 403);
+  const stallScan = await client.scanOutgoing({ ...iffy, pay_to: "0xIffyStallMerchant00000000000000000000001", nonce: "0xhitl4" }, { context: { origin: "planning" } });
+  const timedOut = await client.waitForApproval(stallScan, { timeoutMs: 400, intervalMs: 100 }).then(() => null, (e) => e);
+  check("waitForApproval times out on an undecided approval", timedOut instanceof PaySafeError && timedOut.status === 408);
+
+  // A FORGED override (signed by the wrong key) is rejected during the wait.
+  const forgeScan = await client.scanOutgoing({ ...iffy, pay_to: "0xIffyForgeMerchant00000000000000000000001", nonce: "0xhitl5" }, { context: { origin: "planning" } });
+  const forged = await client.waitForApproval(forgeScan, { payment: { ...iffy, pay_to: "0xIffyForgeMerchant00000000000000000000001", nonce: "0xhitl5" }, intervalMs: 100 }).then(() => null, (e) => e);
+  check("forged override (wrong signing key) is rejected", forged instanceof AttestationError);
+
+  // Enforcer: overrides are OPT-IN.
+  const strictEnforcer = new PaySafeEnforcer({ trustedKeyHex: signer.publicKeySpkiHex });
+  const refused = (() => { try { strictEnforcer.approve(override, iffy); return null; } catch (e) { return e; } })();
+  check("enforcer refuses overrides by default (acceptOverrides opt-in)", refused instanceof PaySafeEnforcementError && String((refused as Error).message).includes("acceptOverrides"));
+
+  const hitlEnforcer = new PaySafeEnforcer({ trustedKeyHex: signer.publicKeySpkiHex, acceptOverrides: true });
+  const commitment = hitlEnforcer.approve(override, iffy);
+  check("enforcer with acceptOverrides registers the override", commitment === computePaymentCommitment(iffy));
+  let signed = false;
+  hitlEnforcer.assertApproved(commitment);
+  signed = true;
+  check("override authorizes exactly one signature", signed);
+  const reuse = (() => { try { hitlEnforcer.assertApproved(commitment); return null; } catch (e) { return e; } })();
+  check("override approvals stay single-use", reuse instanceof PaySafeEnforcementError);
+
+  // acceptOverrides must not loosen anything else: plain flags still refused.
+  const flagScan = await client.scanOutgoing({ ...iffy, nonce: "0xhitl6" }, { context: { origin: "planning" } });
+  const flagRefused = (() => { try { hitlEnforcer.approve(flagScan, { ...iffy, nonce: "0xhitl6" }); return null; } catch (e) { return e; } })();
+  check("acceptOverrides does not accept plain flag verdicts", flagRefused instanceof PaySafeEnforcementError);
+}
 
 server.close();
 console.log(`\n${passed} passed, ${failed} failed`);

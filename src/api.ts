@@ -11,6 +11,7 @@ import { sanitizeScanRequest } from "./sanitize.ts";
 import { paymentCommitment, paymentDigest } from "./commitment.ts";
 import { addReport, summarize } from "./reputation.ts";
 import { activatePlanOnKey, activePlan, getPlan, plansCatalog, resolveEffectiveConfig } from "./plans.ts";
+import { maybeCreateApproval, migrateApprovalsOnRotate, setApprovalConfig } from "./approvals.ts";
 
 export interface ApiResult {
   status: number;
@@ -122,8 +123,9 @@ export function handleScan(
   // Per-key aggregate stats for the usage dashboard (counts only — no payment
   // data, no PII). Only recorded for a recognized key; anonymous paid scans
   // aren't attributable to an account.
+  let approval: ReturnType<typeof maybeCreateApproval> = null;
   if (apiKey) {
-    const { rec } = store.resolveKey(apiKey);
+    const { rec, hash } = store.resolveKey(apiKey);
     if (rec) {
       const s = rec.scans ?? { total: 0, allow: 0, flag: 0, block: 0 };
       s.total += 1;
@@ -132,9 +134,13 @@ export function handleScan(
       rec.last_used_at = scan.scanned_at;
       store.markDirty();
     }
+    // Human-in-the-loop: a flag on a key with an approvals config opens a
+    // pending approval and notifies the operator's webhook (fire-and-forget —
+    // never delays the scan, never changes the verdict).
+    if (hash) approval = maybeCreateApproval(store, cfg, hash, scan, req);
   }
 
-  return { status: 200, body: scan };
+  return { status: 200, body: approval ? { ...scan, approval } : scan };
 }
 
 export function handleReputationLookup(address: string, store: Store): ApiResult {
@@ -297,7 +303,8 @@ export function handleKeyRotate(store: Store, cfg: PaySafeConfig, apiKey: string
   const now = new Date();
   const graceUntil = new Date(now.getTime() + grace * 1000).toISOString();
 
-  // Move the account to the new hash; tombstone the old secret.
+  // Move the account to the new hash; tombstone the old secret. The approvals
+  // config and any in-flight approvals belong to the ACCOUNT, so they follow.
   store.keys.delete(auth.hash);
   store.keys.set(newHash, auth.rec);
   store.revoked.set(auth.hash, {
@@ -305,6 +312,7 @@ export function handleKeyRotate(store: Store, cfg: PaySafeConfig, apiKey: string
     reason: "rotated",
     ...(grace > 0 ? { grace_until: graceUntil, successor: newHash } : {}),
   });
+  migrateApprovalsOnRotate(store, auth.hash, newHash);
   store.markDirty();
 
   const isAdminKey = !!cfg.adminKeyHash && auth.hash === cfg.adminKeyHash;
@@ -351,6 +359,12 @@ export function handleKeyRevoke(store: Store, cfg: PaySafeConfig, apiKey: string
   const now = new Date().toISOString();
   store.keys.delete(auth.hash);
   store.revoked.set(auth.hash, { revoked_at: now, reason: "revoked" });
+  // The account dies with the key: drop its webhook config and expire any
+  // pending approvals so nothing decidable outlives the revocation.
+  store.approvalConfigs.delete(auth.hash);
+  for (const rec of store.approvals.values()) {
+    if (rec.key_hash === auth.hash && rec.status === "pending") rec.status = "expired";
+  }
   store.markDirty();
   return {
     status: 200,
@@ -360,6 +374,15 @@ export function handleKeyRevoke(store: Store, cfg: PaySafeConfig, apiKey: string
       note: "The key and its account are permanently dead. Mint a fresh key with POST /v1/keys.",
     },
   };
+}
+
+/** POST /v1/approvals/config — authed by the caller's CURRENT key (in-grace
+ * rotated secrets are refused: configuring the approval channel is a
+ * security-sensitive operation, same policy as rotate/revoke). */
+export function handleApprovalConfig(store: Store, cfg: PaySafeConfig, apiKey: string | undefined, body: unknown): ApiResult {
+  const auth = requireLiveKey(store, apiKey);
+  if ("err" in auth) return auth.err;
+  return setApprovalConfig(store, cfg, auth.hash, body);
 }
 
 /**
@@ -425,7 +448,7 @@ export function serviceInfo(cfg: PaySafeConfig): ApiResult {
     body: {
       name: "PaySafe",
       tagline: "Payment security firewall for x402 micropayments. Advisory, non-custodial.",
-      version: "1.1.3",
+      version: "1.2.0",
       mode: cfg.mode,
       endpoints: {
         "POST /v1/keys": `Free (rate-limited: ${cfg.keysPerIpPerDay}/IP/day). Issue an API key with a free-call allowance.`,
@@ -437,6 +460,8 @@ export function serviceInfo(cfg: PaySafeConfig): ApiResult {
         "POST /v1/reputation/report": `Free (rate-limited: ${cfg.reportsPerIpPerHour}/IP/hour). Report a bad counterparty after the fact.`,
         "GET /v1/plans": "Free. Machine-readable plan catalog (pricing tiers, limits, how to subscribe).",
         "POST /v1/trust/evaluate": `Free (rate-limited: ${cfg.trustQueriesPerIpPerHour}/IP/hour). x402 trust-provider interface: TrustQuery about a payer in, TrustEvaluation (PASS/FAIL/UNCERTAIN + evidence) out — for sellers gating settlement.`,
+        "POST /v1/approvals/config": "Free (X-API-Key). Configure human-in-the-loop approvals: on a flag verdict, your webhook gets the payment facts + a one-time decide link; a human click mints a short-lived signed override verdict.",
+        "GET /v1/approvals/{id}": "Free (X-API-Key). Poll a pending approval; on approve you receive the signed override:allow verdict bound to that exact payment.",
         "POST /v1/plans/subscribe": "x402-paid at the plan's price. Upgrade your API key to a plan; renew by paying again.",
         "GET /v1/usage": "Free. Your own key's usage stats (X-API-Key header): scan/verdict counts, free-tier quota, plan status.",
         "GET /dashboard": "Free. Browser usage dashboard for your key — key is sent via header only, never a URL.",

@@ -53,6 +53,19 @@ export interface PaySafeConfig {
   reportsPerIpPerHour: number;
   /** Trust-provider evaluations (POST /v1/trust/evaluate) per IP per hour */
   trustQueriesPerIpPerHour: number;
+  /** Approval inspect/decide calls per IP per hour (token-authed endpoints) */
+  approvalActionsPerIpPerHour: number;
+
+  // --- human-in-the-loop step-up approvals ---
+  /** Feature switch (APPROVALS=off disables: no new configs, no new approvals;
+   * in-flight approvals stay decidable so a mid-flight disable strands nothing) */
+  approvalsEnabled: boolean;
+  /** How long a pending approval waits for a human before expiring (minutes) */
+  approvalsPendingTtlMinutes: number;
+  /** Override attestation TTL in seconds (structurally capped at 300) */
+  overrideTtlSeconds: number;
+  /** Max in-flight approval records (creation refuses when full — fail closed) */
+  approvalsMax: number;
 
   // --- audit + resource bounds ---
   /** Write a tamper-evident audit record for every scan decision */
@@ -106,6 +119,12 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     keysPerIpPerDay: num(env.KEYS_PER_IP_PER_DAY, 10),
     reportsPerIpPerHour: num(env.REPORTS_PER_IP_PER_HOUR, 30),
     trustQueriesPerIpPerHour: num(env.TRUST_QUERIES_PER_IP_PER_HOUR, 120),
+    approvalActionsPerIpPerHour: num(env.APPROVAL_ACTIONS_PER_IP_PER_HOUR, 60),
+
+    approvalsEnabled: env.APPROVALS !== "off",
+    approvalsPendingTtlMinutes: num(env.APPROVALS_PENDING_TTL_MINUTES, 10),
+    overrideTtlSeconds: Math.min(num(env.OVERRIDE_TTL_SECONDS, 300), 300),
+    approvalsMax: num(env.APPROVALS_MAX, 10_000),
 
     auditLog: env.AUDIT_LOG !== "off",
     maxStoreEntries: num(env.MAX_STORE_ENTRIES, 100_000),

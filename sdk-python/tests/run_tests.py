@@ -117,6 +117,7 @@ signer_pub_hex = signer_key.public_key().public_bytes(Encoding.DER, PublicFormat
 rogue_pub_hex = Ed25519PrivateKey.generate().public_key().public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo).hex()
 
 seen = {"scans": [], "subscribes": 0}
+mock_approvals: dict = {}
 
 
 def make_scan(payment: dict, direction: str) -> dict:
@@ -174,6 +175,28 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0]
         if path == "/.well-known/paysafe-verdict-key":
             return self._send(200, {"public_key_spki_hex": signer_pub_hex})
+        if path.startswith("/v1/approvals/"):
+            a = mock_approvals.get(path.rsplit("/", 1)[1])
+            if not a:
+                return self._send(404, {"error": "Unknown approval."})
+            a["polls"] += 1
+            base = {"approval_id": path.rsplit("/", 1)[1], "scan_id": a["scan"]["scan_id"], "created_at": a["scan"]["scanned_at"],
+                    "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+                    "decided_at": None}
+            if a["behavior"] == "deny":
+                return self._send(200, {**base, "status": "denied"})
+            if a["behavior"] == "stall" or a["polls"] < 2:
+                return self._send(200, {**base, "status": "pending"})
+            approved_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+            expires = (datetime.now(timezone.utc) + timedelta(seconds=300)).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+            commitment = compute_payment_commitment(a["payment"])
+            message = f"{a['scan']['scan_id']}|{a['scan']['direction']}|override:allow|{a['scan']['risk_score']}|{approved_at}|{commitment}|{expires}"
+            sig = signer_key.sign(message.encode("utf-8"))
+            override = {"scan_id": a["scan"]["scan_id"], "direction": a["scan"]["direction"], "verdict": "override:allow",
+                        "risk_score": a["scan"]["risk_score"], "checks": [], "scanned_at": approved_at, "advisory": "mock override",
+                        "attestation": {"alg": "ed25519", "public_key_spki_hex": signer_pub_hex, "message": message,
+                                        "signature_hex": sig.hex(), "payment_commitment": commitment, "expires_at": expires}}
+            return self._send(200, {**base, "status": "approved", "decided_at": approved_at, "override": override})
         if path == "/v1/plans":
             return self._send(200, {"plans": [{"id": "pro"}], "hard_ceilings": {}})
         self._send(404, {"error": f"no mock route GET {path}"})
@@ -188,6 +211,14 @@ class Handler(BaseHTTPRequestHandler):
             if "402trigger" in (body.get("payment", {}).get("pay_to") or ""):
                 return self._send(402, {})
             scan = make_scan(body.get("payment", {}), "incoming" if path.endswith("incoming") else "outgoing")
+            if scan["verdict"] == "flag":
+                pay_to = (body.get("payment", {}).get("pay_to") or "").lower()
+                aid = f"apr-{len(mock_approvals) + 1}"
+                mock_approvals[aid] = {"payment": body.get("payment", {}), "scan": scan, "polls": 0,
+                                       "behavior": "deny" if "deny" in pay_to else "stall" if "stall" in pay_to else "approve"}
+                scan["approval"] = {"approval_id": aid, "status": "pending",
+                                    "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+                                    "poll": f"GET /v1/approvals/{aid}", "note": "mock"}
             return self._send(200, scan, {"x-free-calls-remaining": "97"})
         if path == "/v1/plans/subscribe":
             seen["subscribes"] += 1
@@ -195,6 +226,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"plan": body.get("plan"), "expires_at": expires})
         if path == "/v1/reputation/report":
             return self._send(201, {"accepted": True})
+        if path == "/v1/approvals/config":
+            if body.get("webhook_url") is None:
+                return self._send(200, {"enabled": False})
+            return self._send(200, {"enabled": True, "webhook_secret": "psw_mocksecret"})
         self._send(404, {"error": f"no mock route POST {path}"})
 
 
@@ -642,6 +677,65 @@ scans_before = len(seen["scans"])
 single = wrap_transport_with_paysafe(paying_transport, paysafe2, base_transport=merchant_transport(), scan_offer=False)
 single("GET", "https://merchant.example/premium", {}, None)
 check("scan_offer=False runs a single outgoing scan", len(seen["scans"]) == scans_before + 1)
+
+print("\n-- human-in-the-loop approvals --")
+hitl_client = PaySafeClient(base_url=BASE, agent_id="py-hitl")
+conf = hitl_client.configure_approvals("https://hooks.example.com/paysafe")
+check("configure_approvals returns the signing secret once", conf["enabled"] is True and conf["webhook_secret"] == "psw_mocksecret")
+
+iffy = {**base_payment, "pay_to": "0xIffyMerchant0000000000000000000000000001", "nonce": "0xpyhitl1"}
+hitl_scan = hitl_client.scan_outgoing(iffy, context={"origin": "planning"})
+check("flag scan exposes the pending approval", hitl_scan["verdict"] == "flag" and hitl_scan.get("approval", {}).get("status") == "pending")
+
+override = hitl_client.wait_for_approval(hitl_scan, payment=iffy, interval_s=0.3)
+check("wait_for_approval returns the override verdict", override["verdict"] == "override:allow")
+check("override attestation verified against pinned key + payment", override.get("attestation_verified") is True)
+
+clean_scan = hitl_client.scan_outgoing({**base_payment, "nonce": "0xpyhitl2"}, context={"origin": "planning"})
+try:
+    hitl_client.wait_for_approval(clean_scan, payment=base_payment)
+    check("wait_for_approval without an approval raises immediately", False)
+except PaySafeError as e:
+    check("wait_for_approval without an approval raises immediately", "no approval" in str(e))
+
+deny_scan = hitl_client.scan_outgoing({**iffy, "pay_to": "0xIffyDenyMerchant000000000000000000000001", "nonce": "0xpyhitl3"}, context={"origin": "planning"})
+try:
+    hitl_client.wait_for_approval(deny_scan, interval_s=0.1)
+    check("operator denial raises", False)
+except PaySafeError as e:
+    check("operator denial raises", e.status == 403)
+
+stall_scan = hitl_client.scan_outgoing({**iffy, "pay_to": "0xIffyStallMerchant00000000000000000000001", "nonce": "0xpyhitl4"}, context={"origin": "planning"})
+try:
+    hitl_client.wait_for_approval(stall_scan, timeout_s=0.4, interval_s=0.1)
+    check("wait_for_approval times out on an undecided approval", False)
+except PaySafeError as e:
+    check("wait_for_approval times out on an undecided approval", e.status == 408)
+
+strict_enforcer = PaySafeEnforcer(trusted_key_hex=PINNED)
+try:
+    strict_enforcer.approve(override, iffy)
+    check("enforcer refuses overrides by default (accept_overrides opt-in)", False)
+except PaySafeEnforcementError as e:
+    check("enforcer refuses overrides by default (accept_overrides opt-in)", "accept_overrides" in str(e))
+
+hitl_enforcer = PaySafeEnforcer(trusted_key_hex=PINNED, accept_overrides=True)
+commitment = hitl_enforcer.approve(override, iffy)
+check("enforcer with accept_overrides registers the override", commitment == compute_payment_commitment(iffy))
+hitl_enforcer.assert_approved(commitment)
+check("override authorizes exactly one signature", True)
+try:
+    hitl_enforcer.assert_approved(commitment)
+    check("override approvals stay single-use", False)
+except PaySafeEnforcementError:
+    check("override approvals stay single-use", True)
+
+flag_scan2 = hitl_client.scan_outgoing({**iffy, "nonce": "0xpyhitl5"}, context={"origin": "planning"})
+try:
+    hitl_enforcer.approve(flag_scan2, {**iffy, "nonce": "0xpyhitl5"})
+    check("accept_overrides does not accept plain flag verdicts", False)
+except PaySafeEnforcementError:
+    check("accept_overrides does not accept plain flag verdicts", True)
 
 server.shutdown()
 print(f"\n{passed} passed, {failed} failed")

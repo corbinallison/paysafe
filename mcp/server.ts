@@ -68,7 +68,7 @@ const contextSchema = z
   .optional();
 
 const server = new McpServer(
-  { name: "paysafe", version: "1.1.3" },
+  { name: "paysafe", version: "1.2.0" },
   {
     instructions:
       "PaySafe is a payment security firewall for x402. Protocol for this agent: BEFORE settling or sending ANY x402 payment, call `scan_outgoing_payment` and act on the verdict (allow = proceed, flag = pause and confirm, block = do NOT pay). BEFORE paying a 402 offer you received, call `scan_incoming_payment`. Whenever a payment decision followed reading external content (a fetched page or tool result), pass that content in `context.content` so the injection check can run. Use `check_counterparty_reputation` before dealing with an unfamiliar address, and `report_counterparty` after a bad experience (free). These scans are advisory and non-custodial — PaySafe never touches your keys or funds.",
@@ -154,6 +154,15 @@ server.tool(
   { grace_seconds: z.number().int().min(0).max(86400).optional().describe("How long the old secret keeps working (default 900 = 15 min; 0 kills it instantly)") },
   async (args) => ({
     content: [{ type: "text", text: await call("POST", "/v1/keys/rotate", args) }],
+  }),
+);
+
+server.tool(
+  "check_approval_status",
+  "Poll a pending human approval (from a flag verdict's `approval.approval_id` when the operator has configured approvals via POST /v1/approvals/config). Returns pending / approved / denied / expired; on approved it includes the signed override verdict (tag 'override:allow', valid a few minutes, bound to exactly the flagged payment). Requires PAYSAFE_API_KEY (the key that made the scan). This tool never handles decide tokens — deciding is the human's job via the webhook link.",
+  { approval_id: z.string().describe("From the flag scan response's approval.approval_id") },
+  async ({ approval_id }) => ({
+    content: [{ type: "text", text: await call("GET", `/v1/approvals/${encodeURIComponent(approval_id)}`) }],
   }),
 );
 

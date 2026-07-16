@@ -92,6 +92,42 @@ export class VerdictSigner {
     };
   }
 
+  /**
+   * Sign a human-approved OVERRIDE verdict (verdict tag "override:allow") for
+   * a payment that scanned as flag. Same 7-field message format as attest(),
+   * so every existing verifier parses it — but the distinct verdict tag means
+   * an override can never masquerade as an organic allow in the signature.
+   * TTL is STRUCTURALLY capped at 300s (roadmap constraint: override windows
+   * stay short); expiry is computed from the approval time, not the original
+   * scan time.
+   */
+  attestOverride(
+    fields: { scan_id: string; direction: string; risk_score: number; approved_at: string },
+    commitment: string,
+    ttlSeconds = 300,
+  ): VerdictAttestation {
+    const ttl = Math.min(Math.max(Math.floor(ttlSeconds), 1), 300);
+    const expiresAt = new Date(Date.parse(fields.approved_at) + ttl * 1000).toISOString();
+    const message = [
+      fields.scan_id,
+      fields.direction,
+      "override:allow",
+      fields.risk_score,
+      fields.approved_at,
+      commitment,
+      expiresAt,
+    ].join("|");
+    const signature = edSign(null, Buffer.from(message, "utf8"), this.privateKey);
+    return {
+      alg: "ed25519",
+      public_key_spki_hex: this.publicKeySpkiHex,
+      message,
+      signature_hex: signature.toString("hex"),
+      payment_commitment: commitment,
+      expires_at: expiresAt,
+    };
+  }
+
   publicKeyInfo(): object {
     return {
       alg: "ed25519",
@@ -100,7 +136,7 @@ export class VerdictSigner {
       message_format: "scan_id|direction|verdict|risk_score|scanned_at|payment_commitment|expires_at",
       payment_commitment: "sha256(network|pay_to(lowercased)|asset(lowercased)|amount|nonce)",
       usage:
-        "Before signing a payment, a wallet policy should: (1) verify the Ed25519 signature over `message` with this key, (2) recompute payment_commitment from the payment and confirm it equals the attested value, (3) confirm verdict=allow and now < expires_at.",
+        "Before signing a payment, a wallet policy should: (1) verify the Ed25519 signature over `message` with this key, (2) recompute payment_commitment from the payment and confirm it equals the attested value, (3) confirm verdict=allow and now < expires_at. Human-approved overrides carry the distinct verdict tag 'override:allow' (never plain 'allow') with a <=300s expiry — accept them only if your policy opts in.",
     };
   }
 }

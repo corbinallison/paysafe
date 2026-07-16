@@ -70,6 +70,52 @@ export interface ResolvedKey {
   dead: "rotated" | "revoked" | null;
 }
 
+/** Per-key human-in-the-loop approvals config. `secret` signs outbound webhook
+ * payloads (HMAC-SHA256) so the receiver can authenticate them. Storing it is
+ * a DOCUMENTED EXCEPTION to keys-hashed-at-rest: it must be recoverable to
+ * sign each delivery, and it grants no access to PaySafe itself. */
+export interface ApprovalConfig {
+  webhook_url: string;
+  format: "json" | "slack";
+  secret: string;
+  created_at: string;
+}
+
+export interface ApprovalFacts {
+  pay_to: string;
+  amount?: string;
+  amount_usd?: number;
+  network?: string;
+  asset?: string;
+  resource_url?: string;
+  description?: string;
+  agent_id?: string;
+  risk_score: number;
+  fired: string[];
+}
+
+/** A pending/decided human approval for one flagged scan. token_hash is the
+ * sha256 of the one-time decide token (bearer credential, delivered only via
+ * the operator's webhook — never stored raw). */
+export interface ApprovalRecord {
+  approval_id: string;
+  token_hash: string;
+  key_hash: string;
+  scan_id: string;
+  direction: "outgoing" | "incoming";
+  /** Verdict captured at creation. Decide-time asserts this is exactly "flag" —
+   * approvability is never derived from mutable state. */
+  original_verdict: string;
+  payment_commitment: string;
+  facts: ApprovalFacts;
+  status: "pending" | "approved" | "denied" | "expired";
+  created_at: string;
+  expires_at: string;
+  decided_at?: string;
+  /** Scan-shaped override object (verdict "override:allow" + attestation), set on approve. */
+  override?: unknown;
+}
+
 export interface VelocityEvent {
   t: number;   // epoch ms
   usd: number; // scanned payment value (0 if unknown)
@@ -97,6 +143,8 @@ interface Snapshot {
   reports: ReputationReport[];
   keys: Record<string, KeyRecord>;
   revoked?: Record<string, RevokedKeyRecord>;
+  approval_configs?: Record<string, ApprovalConfig>;
+  approvals?: Record<string, ApprovalRecord>;
   velocity: Record<string, VelocityEvent[]>;
   counterparties: Record<string, string[]>;
   pins: Record<string, PinRecord>;
@@ -114,6 +162,8 @@ export class Store {
   reportsByAddress: Map<string, ReputationReport[]> = new Map();
   keys: Map<string, KeyRecord> = new Map();
   revoked: Map<string, RevokedKeyRecord> = new Map();
+  approvalConfigs: Map<string, ApprovalConfig> = new Map();
+  approvals: Map<string, ApprovalRecord> = new Map();
   velocity: Map<string, VelocityEvent[]> = new Map();
   counterparties: Map<string, string[]> = new Map();
   pins: Map<string, PinRecord> = new Map();
@@ -148,6 +198,8 @@ export class Store {
       this.reports = snap.reports ?? [];
       this.keys = new Map(Object.entries(snap.keys ?? {}));
       this.revoked = new Map(Object.entries(snap.revoked ?? {}));
+      this.approvalConfigs = new Map(Object.entries(snap.approval_configs ?? {}));
+      this.approvals = new Map(Object.entries(snap.approvals ?? {}));
       this.velocity = new Map(Object.entries(snap.velocity ?? {}));
       this.counterparties = new Map(Object.entries(snap.counterparties ?? {}));
       this.pins = new Map(Object.entries(snap.pins ?? {}));
@@ -218,8 +270,27 @@ export class Store {
   /** Timer job: prune, cap, flush. Keeps all of this off the request path. */
   private maintain(): void {
     this.pruneNonces(this.limits.nonceTtlHours);
+    this.pruneApprovals();
     this.capMaps(this.limits.maxEntries);
     this.flush();
+  }
+
+  /** Timer job: expire overdue pending approvals; drop decided/expired records
+   * after 24h (long past both the pending TTL and the override TTL). */
+  pruneApprovals(): void {
+    const now = Date.now();
+    let changed = false;
+    for (const [id, a] of this.approvals) {
+      if (a.status === "pending" && Date.parse(a.expires_at) <= now) {
+        a.status = "expired";
+        changed = true;
+      }
+      if (a.status !== "pending" && now - Date.parse(a.created_at) > 24 * 3600_000) {
+        this.approvals.delete(id);
+        changed = true;
+      }
+    }
+    if (changed) this.markDirty();
   }
 
   private static evict<K, V>(map: Map<K, V>, max: number): void {
@@ -240,6 +311,10 @@ export class Store {
     Store.evict(this.scoutScores, max);
     Store.evict(this.keys, max);
     Store.evict(this.revoked, max);
+    Store.evict(this.approvalConfigs, max);
+    // approvals are NOT evicted here: dropping an in-flight approval would
+    // orphan a legitimately-approved override. Creation refuses when full
+    // (fail-closed) and pruneApprovals() expires stale pendings on the timer.
     if (this.reports.length > max) {
       this.reports = this.reports.slice(this.reports.length - max);
       this.reindexReports();
@@ -254,6 +329,8 @@ export class Store {
       reports: this.reports,
       keys: Object.fromEntries(this.keys),
       revoked: Object.fromEntries(this.revoked),
+      approval_configs: Object.fromEntries(this.approvalConfigs),
+      approvals: Object.fromEntries(this.approvals),
       velocity: Object.fromEntries(this.velocity),
       counterparties: Object.fromEntries(this.counterparties),
       pins: Object.fromEntries(this.pins),

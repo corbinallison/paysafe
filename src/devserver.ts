@@ -13,6 +13,7 @@ import { RateLimiter } from "./ratelimit.ts";
 import {
   createApiKey,
   handleAdminStats,
+  handleApprovalConfig,
   handleKeyRevoke,
   handleKeyRotate,
   handlePlansCatalog,
@@ -27,8 +28,10 @@ import { x402Manifest, agentCard } from "./manifest.ts";
 import { openApiDoc } from "./openapi.ts";
 import { dashboardHtml } from "./dashboard.ts";
 import { adminDashboardHtml } from "./admindash.ts";
+import { approvePageHtml } from "./approvepage.ts";
 import { llmsTxt } from "./llms.ts";
 import { handleTrustEvaluate } from "./trust.ts";
+import { handleApprovalDecide, handleApprovalInspect, handleApprovalPoll } from "./approvals.ts";
 import type { ApiResult } from "./api.ts";
 
 const cfg = { ...loadConfig(), mode: "dev" as const };
@@ -44,6 +47,7 @@ const signer = cfg.verdictSigning ? new VerdictSigner(ephemeral ? null : cfg.dat
 const keyLimiter = new RateLimiter(cfg.keysPerIpPerDay, 24 * 3600_000);
 const reportLimiter = new RateLimiter(cfg.reportsPerIpPerHour, 3600_000);
 const trustLimiter = new RateLimiter(cfg.trustQueriesPerIpPerHour, 3600_000);
+const approvalLimiter = new RateLimiter(cfg.approvalActionsPerIpPerHour, 3600_000);
 const LIMITED: ApiResult = { status: 429, body: { error: "Rate limit exceeded for this endpoint. Try again later." } };
 
 function readBody(req: import("node:http").IncomingMessage): Promise<unknown> {
@@ -111,16 +115,30 @@ const server = createServer(async (req, res) => {
       out = handlePlansCatalog(cfg);
     else if (method === "GET" && path === "/v1/usage")
       out = handleUsage(cfg, store, req.headers["x-api-key"] as string | undefined);
-    else if (method === "GET" && (path === "/dashboard" || path === "/admin")) {
+    else if (method === "GET" && (path === "/dashboard" || path === "/admin" || path === "/approve")) {
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
         "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
         "x-content-type-options": "nosniff",
         "referrer-policy": "no-referrer",
       });
-      res.end(path === "/admin" ? adminDashboardHtml() : dashboardHtml());
+      res.end(path === "/admin" ? adminDashboardHtml() : path === "/approve" ? approvePageHtml() : dashboardHtml());
       return;
     }
+    else if (method === "POST" && path === "/v1/approvals/config") {
+      if (!keyLimiter.allow(ip)) out = LIMITED;
+      else out = handleApprovalConfig(store, cfg, req.headers["x-api-key"] as string | undefined, await readBody(req));
+    }
+    else if (method === "POST" && path === "/v1/approvals/inspect") {
+      if (!approvalLimiter.allow(ip)) out = LIMITED;
+      else out = handleApprovalInspect(store, await readBody(req));
+    }
+    else if (method === "POST" && path === "/v1/approvals/decide") {
+      if (!approvalLimiter.allow(ip)) out = LIMITED;
+      else out = handleApprovalDecide(store, cfg, signer, await readBody(req));
+    }
+    else if (method === "GET" && /^\/v1\/approvals\/[^/]+$/.test(path))
+      out = handleApprovalPoll(store, decodeURIComponent(path.split("/").pop() ?? ""), req.headers["x-api-key"] as string | undefined);
     else if (method === "GET" && path === "/v1/admin/stats")
       out = handleAdminStats(cfg, store, req.headers["x-api-key"] as string | undefined);
     else if (method === "POST" && path === "/v1/plans/subscribe")

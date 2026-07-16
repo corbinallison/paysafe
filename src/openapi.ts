@@ -365,6 +365,55 @@ export function openApiDoc(cfg: PaySafeConfig): object {
           },
         },
       },
+      "/v1/approvals/config": {
+        post: {
+          operationId: "configureApprovals",
+          summary: "Enable human-in-the-loop approvals: flag verdicts pause for a human decision via your webhook",
+          description:
+            "On every flag verdict for your key, PaySafe POSTs the payment facts and a one-time decide link to webhook_url (HMAC-SHA256-signed with the returned secret; header X-PaySafe-Signature). A human approves or denies; approval mints a short-lived Ed25519-signed override verdict (tag 'override:allow', <=5 min) bound to exactly that payment. SECURITY: the decide link is a bearer credential — the webhook destination must be out of the agent's own reach, or the agent could approve itself. Live mode requires a public https webhook. Pass webhook_url: null to disable (the response carries an advisory: flags return to advisory-only and no overrides are minted). Deployments can switch the whole feature off with APPROVALS=off.",
+          tags: ["Approvals"],
+          security: [],
+          parameters: [{ name: "X-API-Key", in: "header", required: true, schema: { type: "string" } }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    webhook_url: { type: "string", nullable: true, description: "Public https URL to receive approval requests; null disables" },
+                    format: { type: "string", enum: ["json", "slack"], default: "json", description: "slack posts a human-readable message (weaker: the decide link lands in channel history)" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Config saved; response includes the webhook signing secret ONCE" },
+            "400": { description: "Invalid webhook URL" },
+            "401": { description: "Missing or invalid key" },
+          },
+        },
+      },
+      "/v1/approvals/{id}": {
+        get: {
+          operationId: "pollApproval",
+          summary: "Poll a pending approval (owning key only); on approve, returns the signed override verdict",
+          tags: ["Approvals"],
+          security: [],
+          parameters: [
+            { name: "id", in: "path", required: true, schema: { type: "string" } },
+            { name: "X-API-Key", in: "header", required: true, schema: { type: "string" } },
+          ],
+          responses: {
+            "200": {
+              description: "Approval state. status: pending | approved | denied | expired. On approved, `override` is a scan-shaped object with verdict 'override:allow' and an Ed25519 attestation bound to the payment commitment (<=5 min expiry).",
+            },
+            "401": { description: "Missing or invalid key" },
+            "404": { description: "Unknown approval (or owned by a different key — indistinguishable)" },
+          },
+        },
+      },
       "/v1/keys/rotate": {
         post: {
           operationId: "rotateApiKey",
