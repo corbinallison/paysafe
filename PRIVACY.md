@@ -2,8 +2,6 @@
 
 **Last updated: 2026-07-16**
 
-> **DRAFT — not legal advice.** Prepared as a starting point and not reviewed by a lawyer. Have qualified counsel review and adapt it (especially for GDPR/CCPA obligations, data-subject rights, and any jurisdiction-specific requirements) before relying on it. Replace every **[BRACKETED]** placeholder.
-
 This policy explains what data the PaySafe service ("the Service," "we," "us"), operated by **PaySafe, LLC**, a Colorado limited liability company, collects and how we handle it. It should be read alongside our [Terms of Use](TERMS.md).
 
 ## 1. Summary (the important part)
