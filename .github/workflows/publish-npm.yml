@@ -1,0 +1,80 @@
+# Publishes the npm packages via trusted publishing (OIDC — no tokens):
+#   - paysafe-x402         (repo root: server + MCP server, `npx paysafe-x402`)
+#   - paysafe-x402-client  (sdk/: client SDK + wallet enforcement kit)
+# Trigger manually: GitHub → Actions → publish-npm → Run workflow → pick package.
+#
+# One-time setup on npmjs.com (per package → Settings → Trusted publishers):
+#   organization/user: corbinallison   repository: paysafe
+#   workflow filename: publish-npm.yml   environment: npm
+#   (package.json `repository.url` already matches — required for OIDC.)
+#
+# Supply-chain hardening (same posture as publish-pypi.yml, SECURITY-AUDIT-2.md):
+#  - every action pinned to a full commit SHA, not a movable tag
+#  - no artifact upload/download actions in the chain
+#  - least privilege: read-only default; id-token:write only where needed
+#  - full test suites run before every publish; the `npm` environment should
+#    have required-reviewer protection so a push alone can never publish
+#  - provenance attestations are generated automatically by trusted publishing
+name: publish-npm
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Which package to publish"
+        required: true
+        type: choice
+        options: [sdk, server, both]
+
+permissions:
+  contents: read
+
+jobs:
+  publish-sdk:
+    if: inputs.package == 'sdk' || inputs.package == 'both'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # required for npm trusted publishing (OIDC)
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      - name: Upgrade npm (trusted publishing needs >= 11.5.1)
+        run: npm install -g npm@11 && npm --version
+      - name: Install SDK dev dependencies
+        working-directory: sdk
+        run: npm ci
+      - name: Run SDK tests (cross-validated against the real server signer)
+        working-directory: sdk
+        run: npm test
+      - name: Publish paysafe-x402-client (OIDC; prepublishOnly re-runs build+test)
+        working-directory: sdk
+        run: npm publish
+
+  publish-server:
+    if: inputs.package == 'server' || inputs.package == 'both'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # required for npm trusted publishing (OIDC)
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      - name: Upgrade npm (trusted publishing needs >= 11.5.1)
+        run: npm install -g npm@11 && npm --version
+      - name: Install dependencies
+        run: npm ci
+      - name: Build (tsc -> dist)
+        run: npm run build
+      - name: Run full server test suite
+        run: npm test
+      - name: Publish paysafe-x402 (OIDC)
+        run: npm publish
