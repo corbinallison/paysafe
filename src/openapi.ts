@@ -8,6 +8,7 @@
  * See https://www.x402scan.com/discovery/spec
  */
 import type { PaySafeConfig } from "./config.ts";
+import { VERSION } from "./version.ts";
 
 function usd(price: string): string {
   // "$0.01" -> "0.010000" (decimal USD; NOT atomic units — those are runtime-only)
@@ -163,7 +164,7 @@ export function openApiDoc(cfg: PaySafeConfig): object {
     openapi: "3.1.0",
     info: {
       title: "PaySafe",
-      version: "1.0.0",
+      version: VERSION,
       description:
         "Check a payment for fraud before your agent sends it. Call PaySafe before settling any x402 payment to avoid paying attacker-controlled addresses injected into content the agent just read (prompt-injection-triggered payments), replayed authorizations, inflated prices, leaked secrets in payment metadata, fake/lookalike USDC contracts, and address poisoning. Returns allow/flag/block with machine-readable reasons and an Ed25519-signed verdict. Advisory and non-custodial — never touches keys or funds. Includes a free-to-use counterparty reputation registry.",
       "x-guidance":

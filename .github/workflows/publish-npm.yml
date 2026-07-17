@@ -2,22 +2,14 @@
 #   - paysafe-x402         (repo root: server + MCP server, `npx paysafe-x402`)
 #   - paysafe-x402-client  (sdk/: client SDK + wallet enforcement kit)
 #   - paysafe-ai-sdk       (integrations/paysafe-ai-sdk/: Vercel AI SDK integration)
-# Trigger manually: GitHub → Actions → publish-npm → Run workflow → pick package.
-#
-# One-time setup on npmjs.com (per package → Settings → Trusted publishers):
-#   organization/user: corbinallison   repository: paysafe
-#   workflow filename: publish-npm.yml   environment: npm
-#   (package.json `repository.url` already matches — required for OIDC.)
-#
-# paysafe-ai-sdk is a NEW npm project — the trusted publisher can't be added
-# until the package exists. Publish it once manually (`npm publish --access
-# public` from integrations/paysafe-ai-sdk), then add the trusted publisher on
-# the package's Settings page so future releases go through this workflow.
 #
 # Supply-chain hardening (same posture as publish-pypi.yml, SECURITY-AUDIT-2.md):
 #  - every action pinned to a full commit SHA, not a movable tag
 #  - no artifact upload/download actions in the chain
-#  - least privilege: read-only default; id-token:write only where needed
+#  - least privilege: read-only default; id-token:write only where needed.
+#    contents:write is granted per-job ONLY to push the version-bump commit
+#    back after a successful publish (if the branch is protected against the
+#    github-actions bot, that step fails without affecting the publish).
 #  - full test suites run before every publish; the `npm` environment should
 #    have required-reviewer protection so a push alone can never publish
 #  - provenance attestations are generated automatically by trusted publishing
@@ -31,6 +23,12 @@ on:
         required: true
         type: choice
         options: [sdk, server, ai-sdk, both]
+      bump:
+        description: "Version bump from the registry's latest"
+        required: false
+        default: patch
+        type: choice
+        options: [patch, minor, major]
 
 permissions:
   contents: read
@@ -41,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: npm
     permissions:
-      contents: read
+      contents: write # push the released version back to the branch
       id-token: write # required for npm trusted publishing (OIDC)
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -51,6 +49,9 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - name: Upgrade npm (trusted publishing needs >= 11.5.1)
         run: npm install -g npm@11 && npm --version
+      - name: Auto-bump to the next unpublished version
+        id: bump
+        run: node scripts/next-version.mjs sdk "${{ inputs.bump || 'patch' }}"
       - name: Version gate (consistency + not-already-published + no downgrade)
         run: node scripts/check-versions.mjs sdk --registry
       - name: Install SDK dev dependencies
@@ -62,13 +63,28 @@ jobs:
       - name: Publish paysafe-x402-client (OIDC; prepublishOnly re-runs build+test)
         working-directory: sdk
         run: npm publish
+      - name: Record released version back to the repo
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sdk/package.json
+          git diff --cached --quiet && exit 0
+          git commit -m "release(sdk): paysafe-x402-client v${{ steps.bump.outputs.version }}"
+          for i in 1 2 3 4 5; do
+            git push origin HEAD:"$BRANCH" && exit 0
+            git fetch origin "$BRANCH" && git rebase "origin/$BRANCH"
+            sleep $i
+          done
+          exit 1
 
   publish-server:
     if: inputs.package == 'server' || inputs.package == 'both'
     runs-on: ubuntu-latest
     environment: npm
     permissions:
-      contents: read
+      contents: write # push the released version back to the branch
       id-token: write # required for npm trusted publishing (OIDC)
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -78,23 +94,41 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - name: Upgrade npm (trusted publishing needs >= 11.5.1)
         run: npm install -g npm@11 && npm --version
+      - name: Auto-bump to the next unpublished version
+        id: bump
+        run: node scripts/next-version.mjs server "${{ inputs.bump || 'patch' }}"
       - name: Version gate (consistency + not-already-published + no downgrade)
         run: node scripts/check-versions.mjs server --registry
       - name: Install dependencies
         run: npm ci
-      - name: Build (tsc -> dist)
+      - name: Build (sync server.json + tsc -> dist)
         run: npm run build
       - name: Run full server test suite
         run: npm test
       - name: Publish paysafe-x402 (OIDC)
         run: npm publish
+      - name: Record released version back to the repo
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json server.json
+          git diff --cached --quiet && exit 0
+          git commit -m "release(server): paysafe-x402 v${{ steps.bump.outputs.version }}"
+          for i in 1 2 3 4 5; do
+            git push origin HEAD:"$BRANCH" && exit 0
+            git fetch origin "$BRANCH" && git rebase "origin/$BRANCH"
+            sleep $i
+          done
+          exit 1
 
   publish-ai-sdk:
     if: inputs.package == 'ai-sdk'
     runs-on: ubuntu-latest
     environment: npm
     permissions:
-      contents: read
+      contents: write # push the released version back to the branch
       id-token: write # required for npm trusted publishing (OIDC)
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -104,6 +138,9 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - name: Upgrade npm (trusted publishing needs >= 11.5.1)
         run: npm install -g npm@11 && npm --version
+      - name: Auto-bump to the next unpublished version
+        id: bump
+        run: node scripts/next-version.mjs ai-sdk "${{ inputs.bump || 'patch' }}"
       - name: Version gate (consistency + not-already-published + no downgrade)
         run: node scripts/check-versions.mjs ai-sdk --registry
       - name: Install integration dependencies (ai + zod + paysafe-x402-client)
@@ -115,3 +152,18 @@ jobs:
       - name: Publish paysafe-ai-sdk (OIDC; prepublishOnly re-runs build+test)
         working-directory: integrations/paysafe-ai-sdk
         run: npm publish --access public
+      - name: Record released version back to the repo
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add integrations/paysafe-ai-sdk/package.json
+          git diff --cached --quiet && exit 0
+          git commit -m "release(ai-sdk): paysafe-ai-sdk v${{ steps.bump.outputs.version }}"
+          for i in 1 2 3 4 5; do
+            git push origin HEAD:"$BRANCH" && exit 0
+            git fetch origin "$BRANCH" && git rebase "origin/$BRANCH"
+            sleep $i
+          done
+          exit 1

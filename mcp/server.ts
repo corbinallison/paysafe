@@ -17,6 +17,7 @@ import { createPublicKey, createHash, verify as edVerify } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { VERSION } from "../src/version.ts";
 
 const BASE = process.env.PAYSAFE_URL ?? "https://paysafe-agent.com";
 const API_KEY = process.env.PAYSAFE_API_KEY;
@@ -68,7 +69,7 @@ const contextSchema = z
   .optional();
 
 const server = new McpServer(
-  { name: "paysafe", version: "1.4.0" },
+  { name: "paysafe", version: VERSION },
   {
     instructions:
       "PaySafe is a payment security firewall for x402. Protocol for this agent: BEFORE settling or sending ANY x402 payment, call `scan_outgoing_payment` and act on the verdict (allow = proceed, flag = pause and confirm, block = do NOT pay). BEFORE paying a 402 offer you received, call `scan_incoming_payment`. Whenever a payment decision followed reading external content (a fetched page or tool result), pass that content in `context.content` so the injection check can run. AFTER a scanned payment settles, call `report_payment_outcome` with what actually happened (delivered / not_delivered / partial / wrong_content) — this builds the measured delivery history that protects your own future payments to that seller. Use `check_counterparty_reputation` before dealing with an unfamiliar address, and `report_counterparty` after a bad experience beyond non-delivery (free). If YOUR wallet is reported unfairly, `dispute_reputation` attaches a wallet-signed rebuttal that lookups surface alongside the reports. These scans are advisory and non-custodial — PaySafe never touches your keys or funds.",

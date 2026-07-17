@@ -3,10 +3,12 @@
  * Bump a package's version in EVERY file that carries it, atomically.
  * The antidote to editing four files by hand and missing one.
  *
- * Usage: node scripts/set-version.mjs <server|sdk|python|langchain> <version>
- *   server    -> package.json, server.json (x2), mcp/server.ts, src/api.ts
+ * Usage: node scripts/set-version.mjs <server|sdk|python|langchain|...> <version>
+ *   server    -> package.json + server.json (x2); runtime code reads the
+ *                version from package.json via src/version.ts, nothing to edit
  *   sdk       -> sdk/package.json
- *   python    -> sdk-python/pyproject.toml, sdk-python __init__.py
+ *   python    -> sdk-python __init__.py only (pyproject uses hatchling
+ *                dynamic versioning)
  *   langchain -> langchain-paysafe pyproject.toml + __init__.py
  *
  * Verifies the result with scripts/check-versions.mjs semantics: after
@@ -37,15 +39,10 @@ const EDITS = {
   server: () => {
     sub("package.json", /("version":\s*")[^"]+(")/, `$1${version}$2`);
     sub("server.json", /("version":\s*")[^"]+(")/g, `$1${version}$2`); // both spots
-    sub("mcp/server.ts", /(name: "paysafe", version: ")[^"]+(")/, `$1${version}$2`);
-    sub("src/api.ts", /(version: ")[^"]+(")/, `$1${version}$2`);
   },
   sdk: () => sub("sdk/package.json", /("version":\s*")[^"]+(")/, `$1${version}$2`),
   "ai-sdk": () => sub("integrations/paysafe-ai-sdk/package.json", /("version":\s*")[^"]+(")/, `$1${version}$2`),
-  python: () => {
-    sub("sdk-python/pyproject.toml", /^(version = ")[^"]+(")/m, `$1${version}$2`);
-    sub("sdk-python/src/paysafe_x402/__init__.py", /(__version__ = ")[^"]+(")/, `$1${version}$2`);
-  },
+  python: () => sub("sdk-python/src/paysafe_x402/__init__.py", /(__version__ = ")[^"]+(")/, `$1${version}$2`),
   langchain: () => {
     sub("integrations/langchain-paysafe/pyproject.toml", /^(version = ")[^"]+(")/m, `$1${version}$2`);
     sub("integrations/langchain-paysafe/src/langchain_paysafe/__init__.py", /(__version__ = ")[^"]+(")/, `$1${version}$2`);

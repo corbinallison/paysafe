@@ -12,6 +12,7 @@ import { paymentCommitment, paymentDigest } from "./commitment.ts";
 import { addDispute, addReport, disputeMessage, summarize } from "./reputation.ts";
 import { activatePlanOnKey, activePlan, getPlan, plansCatalog, resolveEffectiveConfig } from "./plans.ts";
 import { maybeCreateApproval, migrateApprovalsOnRotate, setApprovalConfig } from "./approvals.ts";
+import { VERSION } from "./version.ts";
 
 export interface ApiResult {
   status: number;
@@ -491,7 +492,7 @@ export function serviceInfo(cfg: PaySafeConfig): ApiResult {
     body: {
       name: "PaySafe",
       tagline: "Payment security firewall for x402 micropayments. Advisory, non-custodial.",
-      version: "1.4.0",
+      version: VERSION,
       mode: cfg.mode,
       endpoints: {
         "POST /v1/keys": `Free (rate-limited: ${cfg.keysPerIpPerDay}/IP/day). Issue an API key with a free-call allowance.`,

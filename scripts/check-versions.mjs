@@ -35,12 +35,13 @@ const match = (p, re, what) => {
 const PACKAGES = {
   server: {
     registry: { type: "npm", name: "paysafe-x402" },
+    // Runtime code (serviceInfo, OpenAPI, agent card, McpServer) reads the
+    // version from package.json via src/version.ts — only the static files
+    // carry copies, and `npm run build` syncs server.json automatically.
     spots: () => ({
       "package.json": jsonVersion("package.json"),
       "server.json (top-level)": JSON.parse(read("server.json")).version,
       "server.json (packages[0])": JSON.parse(read("server.json")).packages?.[0]?.version,
-      "mcp/server.ts (McpServer)": match("mcp/server.ts", /name: "paysafe", version: "([^"]+)"/, "McpServer version"),
-      "src/api.ts (serviceInfo)": match("src/api.ts", /version: "([^"]+)"/, "serviceInfo version"),
     }),
   },
   sdk: {
@@ -53,8 +54,9 @@ const PACKAGES = {
   },
   python: {
     registry: { type: "pypi", name: "paysafe-x402" },
+    // pyproject.toml uses hatchling dynamic versioning — __init__.py is the
+    // single source; there is nothing else to drift.
     spots: () => ({
-      "sdk-python/pyproject.toml": match("sdk-python/pyproject.toml", /^version = "([^"]+)"/m, "version"),
       "sdk-python __version__": match("sdk-python/src/paysafe_x402/__init__.py", /__version__ = "([^"]+)"/, "__version__"),
     }),
   },

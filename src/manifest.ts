@@ -1,5 +1,6 @@
 /** /.well-known/x402 manifest + agent card. */
 import type { PaySafeConfig } from "./config.ts";
+import { VERSION } from "./version.ts";
 
 // USDC contract addresses per network (for manifest display; the x402
 // middleware resolves assets itself from the price string).
@@ -77,7 +78,7 @@ export function agentCard(cfg: PaySafeConfig): object {
       "Call this before your agent settles any x402 payment to check it for fraud. PaySafe answers 'is this payment safe to send?' and 'is this 402 offer safe to pay?' — catching payments to attacker-controlled addresses injected into content the agent just read (prompt-injection-triggered payments), replayed authorizations, overpayment vs the quote, secrets leaking through payment metadata, fake/lookalike USDC contracts, and address poisoning. Returns allow/flag/block with machine-readable reasons and an Ed25519-signed verdict a wallet can enforce. Non-custodial: never holds keys or funds; wraps whatever wallet/facilitator the agent already uses.",
     url: cfg.publicBaseUrl,
     provider: { organization: "PaySafe", url: cfg.publicBaseUrl },
-    version: "1.0.0",
+    version: VERSION,
     capabilities: { streaming: false, pushNotifications: false },
     defaultInputModes: ["application/json"],
     defaultOutputModes: ["application/json"],

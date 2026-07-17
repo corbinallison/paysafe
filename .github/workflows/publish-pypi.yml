@@ -1,19 +1,14 @@
 # Publishes the PyPI packages via trusted publishing (OIDC — no tokens):
 #   - paysafe-x402       (sdk-python/: client SDK + enforcement kit + payment-path wrapper)
 #   - langchain-paysafe  (integrations/langchain-paysafe/: LangChain tools + provenance callback)
-# Trigger manually: GitHub → Actions → publish-pypi → Run workflow → pick package.
-#
-# One-time setup for langchain-paysafe on PyPI (it's a NEW project, so use a
-# PENDING publisher): pypi.org → Your account → Publishing → "Add a new
-# pending publisher": project `langchain-paysafe`, owner `corbinallison`,
-# repository `paysafe`, workflow `publish-pypi.yml` (exact, .yml), environment
-# `pypi`. The first successful publish creates the project and converts the
-# pending publisher into a normal trusted publisher.
 #
 # Supply-chain hardening (see SECURITY-AUDIT-2.md):
 #  - every action pinned to a full commit SHA, not a movable tag
 #  - single job per package: no artifact upload/download actions in the chain
-#  - least privilege: read-only default; id-token:write only where needed
+#  - least privilege: read-only default; id-token:write only where needed.
+#    contents:write is granted per-job ONLY to push the version-bump commit
+#    back after a successful publish (if the branch is protected against the
+#    github-actions bot, that step fails without affecting the publish).
 #  - tests run before every publish; the `pypi` environment should have
 #    required-reviewer protection so a push alone can never publish
 name: publish-pypi
@@ -26,6 +21,12 @@ on:
         required: true
         type: choice
         options: [sdk, langchain, crewai, nemo, agentkit, all]
+      bump:
+        description: "Version bump from the registry's latest"
+        required: false
+        default: patch
+        type: choice
+        options: [patch, minor, major]
 
 permissions:
   contents: read
@@ -36,13 +37,16 @@ jobs:
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      contents: read
+      contents: write # push the released version back to the branch
       id-token: write # required for PyPI trusted publishing (OIDC)
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
+      - name: Auto-bump to the next unpublished version
+        id: bump
+        run: node scripts/next-version.mjs python "${{ inputs.bump || 'patch' }}"
       - name: Version gate (consistency + not-already-published)
         run: node scripts/check-versions.mjs python --registry
       - name: Run SDK tests
@@ -59,19 +63,37 @@ jobs:
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
           packages-dir: sdk-python/dist
+      - name: Record released version back to the repo
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sdk-python/src/paysafe_x402/__init__.py
+          git diff --cached --quiet && exit 0
+          git commit -m "release(python-sdk): paysafe-x402 v${{ steps.bump.outputs.version }}"
+          for i in 1 2 3 4 5; do
+            git push origin HEAD:"$BRANCH" && exit 0
+            git fetch origin "$BRANCH" && git rebase "origin/$BRANCH"
+            sleep $i
+          done
+          exit 1
 
   publish-langchain:
     if: inputs.package == 'langchain' || inputs.package == 'all'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      contents: read
+      contents: write # push the released version back to the branch
       id-token: write # required for PyPI trusted publishing (OIDC)
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
+      - name: Auto-bump to the next unpublished version
+        id: bump
+        run: node scripts/next-version.mjs langchain "${{ inputs.bump || 'patch' }}"
       - name: Version gate (consistency + not-already-published)
         run: node scripts/check-versions.mjs langchain --registry
       - name: Run integration tests against REAL langchain-core
@@ -88,19 +110,37 @@ jobs:
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
           packages-dir: integrations/langchain-paysafe/dist
+      - name: Record released version back to the repo
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add integrations/langchain-paysafe/pyproject.toml integrations/langchain-paysafe/src/langchain_paysafe/__init__.py
+          git diff --cached --quiet && exit 0
+          git commit -m "release(langchain): langchain-paysafe v${{ steps.bump.outputs.version }}"
+          for i in 1 2 3 4 5; do
+            git push origin HEAD:"$BRANCH" && exit 0
+            git fetch origin "$BRANCH" && git rebase "origin/$BRANCH"
+            sleep $i
+          done
+          exit 1
 
   publish-crewai:
     if: inputs.package == 'crewai' || inputs.package == 'all'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      contents: read
+      contents: write # push the released version back to the branch
       id-token: write # required for PyPI trusted publishing (OIDC)
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
+      - name: Auto-bump to the next unpublished version
+        id: bump
+        run: node scripts/next-version.mjs crewai "${{ inputs.bump || 'patch' }}"
       - name: Version gate (consistency + not-already-published)
         run: node scripts/check-versions.mjs crewai --registry
       - name: Run integration tests against REAL crewai
@@ -117,19 +157,37 @@ jobs:
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
           packages-dir: integrations/crewai-paysafe/dist
+      - name: Record released version back to the repo
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add integrations/crewai-paysafe/pyproject.toml integrations/crewai-paysafe/src/crewai_paysafe/__init__.py
+          git diff --cached --quiet && exit 0
+          git commit -m "release(crewai): crewai-paysafe v${{ steps.bump.outputs.version }}"
+          for i in 1 2 3 4 5; do
+            git push origin HEAD:"$BRANCH" && exit 0
+            git fetch origin "$BRANCH" && git rebase "origin/$BRANCH"
+            sleep $i
+          done
+          exit 1
 
   publish-nemo:
     if: inputs.package == 'nemo' || inputs.package == 'all'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      contents: read
+      contents: write # push the released version back to the branch
       id-token: write # required for PyPI trusted publishing (OIDC)
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
+      - name: Auto-bump to the next unpublished version
+        id: bump
+        run: node scripts/next-version.mjs nemo "${{ inputs.bump || 'patch' }}"
       - name: Version gate (consistency + not-already-published)
         run: node scripts/check-versions.mjs nemo --registry
       - name: Run integration tests against REAL nvidia-nat
@@ -146,19 +204,37 @@ jobs:
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
           packages-dir: integrations/nemo-paysafe/dist
+      - name: Record released version back to the repo
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add integrations/nemo-paysafe/pyproject.toml integrations/nemo-paysafe/src/nemo_paysafe/__init__.py
+          git diff --cached --quiet && exit 0
+          git commit -m "release(nemo): nemo-paysafe v${{ steps.bump.outputs.version }}"
+          for i in 1 2 3 4 5; do
+            git push origin HEAD:"$BRANCH" && exit 0
+            git fetch origin "$BRANCH" && git rebase "origin/$BRANCH"
+            sleep $i
+          done
+          exit 1
 
   publish-agentkit:
     if: inputs.package == 'agentkit' || inputs.package == 'all'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
-      contents: read
+      contents: write # push the released version back to the branch
       id-token: write # required for PyPI trusted publishing (OIDC)
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
+      - name: Auto-bump to the next unpublished version
+        id: bump
+        run: node scripts/next-version.mjs agentkit "${{ inputs.bump || 'patch' }}"
       - name: Version gate (consistency + not-already-published)
         run: node scripts/check-versions.mjs agentkit --registry
       - name: Run integration tests against REAL coinbase-agentkit
@@ -175,3 +251,18 @@ jobs:
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
           packages-dir: integrations/agentkit-paysafe/dist
+      - name: Record released version back to the repo
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add integrations/agentkit-paysafe/pyproject.toml integrations/agentkit-paysafe/src/agentkit_paysafe/__init__.py
+          git diff --cached --quiet && exit 0
+          git commit -m "release(agentkit): agentkit-paysafe v${{ steps.bump.outputs.version }}"
+          for i in 1 2 3 4 5; do
+            git push origin HEAD:"$BRANCH" && exit 0
+            git fetch origin "$BRANCH" && git rebase "origin/$BRANCH"
+            sleep $i
+          done
+          exit 1
