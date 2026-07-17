@@ -7,5 +7,6 @@ data/
 posts/LAUNCH-POSTS.md
 DISCOVERY-PLAN.md
 SUBMISSIONS-TODO.md
-CLAUDE.md
-_to_delete_paysafe_junk/
+
+# Operator-only tools (funded keys, real-money ops) — never commit
+/admintools/
