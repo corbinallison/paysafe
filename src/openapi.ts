@@ -129,9 +129,27 @@ const ReputationSummary = {
     risk: { type: "string", enum: ["none", "low", "medium", "high"] },
     report_count: { type: "integer" },
     distinct_reporters: { type: "integer" },
+    weighted_score: {
+      type: "number",
+      description:
+        "v2 risk input: per-reporter credibility (0.5 anonymous → 1.0 with observed payment history) × 90-day-half-life time decay, summed over distinct reporters. Risk grades on this, not raw counts: ≥2.5 high, ≥1.0 medium, >0.1 low.",
+    },
     categories: { type: "object", additionalProperties: { type: "integer" } },
     first_reported: { type: "string" },
     last_reported: { type: "string" },
+    disputes: {
+      type: "array",
+      description: "Signed rebuttals from the reported wallet, newest first. Each was verified (EIP-191 personal_sign recovering to the address) at submission; the signature is included so you can re-verify.",
+      items: {
+        type: "object",
+        properties: {
+          address: { type: "string" },
+          statement: { type: "string" },
+          signature: { type: "string" },
+          disputed_at: { type: "string" },
+        },
+      },
+    },
   },
 } as const;
 
@@ -251,6 +269,43 @@ export function openApiDoc(cfg: PaySafeConfig): object {
                 },
               },
             },
+            "429": { description: "Rate limited" },
+          },
+        },
+      },
+      "/v1/reputation/dispute": {
+        post: {
+          operationId: "disputeReputation",
+          summary: "Attach a signed rebuttal to your wallet's report record (always free)",
+          tags: ["Reputation"],
+          description:
+            'Reputation v2 dispute: a reported wallet can answer its reports. Authentication is key ownership — sign the exact message "paysafe-dispute-v1|<address lowercase>|<statement>" with the wallet\'s private key (EIP-191 personal_sign) and submit the 65-byte signature. Verified rebuttals appear in every reputation lookup alongside the reports (they never erase them); agents weigh both sides.',
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["address", "statement", "signature"],
+                  properties: {
+                    address: { type: "string", description: "The reported wallet (0x…) — must match the signature's recovered signer" },
+                    statement: { type: "string", minLength: 10, maxLength: 1000, description: "Your side of the story — exactly the text that was signed" },
+                    signature: { type: "string", description: "EIP-191 personal_sign signature hex (65 bytes) over paysafe-dispute-v1|<address>|<statement>" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "201": {
+              description: "Dispute verified and attached",
+              content: {
+                "application/json": {
+                  schema: { type: "object", properties: { accepted: { type: "boolean" }, dispute: { type: "object" } } },
+                },
+              },
+            },
+            "400": { description: "Validation or signature-verification failure (response includes the exact message to sign)" },
             "429": { description: "Rate limited" },
           },
         },

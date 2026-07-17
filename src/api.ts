@@ -9,7 +9,7 @@ import type { VerdictSigner } from "./verdictsign.ts";
 import { runScan } from "./scanner.ts";
 import { sanitizeScanRequest } from "./sanitize.ts";
 import { paymentCommitment, paymentDigest } from "./commitment.ts";
-import { addReport, summarize } from "./reputation.ts";
+import { addDispute, addReport, disputeMessage, summarize } from "./reputation.ts";
 import { activatePlanOnKey, activePlan, getPlan, plansCatalog, resolveEffectiveConfig } from "./plans.ts";
 import { maybeCreateApproval, migrateApprovalsOnRotate, setApprovalConfig } from "./approvals.ts";
 
@@ -174,6 +174,24 @@ export function handleReputationReport(body: unknown, store: Store): ApiResult {
   });
   if (!res.ok) return { status: 400, body: { error: res.error } };
   return { status: 201, body: { accepted: true, report: res.report } };
+}
+
+/**
+ * POST /v1/reputation/dispute — a reported wallet attaches a signed rebuttal.
+ * Ownership proof: EIP-191 personal_sign over the canonical dispute message,
+ * verified to recover to the disputed address. Free + rate-limited like
+ * report filing; both sides of the registry cost the same to speak.
+ */
+export function handleReputationDispute(body: unknown, store: Store): ApiResult {
+  const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
+  const s = (v: unknown): string => (typeof v === "string" ? v : "");
+  const res = addDispute(store, {
+    address: s(b.address).slice(0, 200),
+    statement: s(b.statement).slice(0, 2000),
+    signature: s(b.signature).slice(0, 200),
+  });
+  if (!res.ok) return { status: 400, body: { error: res.error, sign_this: typeof b.address === "string" && typeof b.statement === "string" ? disputeMessage(s(b.address), s(b.statement).trim()) : undefined } };
+  return { status: 201, body: { accepted: true, dispute: res.dispute } };
 }
 
 export function handlePlansCatalog(cfg: PaySafeConfig): ApiResult {
@@ -470,6 +488,7 @@ export function serviceInfo(cfg: PaySafeConfig): ApiResult {
         "POST /v1/scan/incoming": `${cfg.priceScan} (first ${cfg.freeCalls} calls free per key). Screen a payment request / 402 offer your agent received.`,
         "GET /v1/reputation/:address": `${cfg.priceReputation} (first ${cfg.freeCalls} calls free per key). Counterparty report summary.`,
         "POST /v1/reputation/report": `Free (rate-limited: ${cfg.reportsPerIpPerHour}/IP/hour). Report a bad counterparty after the fact.`,
+        "POST /v1/reputation/dispute": `Free (rate-limited: ${cfg.reportsPerIpPerHour}/IP/hour). Attach a signed rebuttal to your wallet's report record. Sign "paysafe-dispute-v1|<address>|<statement>" with the reported wallet's key (EIP-191 personal_sign) — key ownership is the authentication.`,
         "GET /v1/plans": "Free. Machine-readable plan catalog (pricing tiers, limits, how to subscribe).",
         "POST /v1/trust/evaluate": `Free (rate-limited: ${cfg.trustQueriesPerIpPerHour}/IP/hour). x402 trust-provider interface: TrustQuery about a payer in, TrustEvaluation (PASS/FAIL/UNCERTAIN + evidence) out — for sellers gating settlement.`,
         "POST /v1/approvals/config": "Free (X-API-Key). Configure human-in-the-loop approvals: on a flag verdict, your webhook gets the payment facts + a one-time decide link; a human click mints a short-lived signed override verdict.",
@@ -496,7 +515,7 @@ export function serviceInfo(cfg: PaySafeConfig): ApiResult {
         "poison: address-poisoning detection (pay_to matching a known counterparty/pinned merchant on first+last chars but differing in the middle)",
         "scout: ScoutScore external trust signal for merchant domains (opt-in, async + cached, flag-only)",
         "velocity: rate, hourly spend cap, first-contact size cap (outgoing)",
-        "reputation: shared counterparty report registry",
+        "reputation: shared counterparty report registry v2 — 90-day half-life time decay, reporter-credibility weighting (observed payment history counts more than fresh anonymous ids), signed wallet rebuttals surfaced alongside reports",
         "delivery: measured, commitment-bound delivery-outcome history per counterparty (flag-only — a clean payment to a seller who never ships still fails you)",
       ],
       attestation:

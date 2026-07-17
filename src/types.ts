@@ -117,12 +117,31 @@ export interface ReputationReport {
   reported_at: string;
 }
 
+/** A signed rebuttal from a reported wallet. Verified at submission time:
+ * the EIP-191 personal_sign signature over the canonical dispute message
+ * (see reputation.ts) must recover to `address`, proving key ownership.
+ * The signature is stored and surfaced so third parties can re-verify. */
+export interface ReputationDispute {
+  address: string;
+  statement: string;
+  signature: string;
+  disputed_at: string;
+}
+
 export interface ReputationSummary {
   address: string;
   status: "clean" | "reported";
   risk: "none" | "low" | "medium" | "high";
   report_count: number;
   distinct_reporters: number;
+  /** v2 risk input: sum over distinct reporters of credibility × time decay
+   * (90-day half-life). Fresh anonymous reporter = 0.5; observed payment
+   * history raises credibility toward 1.0. Thresholds: ≥2.5 high, ≥1.0
+   * medium, >0.1 low — so five fresh anonymous reporters still grade high,
+   * but stale reports fade to "none" in ~7 months instead of forever. */
+  weighted_score: number;
+  /** Signed, verified rebuttals from the reported wallet (newest first). */
+  disputes?: ReputationDispute[];
   categories: Record<string, number>;
   first_reported?: string;
   last_reported?: string;

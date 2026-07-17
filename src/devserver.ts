@@ -18,6 +18,7 @@ import {
   handleKeyRotate,
   handlePlansCatalog,
   handlePlanSubscribe,
+  handleReputationDispute,
   handleReputationLookup,
   handleReputationReport,
   handleScan,
@@ -157,6 +158,10 @@ const server = createServer(async (req, res) => {
     else if (method === "POST" && path === "/v1/reputation/report") {
       if (!reportLimiter.allow(ip)) out = LIMITED;
       else out = handleReputationReport(await readBody(req), store);
+    } else if (method === "POST" && path === "/v1/reputation/dispute") {
+      // Shares the report limiter: both sides of the registry cost the same.
+      if (!reportLimiter.allow(ip)) out = LIMITED;
+      else out = handleReputationDispute(await readBody(req), store);
     } else if (method === "GET" && /^\/v1\/reputation\/[^/]+$/.test(path))
       out = handleReputationLookup(decodeURIComponent(path.split("/").pop() ?? ""), store);
     else if (method === "GET" && path === "/v1/audit/head")

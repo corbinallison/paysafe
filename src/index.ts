@@ -34,6 +34,7 @@ import {
   freeCallsRemaining,
   handlePlansCatalog,
   handlePlanSubscribe,
+  handleReputationDispute,
   handleReputationLookup,
   handleReputationReport,
   handleAdminStats,
@@ -529,6 +530,17 @@ app.post("/v1/reputation/report", (req, res) => {
     return;
   }
   const r = handleReputationReport(req.body, store);
+  res.status(r.status).json(r.body);
+});
+
+// Signed rebuttal from a reported wallet (reputation v2). Free; shares the
+// report limiter — both sides of the registry cost the same to speak.
+app.post("/v1/reputation/dispute", (req, res) => {
+  if (!reportLimiter.allow(req.ip ?? "unknown")) {
+    res.status(429).json({ error: `Rate limit: max ${cfg.reportsPerIpPerHour} disputes per IP per hour.` });
+    return;
+  }
+  const r = handleReputationDispute(req.body, store);
   res.status(r.status).json(r.body);
 });
 

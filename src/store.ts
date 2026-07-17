@@ -12,7 +12,7 @@
 import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import type { ReputationReport } from "./types.ts";
+import type { ReputationDispute, ReputationReport } from "./types.ts";
 import type { AuditLog } from "./auditlog.ts";
 
 /** API keys are stored hashed at rest (audit M-3): disk/backup disclosure of
@@ -171,6 +171,7 @@ export interface ScoutScoreRecord {
 interface Snapshot {
   nonces: Record<string, NonceRecord>;
   reports: ReputationReport[];
+  disputes?: Record<string, ReputationDispute[]>;
   keys: Record<string, KeyRecord>;
   revoked?: Record<string, RevokedKeyRecord>;
   approval_configs?: Record<string, ApprovalConfig>;
@@ -192,6 +193,8 @@ export class Store {
   nonces: Map<string, NonceRecord> = new Map();
   reports: ReputationReport[] = [];
   reportsByAddress: Map<string, ReputationReport[]> = new Map();
+  /** Signed rebuttals, keyed by disputed address (verified before insert). */
+  disputes: Map<string, ReputationDispute[]> = new Map();
   keys: Map<string, KeyRecord> = new Map();
   revoked: Map<string, RevokedKeyRecord> = new Map();
   approvalConfigs: Map<string, ApprovalConfig> = new Map();
@@ -230,6 +233,7 @@ export class Store {
       const snap = JSON.parse(readFileSync(this.file, "utf8")) as Partial<Snapshot>;
       this.nonces = new Map(Object.entries(snap.nonces ?? {}));
       this.reports = snap.reports ?? [];
+      this.disputes = new Map(Object.entries(snap.disputes ?? {}));
       this.keys = new Map(Object.entries(snap.keys ?? {}));
       this.revoked = new Map(Object.entries(snap.revoked ?? {}));
       this.approvalConfigs = new Map(Object.entries(snap.approval_configs ?? {}));
@@ -350,6 +354,7 @@ export class Store {
     Store.evict(this.approvalConfigs, max);
     Store.evict(this.scanIndex, max);
     Store.evict(this.outcomes, max);
+    Store.evict(this.disputes, max);
     // approvals are NOT evicted here: dropping an in-flight approval would
     // orphan a legitimately-approved override. Creation refuses when full
     // (fail-closed) and pruneApprovals() expires stale pendings on the timer.
@@ -365,6 +370,7 @@ export class Store {
     const snap: Snapshot = {
       nonces: Object.fromEntries(this.nonces),
       reports: this.reports,
+      disputes: Object.fromEntries(this.disputes),
       keys: Object.fromEntries(this.keys),
       revoked: Object.fromEntries(this.revoked),
       approval_configs: Object.fromEntries(this.approvalConfigs),

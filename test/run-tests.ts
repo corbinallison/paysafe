@@ -6,10 +6,13 @@ import { createHash, createHmac, createPublicKey, verify as edVerify } from "nod
 import { runScan } from "../src/scanner.ts";
 import { Store } from "../src/store.ts";
 import { loadConfig } from "../src/config.ts";
-import { addReport, summarize } from "../src/reputation.ts";
+import { addDispute, addReport, checkReputation, disputeMessage, summarize } from "../src/reputation.ts";
+import { personalSignHash, recoverPersonalSigner, verifyPersonalSign } from "../src/evmsig.ts";
+import { secp256k1 } from "@noble/curves/secp256k1";
+import { keccak_256 } from "@noble/hashes/sha3";
 import { VerdictSigner } from "../src/verdictsign.ts";
 import { CANONICAL_USDC } from "../src/detectors/asset.ts";
-import { handleScan, createApiKey, consumeFreeCall, freeCallsRemaining, handlePlanSubscribe, handleUsage, handleAdminStats, handleKeyRotate, handleKeyRevoke, handleApprovalConfig } from "../src/api.ts";
+import { handleScan, createApiKey, consumeFreeCall, freeCallsRemaining, handlePlanSubscribe, handleUsage, handleAdminStats, handleKeyRotate, handleKeyRevoke, handleApprovalConfig, handleReputationDispute } from "../src/api.ts";
 import { PLANS, HARD_CEILINGS, activePlan, resolveEffectiveConfig, plansCatalog } from "../src/plans.ts";
 import { sanitizeScanRequest } from "../src/sanitize.ts";
 import { RateLimiter } from "../src/ratelimit.ts";
@@ -612,6 +615,127 @@ console.log("\n— reputation —");
   });
   const s2 = summarize(store, addr);
   check("duplicate report deduped", dup.ok && s2.report_count === 5, s2.report_count);
+}
+
+console.log("\n— reputation v2: EVM signature verification (evmsig) —");
+{
+  const priv = secp256k1.utils.randomPrivateKey();
+  const pub = secp256k1.getPublicKey(priv, false);
+  const addr = "0x" + Buffer.from(keccak_256(pub.subarray(1)).subarray(-20)).toString("hex");
+  const signPersonal = (msg: string, v27 = true): string => {
+    const sig = secp256k1.sign(personalSignHash(msg), priv);
+    const vByte = v27 ? 27 + sig.recovery : sig.recovery;
+    return "0x" + Buffer.from(sig.toCompactRawBytes()).toString("hex") + vByte.toString(16).padStart(2, "0");
+  };
+  check("personal_sign roundtrip recovers the signer", recoverPersonalSigner("hello world", signPersonal("hello world")) === addr);
+  check("verifyPersonalSign accepts the wallet's own signature", verifyPersonalSign(addr, "msg one", signPersonal("msg one")));
+  check("v encoded as 0/1 (raw libs) accepted too", verifyPersonalSign(addr, "msg raw v", signPersonal("msg raw v", false)));
+  check("wrong address rejected", !verifyPersonalSign("0x" + "11".repeat(20), "msg one", signPersonal("msg one")));
+  check("tampered message rejected", recoverPersonalSigner("msg one!", signPersonal("msg one")) !== addr);
+  check("garbage signature → null, no throw", recoverPersonalSigner("msg", "0xdeadbeef") === null);
+  check("non-hex signature → null, no throw", recoverPersonalSigner("msg", "zz".repeat(65)) === null);
+
+  // Cross-implementation vector: canonical Anvil/Foundry account 0. Every EVM
+  // tool derives this address from this key — if we recover it, our EIP-191
+  // hash and recovery match ethers/viem/MetaMask exactly.
+  const anvilPk = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+  const anvilAddr = "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266";
+  const s = secp256k1.sign(personalSignHash("hello world"), anvilPk);
+  const sHex = "0x" + Buffer.from(s.toCompactRawBytes()).toString("hex") + (27 + s.recovery).toString(16);
+  check("known Anvil key recovers to its canonical address", recoverPersonalSigner("hello world", sHex) === anvilAddr);
+}
+
+console.log("\n— reputation v2: signed disputes —");
+{
+  const store = new Store(null);
+  const priv = secp256k1.utils.randomPrivateKey();
+  const pub = secp256k1.getPublicKey(priv, false);
+  const addr = "0x" + Buffer.from(keccak_256(pub.subarray(1)).subarray(-20)).toString("hex");
+  const signDispute = (statement: string): string => {
+    const sig = secp256k1.sign(personalSignHash(disputeMessage(addr, statement)), priv);
+    return "0x" + Buffer.from(sig.toCompactRawBytes()).toString("hex") + (27 + sig.recovery).toString(16);
+  };
+
+  addReport(store, { address: addr, category: "scam", reason: "took payment and vanished entirely", reporter_agent_id: "acc-1" });
+
+  const stmt = "Delivery was delayed by an outage; all buyers were refunded on-chain.";
+  const ok = addDispute(store, { address: addr, statement: stmt, signature: signDispute(stmt) });
+  check("valid signed dispute accepted", ok.ok);
+  const sum = summarize(store, addr);
+  check("dispute surfaces in the reputation summary", sum.disputes?.length === 1 && sum.disputes[0].statement === stmt, sum.disputes);
+  const chk = checkReputation(store, addr);
+  check("scan-time check mentions the rebuttal, verdict still derived from reports", chk.verdict === "flag" && chk.reason.includes("signed rebuttal"), chk.reason);
+
+  const bad = addDispute(store, { address: addr, statement: "totally different words here now", signature: signDispute(stmt) });
+  check("signature over a DIFFERENT statement rejected", !bad.ok);
+  const notMine = addDispute(store, { address: "0x" + "22".repeat(20), statement: stmt, signature: signDispute(stmt) });
+  check("signature replayed onto another address rejected", !notMine.ok);
+  const short = addDispute(store, { address: "0xshort", statement: stmt, signature: signDispute(stmt) });
+  check("non-EVM address rejected (nothing to recover against)", !short.ok);
+
+  const dup = addDispute(store, { address: addr, statement: stmt, signature: signDispute(stmt) });
+  check("identical dispute deduped", dup.ok && store.disputes.get(addr)?.length === 1);
+  for (let i = 0; i < 6; i++) {
+    const st = `Rebuttal number ${i}: the reports are mistaken.`;
+    addDispute(store, { address: addr, statement: st, signature: signDispute(st) });
+  }
+  const kept = store.disputes.get(addr) ?? [];
+  check("disputes capped at 5, newest first", kept.length === 5 && kept[0].statement.startsWith("Rebuttal number 5"), kept.map((d) => d.statement));
+
+  // API handler: rejection names the exact message to sign (self-serve).
+  const apiBad = handleReputationDispute({ address: addr, statement: "unsigned statement of innocence", signature: "0x00" }, store);
+  check("handler 400 includes the sign_this hint", apiBad.status === 400 && String((apiBad.body as Record<string, unknown>).sign_this).startsWith("paysafe-dispute-v1|"), apiBad.body);
+  const stmt2 = "Second channel: filing via the HTTP handler works too.";
+  const apiOk = handleReputationDispute({ address: addr, statement: stmt2, signature: signDispute(stmt2) }, store);
+  check("handler 201 on a valid dispute", apiOk.status === 201);
+}
+
+console.log("\n— reputation v2: time decay & reporter credibility —");
+{
+  const store = new Store(null);
+  const addr = "0xDecayDecayDecayDecayDecayDecayDecayDeca1".toLowerCase();
+  const backdate = (daysAgo: number): void => {
+    for (const r of store.reportsByAddress.get(addr) ?? []) {
+      r.reported_at = new Date(Date.now() - daysAgo * 86_400_000).toISOString();
+    }
+  };
+  for (let i = 0; i < 5; i++) {
+    addReport(store, { address: addr, category: "scam", reason: "classic advance-fee scam pattern", reporter_agent_id: `fresh-${i}` });
+  }
+  const fresh = summarize(store, addr);
+  check("5 fresh anonymous reporters → high (v1 ladder preserved)", fresh.risk === "high" && fresh.weighted_score === 2.5, fresh);
+
+  backdate(91); // one half-life: 2.5 → ~1.24
+  const aged = summarize(store, addr);
+  check("after one half-life the same reports grade medium", aged.risk === "medium", aged.weighted_score);
+
+  backdate(500); // ~5.5 half-lives: below the 0.1 noise floor
+  const stale = summarize(store, addr);
+  check("fully decayed reports read risk none, status stays reported", stale.risk === "none" && stale.status === "reported", stale.weighted_score);
+  const decayedChk = checkReputation(store, addr);
+  check("decayed history no longer flags scans (reputation.decayed, allow)", decayedChk.verdict === "allow" && decayedChk.id === "reputation.decayed", decayedChk);
+
+  // Credibility: reporters with observed payment history count more…
+  const store2 = new Store(null);
+  const addr2 = "0xCredCredCredCredCredCredCredCredCredCre1".toLowerCase();
+  for (let i = 0; i < 3; i++) {
+    store2.counterparties.set(`veteran-${i}`, Array.from({ length: 10 }, (_, j) => `0xc${i}${j}`));
+    addReport(store2, { address: addr2, category: "scam", reason: "verified seller ran off with funds", reporter_agent_id: `veteran-${i}` });
+  }
+  const cred = summarize(store2, addr2);
+  check("3 reporters with observed history → high (anonymous trio would be medium)", cred.risk === "high" && cred.weighted_score === 3, cred);
+  // …but credibility caps at 1.0 (it scales confidence, never gates — H-2).
+  store2.counterparties.set("veteran-0", Array.from({ length: 500 }, (_, j) => `0xd${j}`));
+  check("credibility caps at 1.0 per reporter", summarize(store2, addr2).weighted_score === 3);
+
+  // One reporter shouting in many categories is still one voice.
+  const store3 = new Store(null);
+  const addr3 = "0xLoudLoudLoudLoudLoudLoudLoudLoudLoudLou1".toLowerCase();
+  for (const cat of ["scam", "overcharge", "other"] as const) {
+    addReport(store3, { address: addr3, category: cat, reason: "the same single bad experience, refiled", reporter_agent_id: "one-voice" });
+  }
+  const loud = summarize(store3, addr3);
+  check("one reporter × three categories weighs as one reporter", loud.weighted_score === 0.5 && loud.risk === "low", loud);
 }
 
 console.log("\n— input sanitization & robustness —");

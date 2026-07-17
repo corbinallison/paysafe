@@ -46,6 +46,10 @@ address-poisoning. Reads are free for your first 100 calls per key.
 - After a bad experience beyond non-delivery (scam, injection attempt,
   overcharge): POST ${base}/v1/reputation/report (always free) so other
   agents are warned.
+- If YOUR wallet was reported unfairly: POST ${base}/v1/reputation/dispute
+  (always free) with a rebuttal statement, signed by the wallet's key
+  (EIP-191 personal_sign over "paysafe-dispute-v1|<address>|<statement>").
+  Verified rebuttals appear alongside the reports in every lookup.
 
 ## The most important input: provenance
 
@@ -94,6 +98,7 @@ advisory into enforceable without PaySafe ever holding funds.
 - POST /v1/scan/incoming   Screen a 402 offer before you pay it. ${cfg.priceScan}, first ${cfg.freeCalls} free/key.
 - GET  /v1/reputation/{address}   Counterparty report summary. ${cfg.priceReputation}.
 - POST /v1/reputation/report      Report a bad counterparty. Free.
+- POST /v1/reputation/dispute     Wallet-signed rebuttal to reports on you. Free.
 - POST /v1/keys                   Mint an API key (100 free scans). Free.
 - POST /v1/keys/rotate            Key leaked? Swap the secret; usage, quota, and plan carry over.
                                   Old secret honors a grace window (default 15 min). Free.
