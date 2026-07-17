@@ -176,11 +176,9 @@ POST /v1/scan/outgoing
 }
 ```
 
-## Dashboards
+## Dashboard
 
-**Usage dashboard — `GET /dashboard`.** A single self-contained page where any key holder can see their own scan counts, verdict breakdown, free-tier quota, and plan status. Paste your `psk_` key and hit View; the key is sent only as an `X-API-Key` header to `GET /v1/usage` (never in a URL, so it can't leak via history, referrers, or server logs), and each key can only ever see its own account. Served with a locked-down CSP (`default-src 'none'`, zero external resources) and rendered exclusively via `textContent`.
-
-**Owner dashboard — `GET /admin`.** Same interface, but sourced from the tamper-evident audit log: all-time scan totals and verdict split (including anonymous scans), a 30-day activity chart, most-fired checks, account/registry counts, and the audit-chain head with a one-click full-chain verify. Access is bound to a single key: set `ADMIN_KEY_SHA256` to the SHA-256 hex of your key and only that key unlocks `GET /v1/admin/stats` (constant-time compare; the endpoint 404s when unconfigured). Only the hash lives in config — consistent with keys being hashed at rest. Responses are aggregates only: no customer keys, agent ids, or addresses.
+**Usage dashboard — `GET /dashboard`.** A single self-contained page where any key holder can see their own scan counts, verdict breakdown, free-tier quota, and plan status. Paste your `psk_` key and hit View; the key is sent only as an `X-API-Key` header to `GET /v1/usage` (never in a URL, so it can't leak via history, referrers, or server logs), and each key can only ever see its own account. Served with a locked-down CSP (`default-src 'none'`, zero external resources) and rendered exclusively via `textContent`. 
 
 ## Human-in-the-loop step-up approvals
 
