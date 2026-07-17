@@ -123,6 +123,11 @@ export interface ApprovalRecord {
 export interface ScanIndexEntry {
   commitment: string;
   pay_to: string; // lowercased; "" when the scan had none
+  /** Resource domain at scan time (lowercased hostname). Only recorded for
+   * non-blocked scans: a blocked scan (e.g. a pin mismatch claiming someone
+   * else's domain) must not be able to write outcome history under that
+   * domain. */
+  domain?: string;
   verdict: string;
   /** Hash of the key that made the scan (absent for anonymous scans). When
    * present, only that account may report the outcome. */
@@ -144,6 +149,15 @@ export interface CounterpartyOutcomes {
   reporters: string[];
   first_at: string;
   last_at: string;
+}
+
+/** Domain-joined delivery outcomes: the same counters keyed by the resource
+ * domain recorded at scan time, plus the distinct pay_to addresses the history
+ * was earned under. This joins the outcome ledger to the pinning layer's
+ * stable identity, so rotating the pay_to address does not reset a seller's
+ * delivery record (rotation-laundering resistance). */
+export interface DomainOutcomes extends CounterpartyOutcomes {
+  pay_tos: string[];
 }
 
 export interface VelocityEvent {
@@ -178,6 +192,7 @@ interface Snapshot {
   approvals?: Record<string, ApprovalRecord>;
   scan_index?: Record<string, ScanIndexEntry>;
   outcomes?: Record<string, CounterpartyOutcomes>;
+  outcomes_by_domain?: Record<string, DomainOutcomes>;
   velocity: Record<string, VelocityEvent[]>;
   counterparties: Record<string, string[]>;
   pins: Record<string, PinRecord>;
@@ -201,6 +216,7 @@ export class Store {
   approvals: Map<string, ApprovalRecord> = new Map();
   scanIndex: Map<string, ScanIndexEntry> = new Map();
   outcomes: Map<string, CounterpartyOutcomes> = new Map();
+  outcomesByDomain: Map<string, DomainOutcomes> = new Map();
   velocity: Map<string, VelocityEvent[]> = new Map();
   counterparties: Map<string, string[]> = new Map();
   pins: Map<string, PinRecord> = new Map();
@@ -240,6 +256,7 @@ export class Store {
       this.approvals = new Map(Object.entries(snap.approvals ?? {}));
       this.scanIndex = new Map(Object.entries(snap.scan_index ?? {}));
       this.outcomes = new Map(Object.entries(snap.outcomes ?? {}));
+      this.outcomesByDomain = new Map(Object.entries(snap.outcomes_by_domain ?? {}));
       this.velocity = new Map(Object.entries(snap.velocity ?? {}));
       this.counterparties = new Map(Object.entries(snap.counterparties ?? {}));
       this.pins = new Map(Object.entries(snap.pins ?? {}));
@@ -354,6 +371,7 @@ export class Store {
     Store.evict(this.approvalConfigs, max);
     Store.evict(this.scanIndex, max);
     Store.evict(this.outcomes, max);
+    Store.evict(this.outcomesByDomain, max);
     Store.evict(this.disputes, max);
     // approvals are NOT evicted here: dropping an in-flight approval would
     // orphan a legitimately-approved override. Creation refuses when full
@@ -377,6 +395,7 @@ export class Store {
       approvals: Object.fromEntries(this.approvals),
       scan_index: Object.fromEntries(this.scanIndex),
       outcomes: Object.fromEntries(this.outcomes),
+      outcomes_by_domain: Object.fromEntries(this.outcomesByDomain),
       velocity: Object.fromEntries(this.velocity),
       counterparties: Object.fromEntries(this.counterparties),
       pins: Object.fromEntries(this.pins),

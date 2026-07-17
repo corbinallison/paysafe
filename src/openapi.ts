@@ -474,7 +474,7 @@ export function openApiDoc(cfg: PaySafeConfig): object {
           operationId: "reportOutcome",
           summary: "Record whether a scanned, settled payment actually delivered (commitment-bound)",
           description:
-            "The delivery-outcome leg: scans validate the payment; this records whether the seller shipped. The report must present the scan_id AND payment_commitment of a scan PaySafe performed (one outcome per scan; keyed scans only from the scanning account) — so delivery history cannot be fabricated without making real, scanned payments. Aggregated per counterparty into delivery rates that feed GET /v1/reputation/{address} and the flag-only `delivery` check on future scans. The official SDK payment-path wrappers report outcomes automatically.",
+            "The delivery-outcome leg: scans validate the payment; this records whether the seller shipped. The report must present the scan_id AND payment_commitment of a scan PaySafe performed (one outcome per scan; keyed scans only from the scanning account) — so delivery history cannot be fabricated without making real, scanned payments. Aggregated per counterparty into delivery rates that feed GET /v1/reputation/{address} and the flag-only `delivery` check on future scans; also aggregated per resource DOMAIN recorded at scan time, so rotating the pay_to address does not reset a domain's delivery record. Flag decisions use a prior-smoothed rate (small samples don't over-trigger); the raw rate is always reported. The official SDK payment-path wrappers report outcomes automatically.",
           tags: ["Reputation"],
           security: [],
           requestBody: {

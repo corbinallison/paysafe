@@ -127,9 +127,22 @@ export function handleScan(
   // verified as belonging to a scan we actually performed, and pins the
   // counterparty it aggregates against to what was scanned.
   const indexedKeyHash = apiKey ? store.resolveKey(apiKey).hash : null;
+  // Resource domain, recorded only for non-blocked scans: a blocked scan (e.g.
+  // a pin mismatch presenting someone else's domain) must not be able to seed
+  // outcome history under that domain — same invariant as the trust-state
+  // rollback in the scanner.
+  let scanDomain: string | null = null;
+  if (scan.verdict !== "block" && req.payment.resource_url) {
+    try {
+      scanDomain = new URL(req.payment.resource_url).hostname.toLowerCase();
+    } catch {
+      scanDomain = null;
+    }
+  }
   store.scanIndex.set(scan.scan_id, {
     commitment: paymentCommitment(req.payment),
     pay_to: (req.payment.pay_to ?? "").trim().toLowerCase(),
+    ...(scanDomain ? { domain: scanDomain } : {}),
     verdict: scan.verdict,
     ...(indexedKeyHash ? { key_hash: indexedKeyHash } : {}),
     at: scan.scanned_at,

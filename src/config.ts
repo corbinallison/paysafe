@@ -61,8 +61,13 @@ export interface PaySafeConfig {
   // --- delivery-outcome check (flag-only, audit H-2) ---
   /** Minimum commitment-bound outcomes before the delivery-rate check fires */
   deliveryMinOutcomes: number;
-  /** Delivery rate below this flags the counterparty (never blocks) */
+  /** Smoothed delivery rate below this flags the counterparty (never blocks) */
   deliveryFlagRate: number;
+  /** Beta-prior mean for delivery-rate smoothing (most sellers deliver) */
+  deliveryPriorRate: number;
+  /** Prior strength in pseudo-outcomes: how much evidence it takes to pull the
+   * smoothed rate away from the prior (3/3 failures ≠ 300/300 failures) */
+  deliveryPriorStrength: number;
 
   // --- human-in-the-loop step-up approvals ---
   /** Feature switch (APPROVALS=off disables: no new configs, no new approvals;
@@ -132,6 +137,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
 
     deliveryMinOutcomes: num(env.DELIVERY_MIN_OUTCOMES, 5),
     deliveryFlagRate: Math.min(Math.max(num(env.DELIVERY_FLAG_RATE, 0.7), 0), 1),
+    deliveryPriorRate: Math.min(Math.max(num(env.DELIVERY_PRIOR_RATE, 0.9), 0), 1),
+    deliveryPriorStrength: Math.max(num(env.DELIVERY_PRIOR_STRENGTH, 10), 0),
 
     approvalsEnabled: env.APPROVALS !== "off",
     approvalsPendingTtlMinutes: num(env.APPROVALS_PENDING_TTL_MINUTES, 10),

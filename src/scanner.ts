@@ -155,9 +155,9 @@ export function runScan(
   checks.push(checkReputation(store, payment.pay_to));
 
   // Delivery outcomes: measured, commitment-bound delivery history for this
-  // counterparty (flag-only — H-2 applies to measured history too).
-  const delivery = checkDelivery(store, payment, cfg);
-  if (delivery) checks.push(delivery);
+  // counterparty AND for the resource domain across pay_to rotations
+  // (flag-only — H-2 applies to measured history too).
+  checks.push(...checkDelivery(store, payment, cfg));
 
   const { verdict, risk } = aggregate(checks);
 

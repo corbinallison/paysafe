@@ -19,7 +19,15 @@
  *    delivery history therefore requires making real, scanned payments —
  *    an anti-Sybil property free-text reports can't have.
  *  - Aggregates key off the pay_to RECORDED AT SCAN TIME (from the index),
- *    never the reporter's claim.
+ *    never the reporter's claim — and, in parallel, off the resource DOMAIN
+ *    recorded at scan time. The domain ledger joins the outcome history to the
+ *    pinning layer's stable identity, so rotating the pay_to address cannot
+ *    launder a bad delivery record (the fresh wallet's empty ledger is
+ *    backstopped by the domain's).
+ *  - Flag decisions use a PRIOR-SMOOTHED delivery rate (Beta prior, mean 0.9,
+ *    strength 10 pseudo-outcomes): 3 failures out of 3 and 300 out of 300 are
+ *    very different confidence, and the smoothed rate says so. The raw rate is
+ *    always reported alongside.
  *
  * Verdict integration preserves audit H-2: delivery history can only ever
  * FLAG, never block — third-party history must not stop an honest payment on
@@ -30,7 +38,7 @@
  * it covers digital, synchronous x402 delivery, not physical shipment.
  */
 import type { PaySafeConfig } from "./config.ts";
-import type { CounterpartyOutcomes, Store } from "./store.ts";
+import type { CounterpartyOutcomes, DomainOutcomes, Store } from "./store.ts";
 import type { ApiResult } from "./api.ts";
 import type { CheckResult, PaymentDetails } from "./types.ts";
 
@@ -38,6 +46,22 @@ export const OUTCOME_KINDS = ["delivered", "not_delivered", "partial", "wrong_co
 export type OutcomeKind = (typeof OUTCOME_KINDS)[number];
 
 const MAX_DISTINCT_REPORTERS = 50;
+const MAX_LINKED_PAY_TOS = 20;
+
+/** Defaults for the small-sample prior (config-overridable). Shared with
+ * deliverySummary so display and scan checks agree when cfg isn't threaded. */
+export const DELIVERY_PRIOR_RATE = 0.9;
+export const DELIVERY_PRIOR_STRENGTH = 10;
+
+/** Posterior-mean delivery rate under a Beta(p0·m, (1−p0)·m) prior: the rate
+ * starts at the prior mean p0 and needs real evidence to move — 3 failures on
+ * 3 outcomes is jumpy noise, 300 on 300 is a verdict. The raw rate is always
+ * reported alongside; only the FLAG DECISION uses the smoothed value. */
+function smoothedRate(delivered: number, total: number, cfg?: PaySafeConfig): number {
+  const m = cfg?.deliveryPriorStrength ?? DELIVERY_PRIOR_STRENGTH;
+  const p0 = cfg?.deliveryPriorRate ?? DELIVERY_PRIOR_RATE;
+  return (delivered + p0 * m) / (total + m);
+}
 
 /** Uniform failure: unknown scan, commitment mismatch, and wrong account are
  * indistinguishable — the (scan_id, commitment) pair is a bearer proof of
@@ -76,6 +100,7 @@ export function handleOutcomeReport(store: Store, cfg: PaySafeConfig, apiKey: st
 
   entry.outcome = outcome;
   const now = new Date().toISOString();
+  const reporter = entry.key_hash ?? "anon";
 
   // Aggregate against the pay_to captured AT SCAN TIME — never reporter input.
   if (entry.pay_to) {
@@ -90,11 +115,38 @@ export function handleOutcomeReport(store: Store, cfg: PaySafeConfig, apiKey: st
     };
     agg[outcome] += 1;
     agg.last_at = now;
-    const reporter = entry.key_hash ?? "anon";
     if (!agg.reporters.includes(reporter) && agg.reporters.length < MAX_DISTINCT_REPORTERS) {
       agg.reporters.push(reporter);
     }
     store.outcomes.set(entry.pay_to, agg);
+  }
+
+  // Second aggregation, keyed by the resource DOMAIN captured at scan time —
+  // the stable identity the pinning layer already trusts. This is what makes
+  // pay_to rotation useless for laundering a bad delivery record: the new
+  // wallet starts a fresh pay_to ledger, but the domain ledger carries over.
+  // entry.domain is only ever set for non-blocked scans (see api.ts), so a
+  // blocked pin-mismatch scan cannot write history under someone else's domain.
+  if (entry.domain && entry.pay_to) {
+    const dagg: DomainOutcomes = store.outcomesByDomain.get(entry.domain) ?? {
+      delivered: 0,
+      not_delivered: 0,
+      partial: 0,
+      wrong_content: 0,
+      reporters: [],
+      pay_tos: [],
+      first_at: now,
+      last_at: now,
+    };
+    dagg[outcome] += 1;
+    dagg.last_at = now;
+    if (!dagg.reporters.includes(reporter) && dagg.reporters.length < MAX_DISTINCT_REPORTERS) {
+      dagg.reporters.push(reporter);
+    }
+    if (!dagg.pay_tos.includes(entry.pay_to) && dagg.pay_tos.length < MAX_LINKED_PAY_TOS) {
+      dagg.pay_tos.push(entry.pay_to);
+    }
+    store.outcomesByDomain.set(entry.domain, dagg);
   }
   store.markDirty();
 
@@ -117,21 +169,22 @@ export function handleOutcomeReport(store: Store, cfg: PaySafeConfig, apiKey: st
   };
 }
 
-/** Delivery stats for one counterparty, for the reputation summary. Null when
- * there is no outcome history (absence of history is not a signal). */
-export function deliverySummary(store: Store, addressRaw: string): {
+interface DeliveryStats {
   outcomes_total: number;
   delivered: number;
   not_delivered: number;
   partial: number;
   wrong_content: number;
+  /** Raw observed rate — always reported, never the flag trigger. */
   delivery_rate: number;
+  /** Prior-smoothed rate (see smoothedRate) — what the flag checks compare. */
+  smoothed_delivery_rate: number;
   distinct_reporters: number;
   first_at: string;
   last_at: string;
-} | null {
-  const agg = store.outcomes.get(addressRaw.trim().toLowerCase());
-  if (!agg) return null;
+}
+
+function statsOf(agg: CounterpartyOutcomes, cfg?: PaySafeConfig): DeliveryStats | null {
   const total = agg.delivered + agg.not_delivered + agg.partial + agg.wrong_content;
   if (!total) return null;
   return {
@@ -141,56 +194,126 @@ export function deliverySummary(store: Store, addressRaw: string): {
     partial: agg.partial,
     wrong_content: agg.wrong_content,
     delivery_rate: Number((agg.delivered / total).toFixed(4)),
+    smoothed_delivery_rate: Number(smoothedRate(agg.delivered, total, cfg).toFixed(4)),
     distinct_reporters: agg.reporters.length,
     first_at: agg.first_at,
     last_at: agg.last_at,
   };
 }
 
+/** Delivery stats for one counterparty, for the reputation summary. Null when
+ * there is no outcome history (absence of history is not a signal). */
+export function deliverySummary(store: Store, addressRaw: string, cfg?: PaySafeConfig): DeliveryStats | null {
+  const agg = store.outcomes.get(addressRaw.trim().toLowerCase());
+  return agg ? statsOf(agg, cfg) : null;
+}
+
+/** The two failure tests, shared by the pay_to and the domain-joined ledgers.
+ * Returns null when the history doesn't trip either. */
+function failureVerdict(d: DeliveryStats, cfg: PaySafeConfig): { kind: "no_confirmed" | "low_rate"; severity: "high" | "medium" } | null {
+  const failures = d.not_delivered + d.wrong_content;
+  // Repeated failures with zero confirmed deliveries — flags even below the
+  // volume threshold, because there is no success to weigh against. Severity
+  // scales with sample size: 3 failures is a pattern, not yet a verdict.
+  if (failures >= 3 && d.delivered === 0) {
+    return { kind: "no_confirmed", severity: failures >= cfg.deliveryMinOutcomes ? "high" : "medium" };
+  }
+  if (d.outcomes_total >= cfg.deliveryMinOutcomes && d.smoothed_delivery_rate < cfg.deliveryFlagRate) {
+    return { kind: "low_rate", severity: d.smoothed_delivery_rate < cfg.deliveryFlagRate / 2 ? "high" : "medium" };
+  }
+  return null;
+}
+
+function domainOf(resourceUrl: string | undefined): string | null {
+  if (!resourceUrl) return null;
+  try {
+    return new URL(resourceUrl).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Scan-time delivery check (both directions — it keys on who gets paid).
+ * Scan-time delivery checks (both directions — they key on who gets paid).
  * FLAG-ONLY by design (audit H-2): measured history is still third-party
  * signal and must never hard-block an honest payment on its own. No history
  * reads as "no history", never as suspicion.
+ *
+ * Two ledgers are consulted:
+ *  1. pay_to — the counterparty's own record.
+ *  2. the resource DOMAIN — the stable identity pinning already trusts. This
+ *     closes the rotation loophole: same-domain rotation is hard-blocked by
+ *     pin.mismatch, but after a LEGITIMATE rotation (operator clears the pin)
+ *     the new wallet would otherwise start with a clean, empty ledger. The
+ *     domain ledger carries the record across the rotation.
  */
-export function checkDelivery(store: Store, payment: PaymentDetails, cfg: PaySafeConfig): CheckResult | null {
+export function checkDelivery(store: Store, payment: PaymentDetails, cfg: PaySafeConfig): CheckResult[] {
   const payTo = (payment.pay_to ?? "").trim().toLowerCase();
-  if (!payTo) return null;
-  const d = deliverySummary(store, payTo);
-  if (!d) return null; // no outcome history: silent (the first-contact check covers "unknown seller")
+  if (!payTo) return [];
+  const checks: CheckResult[] = [];
 
-  const failures = d.not_delivered + d.wrong_content;
+  const d = deliverySummary(store, payTo, cfg);
+  let addressFlagged = false;
+  if (d) {
+    const bad = failureVerdict(d, cfg);
+    if (bad?.kind === "no_confirmed") {
+      addressFlagged = true;
+      const failures = d.not_delivered + d.wrong_content;
+      checks.push({
+        id: "delivery.no_confirmed",
+        name: "Delivery outcomes",
+        verdict: "flag",
+        severity: bad.severity,
+        reason: `Counterparty ${payment.pay_to} has ${failures} commitment-bound delivery failure(s) (${d.not_delivered} not delivered, ${d.wrong_content} wrong content) and ZERO confirmed deliveries, from ${d.distinct_reporters} distinct reporter(s). A clean payment to a seller who never ships still fails you.`,
+        details: { ...d },
+      });
+    } else if (bad?.kind === "low_rate") {
+      addressFlagged = true;
+      checks.push({
+        id: "delivery.low_rate",
+        name: "Delivery outcomes",
+        verdict: "flag",
+        severity: bad.severity,
+        reason: `Counterparty ${payment.pay_to} delivered on ${(d.delivery_rate * 100).toFixed(1)}% of ${d.outcomes_total} commitment-bound settlements (${(d.smoothed_delivery_rate * 100).toFixed(1)}% prior-smoothed, threshold ${(cfg.deliveryFlagRate * 100).toFixed(0)}%), per ${d.distinct_reporters} distinct reporter(s). Outcomes are bound to scans PaySafe performed — this is measured history, not accusation.`,
+        details: { ...d },
+      });
+    } else {
+      checks.push({
+        id: "delivery.history",
+        name: "Delivery outcomes",
+        verdict: "allow",
+        severity: "info",
+        reason: `Counterparty delivered on ${(d.delivery_rate * 100).toFixed(1)}% of ${d.outcomes_total} commitment-bound settlement(s).`,
+        details: { ...d },
+      });
+    }
+  }
+  // No pay_to history: silent (the first-contact check covers "unknown seller")
+  // — but the domain join below still runs, which is exactly the rotation case.
 
-  // Repeated failures with zero confirmed deliveries — flags even below the
-  // volume threshold, because there is no success to weigh against.
-  if (failures >= 3 && d.delivered === 0) {
-    return {
-      id: "delivery.no_confirmed",
-      name: "Delivery outcomes",
-      verdict: "flag",
-      severity: "high",
-      reason: `Counterparty ${payment.pay_to} has ${failures} commitment-bound delivery failure(s) (${d.not_delivered} not delivered, ${d.wrong_content} wrong content) and ZERO confirmed deliveries, from ${d.distinct_reporters} distinct reporter(s). A clean payment to a seller who never ships still fails you.`,
-      details: { ...d },
-    };
+  // Rotation join: does this domain carry delivery history earned under OTHER
+  // pay_to addresses? Only speaks up when that joined record trips the same
+  // failure tests and the address-level check hasn't already flagged (one flag
+  // is enough); healthy domain history stays silent.
+  const domain = domainOf(payment.resource_url);
+  if (!addressFlagged && domain) {
+    const dagg = store.outcomesByDomain.get(domain);
+    if (dagg && dagg.pay_tos.some((a) => a !== payTo)) {
+      const dd = statsOf(dagg, cfg);
+      const bad = dd ? failureVerdict(dd, cfg) : null;
+      if (dd && bad) {
+        const others = dagg.pay_tos.filter((a) => a !== payTo);
+        checks.push({
+          id: "delivery.rotated_history",
+          name: "Delivery outcomes",
+          verdict: "flag",
+          severity: bad.severity,
+          reason: `Domain ${domain} has commitment-bound delivery history under ${others.length} other payment address(es): delivered on ${(dd.delivery_rate * 100).toFixed(1)}% of ${dd.outcomes_total} settlements (${(dd.smoothed_delivery_rate * 100).toFixed(1)}% prior-smoothed), ${dd.delivered === 0 ? "with ZERO confirmed deliveries, " : ""}per ${dd.distinct_reporters} distinct reporter(s). Rotating the pay_to address does not reset a domain's measured delivery record.`,
+          details: { domain, current_pay_to: payTo, previous_pay_tos: others, ...dd },
+        });
+      }
+    }
   }
 
-  if (d.outcomes_total >= cfg.deliveryMinOutcomes && d.delivery_rate < cfg.deliveryFlagRate) {
-    return {
-      id: "delivery.low_rate",
-      name: "Delivery outcomes",
-      verdict: "flag",
-      severity: d.delivery_rate < cfg.deliveryFlagRate / 2 ? "high" : "medium",
-      reason: `Counterparty ${payment.pay_to} delivered on ${(d.delivery_rate * 100).toFixed(1)}% of ${d.outcomes_total} commitment-bound settlements (threshold ${(cfg.deliveryFlagRate * 100).toFixed(0)}%), per ${d.distinct_reporters} distinct reporter(s). Outcomes are bound to scans PaySafe performed — this is measured history, not accusation.`,
-      details: { ...d },
-    };
-  }
-
-  return {
-    id: "delivery.history",
-    name: "Delivery outcomes",
-    verdict: "allow",
-    severity: "info",
-    reason: `Counterparty delivered on ${(d.delivery_rate * 100).toFixed(1)}% of ${d.outcomes_total} commitment-bound settlement(s).`,
-    details: { ...d },
-  };
+  return checks;
 }

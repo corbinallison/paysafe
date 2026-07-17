@@ -1355,6 +1355,53 @@ console.log("\n— delivery outcomes: scan-time check —");
   check("healthy delivery history stays allow with an info line", solidScan.verdict === "allow" && solidScan.checks.some((c: any) => c.id === "delivery.history" && c.verdict === "allow"), solidScan.checks.filter((c: any) => c.verdict !== "allow"));
 }
 
+console.log("\n— delivery outcomes: prior smoothing + rotation join —");
+{
+  const store = new Store(null);
+  const signer = new VerdictSigner(null);
+  const key = (createApiKey(store, cfg) as { body: { api_key: string } }).body.api_key;
+
+  const seed = (payTo: string, domain: string, outcomes: string[]) => {
+    outcomes.forEach((o, i) => {
+      const p = { ...basePayment, pay_to: payTo, resource_url: `https://${domain}/api`, nonce: `0xseed${payTo.slice(-4)}${i}` };
+      const sc = (handleScan("outgoing", { agent_id: `agent-${domain}`, payment: p, expected_price_usd: 0.01, context: { origin: "planning" } }, cfg, store, signer, key) as { body: any }).body;
+      handleOutcomeReport(store, cfg, key, { scan_id: sc.scan_id, payment_commitment: sc.attestation.payment_commitment, outcome: o });
+    });
+  };
+
+  // Small-sample smoothing: 3/5 delivered is raw 60% (below the 70% threshold)
+  // but smoothed (3+9)/(5+10)=80% — early jumpiness must not flag.
+  const borderline = "0xBorderlineSeller00000000000000000000000d4";
+  seed(borderline, "borderline.example.net", ["delivered", "delivered", "delivered", "not_delivered", "not_delivered"]);
+  const bScan = (handleScan("outgoing", { agent_id: "agent-borderline.example.net", payment: { ...basePayment, pay_to: borderline, resource_url: "https://borderline.example.net/api", nonce: "0xjudge4" }, expected_price_usd: 0.01, context: { origin: "planning" } }, cfg, store, signer, key) as { body: any }).body;
+  check("small-sample low raw rate is smoothed by the prior (no flag)", bScan.verdict === "allow" && bScan.checks.some((c: any) => c.id === "delivery.history"), bScan.checks.filter((c: any) => c.verdict !== "allow"));
+  check("same-address domain history emits no rotation flag", !bScan.checks.some((c: any) => c.id === "delivery.rotated_history"));
+  const bRep = summarize(store, borderline);
+  check("summary exposes both raw and smoothed delivery rates", bRep.delivery?.delivery_rate === 0.6 && bRep.delivery?.smoothed_delivery_rate === 0.8);
+
+  // Rotation join: bad record under the old address, then the seller rotates.
+  const oldAddr = "0xRotatorOld0000000000000000000000000000e5";
+  const newAddr = "0xRotatorNew0000000000000000000000000000f6";
+  seed(oldAddr, "rotator.example.net", ["delivered", "not_delivered", "not_delivered", "not_delivered", "not_delivered", "not_delivered"]);
+
+  // Same-domain rotation without operator action is already hard-blocked by
+  // the pin — and that blocked scan must not write domain outcome history.
+  const blockedScan = (handleScan("outgoing", { agent_id: "agent-rotator.example.net", payment: { ...basePayment, pay_to: newAddr, resource_url: "https://rotator.example.net/api", nonce: "0xrotblk" }, expected_price_usd: 0.01, context: { origin: "planning" } }, cfg, store, signer, key) as { body: any }).body;
+  check("un-cleared rotation still blocks via the pin", blockedScan.verdict === "block" && blockedScan.checks.some((c: any) => c.id === "pin.mismatch"));
+  handleOutcomeReport(store, cfg, key, { scan_id: blockedScan.scan_id, payment_commitment: blockedScan.attestation.payment_commitment, outcome: "not_delivered" });
+  const dagg = store.outcomesByDomain.get("rotator.example.net")!;
+  check("blocked scan cannot grow the domain outcome ledger", dagg.delivered + dagg.not_delivered + dagg.partial + dagg.wrong_content === 6 && dagg.pay_tos.length === 1);
+
+  // Legitimate rotation path: the operator clears the pin. The new wallet's
+  // pay_to ledger is empty — the domain ledger must carry the record across.
+  store.pins.delete("rotator.example.net");
+  const rotScan = (handleScan("outgoing", { agent_id: "agent-rotator.example.net", payment: { ...basePayment, pay_to: newAddr, resource_url: "https://rotator.example.net/api", nonce: "0xrotnew" }, expected_price_usd: 0.01, context: { origin: "planning" } }, cfg, store, signer, key) as { body: any }).body;
+  const rotFlag = rotScan.checks.find((c: any) => c.id === "delivery.rotated_history");
+  check("rotation does not launder the domain's delivery record", rotScan.verdict === "flag" && rotFlag?.verdict === "flag", rotScan.checks);
+  check("rotation-join flag names the prior address and stays flag-only (H-2)",
+    rotFlag?.details?.previous_pay_tos?.includes(oldAddr.toLowerCase()) && rotScan.checks.filter((c: any) => c.id.startsWith("delivery.")).every((c: any) => c.verdict !== "block"));
+}
+
 console.log("\n— approve page HTML sanity —");
 {
   const html = approvePageHtml();

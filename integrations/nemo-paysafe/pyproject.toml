@@ -22,8 +22,10 @@ dependencies = ["paysafe-x402>=0.3.0", "nvidia-nat>=1.1"]
 
 # NeMo Agent Toolkit discovers plugins through this entry-point group. The
 # value is the module the toolkit imports on init; importing it runs the
-# @register_function decorators.
-[project.entry-points."nat.plugins"]
+# @register_function decorators. The loader scans both "nat.components" (the
+# current convention used by in-tree packages) and the legacy "nat.plugins";
+# we use "nat.components" to match the toolkit's own packages.
+[project.entry-points."nat.components"]
 nemo_paysafe = "nemo_paysafe.register"
 
 [project.urls]
