@@ -6,6 +6,9 @@
  *     just read (tool result / fetched page) rather than its own planning step.
  *  2. Injection tells in the just-read content.
  *  3. Address provenance — pay_to appearing verbatim in that content.
+ *     context.offer (the raw 402/discovery payload) is the sanctioned channel
+ *     for protocol data: pay_to is EXPECTED there and exempt from #3, but the
+ *     offer is still counterparty-authored, so #2's tells scan runs on it.
  *
  * Deep tier (runs above the micropayment threshold, still ~1ms):
  *  4. Base64-obfuscated payloads decoded and rescanned.
@@ -82,8 +85,27 @@ export function checkInjection(
         verdict: fromUntrusted ? "block" : "flag",
         severity: fromUntrusted ? "critical" : "high",
         reason:
-          "The payment recipient address appears verbatim in the content the agent just read. Recipient addresses sourced from untrusted content are the classic payment-redirection attack.",
+          "The payment recipient address appears verbatim in the content the agent just read. Recipient addresses sourced from untrusted content are the classic payment-redirection attack. (If this text is the 402 offer / discovery payload itself, pass it in context.offer instead — pay_to is expected there.)",
         details: { pay_to: payment.pay_to, origin },
+      });
+    }
+  }
+
+  // The offer channel: protocol-shaped payment terms (402 accepts entry,
+  // Bazaar listing). pay_to appearing here is how x402 works — no provenance
+  // finding — but the offer is counterparty-authored text, so injection tells
+  // inside it (e.g. a description carrying instructions) still fire.
+  const offer = context?.offer ?? "";
+  if (offer) {
+    const offerHits = findTells(offer);
+    if (offerHits.length > 0) {
+      results.push({
+        id: "injection.offer_tells",
+        name: "Prompt-injection-triggered payment",
+        verdict: offerHits.length >= 2 ? "block" : "flag",
+        severity: offerHits.length >= 2 ? "critical" : "medium",
+        reason: `The payment offer itself contains prompt-injection indicators: ${offerHits.map((h) => h.label).join("; ")}. Offer fields are counterparty-authored — instructions embedded in them target the paying agent.`,
+        details: { indicators: offerHits.map((h) => h.id) },
       });
     }
   }

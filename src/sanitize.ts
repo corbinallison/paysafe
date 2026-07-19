@@ -83,6 +83,10 @@ export function sanitizeScanRequest(raw: unknown): ScanRequest | null {
       origin,
       content: str(ctx.content, 200_000),
       content_source_url: str(ctx.content_source_url, 2000),
+      // Unrecognized phase values degrade to undefined (= post_sign coverage
+      // expectations) so a typo can't relax the replay check.
+      phase: ctx.phase === "pre_sign" || ctx.phase === "post_sign" ? ctx.phase : undefined,
+      offer: str(ctx.offer, 200_000),
     },
     policy: {
       force_deep: policy.force_deep === true,

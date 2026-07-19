@@ -10,3 +10,6 @@ SUBMISSIONS-TODO.md
 
 # Operator-only tools (funded keys, real-money ops) — never commit
 /admintools/
+
+# Ecosystem scout agent workspace (holds a funded hot-wallet key) — never commit
+/paysafe-agent/

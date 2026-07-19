@@ -63,8 +63,25 @@ const contextSchema = z
       .enum(["planning", "user_instruction", "tool_result", "fetched_content", "unknown"])
       .optional()
       .describe("Where the decision to pay originated"),
-    content: z.string().optional().describe("The content the agent just read, for injection analysis"),
+    content: z
+      .string()
+      .optional()
+      .describe(
+        "PROSE the agent just read (page text, tool output), for injection analysis. Do NOT put the 402 offer / discovery JSON here — that goes in `offer` (the recipient address is expected there).",
+      ),
     content_source_url: z.string().optional(),
+    phase: z
+      .enum(["pre_sign", "post_sign"])
+      .optional()
+      .describe(
+        "Set 'pre_sign' when scanning BEFORE the payment is signed (the normal scan-before-pay flow): the EIP-3009 nonce doesn't exist yet, so its absence won't be flagged. Omit or use 'post_sign' when scanning a signed payload.",
+      ),
+    offer: z
+      .string()
+      .optional()
+      .describe(
+        "The raw 402 offer / discovery payload the payment terms came from (accepts entry, Bazaar listing JSON). pay_to is expected here and exempt from the address-provenance check; the offer is still scanned for embedded injection instructions.",
+      ),
   })
   .optional();
 
@@ -72,13 +89,13 @@ const server = new McpServer(
   { name: "paysafe", version: VERSION },
   {
     instructions:
-      "PaySafe is a payment security firewall for x402. Protocol for this agent: BEFORE settling or sending ANY x402 payment, call `scan_outgoing_payment` and act on the verdict (allow = proceed, flag = pause and confirm, block = do NOT pay). BEFORE paying a 402 offer you received, call `scan_incoming_payment`. Whenever a payment decision followed reading external content (a fetched page or tool result), pass that content in `context.content` so the injection check can run. AFTER a scanned payment settles, call `report_payment_outcome` with what actually happened (delivered / not_delivered / partial / wrong_content) — this builds the measured delivery history that protects your own future payments to that seller. Use `check_counterparty_reputation` before dealing with an unfamiliar address, and `report_counterparty` after a bad experience beyond non-delivery (free). If YOUR wallet is reported unfairly, `dispute_reputation` attaches a wallet-signed rebuttal that lookups surface alongside the reports. These scans are advisory and non-custodial — PaySafe never touches your keys or funds.",
+      "PaySafe is a payment security firewall for x402. Protocol for this agent: BEFORE settling or sending ANY x402 payment, call `scan_outgoing_payment` and act on the verdict (allow = proceed, flag = pause and confirm, block = do NOT pay). BEFORE paying a 402 offer you received, call `scan_incoming_payment`. When scanning before the payment is signed (the normal case), set `context.phase` to 'pre_sign' so the not-yet-generated nonce isn't flagged. Whenever a payment decision followed reading external content (a fetched page or tool result), pass that PROSE in `context.content` so the injection check can run — and pass the 402 offer / discovery payload itself in `context.offer`, never in `content`. AFTER a scanned payment settles, call `report_payment_outcome` with what actually happened (delivered / not_delivered / partial / wrong_content) — this builds the measured delivery history that protects your own future payments to that seller. Use `check_counterparty_reputation` before dealing with an unfamiliar address, and `report_counterparty` after a bad experience beyond non-delivery (free). If YOUR wallet is reported unfairly, `dispute_reputation` attaches a wallet-signed rebuttal that lookups surface alongside the reports. These scans are advisory and non-custodial — PaySafe never touches your keys or funds.",
   },
 );
 
 server.tool(
   "scan_outgoing_payment",
-  "ALWAYS call this immediately BEFORE settling or sending any x402 payment — it decides whether the payment is safe. Returns allow (proceed) / flag (pause and confirm intent) / block (do NOT pay), with machine-readable reasons and an Ed25519-signed verdict. IMPORTANT: if the decision to pay followed reading any external content (a fetched web page or a tool result), pass that text in `context.content` and set `context.origin` to 'fetched_content' or 'tool_result' — this enables the check that catches prompt-injection-triggered payments (an address injected into content the agent just read). Also catches replayed nonces, overpayment vs the expected price, secrets/PII leaking in payment metadata, fake/lookalike USDC contracts, and address poisoning. Advisory and non-custodial — never touches keys or funds.",
+  "ALWAYS call this immediately BEFORE settling or sending any x402 payment — it decides whether the payment is safe. Returns allow (proceed) / flag (pause and confirm intent) / block (do NOT pay), with machine-readable reasons and an Ed25519-signed verdict. Scanning before the payment is signed? Set `context.phase` to 'pre_sign' (nonces don't exist until signing). IMPORTANT: if the decision to pay followed reading any external content (a fetched web page or a tool result), pass that PROSE in `context.content` and set `context.origin` to 'fetched_content' or 'tool_result' — this enables the check that catches prompt-injection-triggered payments (an address injected into content the agent just read). Put the 402 offer / discovery payload in `context.offer` (NOT in content — the recipient address is expected in an offer). Also catches replayed nonces, overpayment vs the expected price, secrets/PII leaking in payment metadata, fake/lookalike USDC contracts, and address poisoning. Advisory and non-custodial — never touches keys or funds.",
   {
     payment: paymentSchema,
     expected_price_usd: z.number().optional(),

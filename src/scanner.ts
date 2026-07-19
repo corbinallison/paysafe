@@ -66,7 +66,7 @@ export function runScan(
 
   // --- core detectors ---
   checks.push(...scanPii(payment));
-  checks.push(checkReplay(payment, store, scanId, cfg.nonceTtlHours));
+  checks.push(checkReplay(payment, store, scanId, cfg.nonceTtlHours, req.context?.phase));
   checks.push(
     checkOverpayment(payment, req.expected_price_usd, {
       flagMultiple: cfg.overpayFlagMultiple,

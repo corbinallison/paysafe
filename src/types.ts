@@ -46,6 +46,20 @@ export interface ScanContext {
   content?: string;
   /** URL the content came from, if any */
   content_source_url?: string;
+  /**
+   * When in the payment flow this scan runs. "pre_sign" = before the client
+   * has signed (EIP-3009 nonces don't exist yet, so a missing nonce is
+   * expected, not suspicious). "post_sign" or absent = full replay coverage
+   * expected.
+   */
+  phase?: "pre_sign" | "post_sign";
+  /**
+   * The raw 402 offer / discovery payload (e.g. the `accepts` entry or Bazaar
+   * listing) the payment terms came from. The pay_to address is EXPECTED to
+   * appear here — it is exempt from the address-provenance check, but still
+   * scanned for injection tells. Prose the agent read goes in `content`.
+   */
+  offer?: string;
 }
 
 export interface ScanPolicy {
