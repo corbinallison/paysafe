@@ -20,6 +20,7 @@
  */
 import type { CheckResult, ScanRequest } from "../types.ts";
 import type { Store } from "../store.ts";
+import { stripInvisible } from "./injection.ts";
 
 /** Chars (after "0x") that must match on BOTH ends to call it a lookalike. */
 const PREFIX_MIN = 4;
@@ -101,6 +102,89 @@ export function checkAddressPoisoning(req: ScanRequest, store: Store): CheckResu
       shared_prefix_chars: best.pre,
       shared_suffix_chars: best.suf,
       similar_source: best.k.source,
+    },
+  };
+}
+
+// Address extraction for content scanning: a full EVM address NOT embedded in
+// a longer hex run (so the first 40 chars of a tx hash don't match).
+const EVM_ADDR_IN_TEXT = /(?<![0-9a-fA-F])0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/g;
+
+function isLookalike(a: string, b: string): { pre: number; suf: number } | null {
+  const ab = a.slice(2);
+  const bb = b.slice(2);
+  const pre = sharedPrefix(ab, bb);
+  const suf = sharedSuffix(ab, bb);
+  return pre >= PREFIX_MIN && suf >= SUFFIX_MIN ? { pre, suf } : null;
+}
+
+/**
+ * Vanity-bait detection in just-read content: an address in the content (or
+ * the 402 offer) that is a near-copy of the payment recipient or of a known
+ * counterparty/pinned merchant. Exact appearances of pay_to are the injection
+ * detector's job; a NEAR-copy is poisoning bait — someone is planting an
+ * address designed to be mistaken for the real one under truncated display.
+ */
+export function checkContentLookalikes(req: ScanRequest, store: Store): CheckResult | null {
+  const payTo = req.payment.pay_to?.toLowerCase();
+  const text = [req.context?.content, req.context?.offer].filter(Boolean).join("\n");
+  if (!text) return null;
+
+  const candidates = new Set<string>();
+  for (const m of stripInvisible(text).matchAll(EVM_ADDR_IN_TEXT)) {
+    candidates.add(m[0].toLowerCase());
+  }
+  if (payTo) candidates.delete(payTo);
+  if (candidates.size === 0) return null;
+
+  // Reference set: the recipient itself, plus the same known-good set the
+  // pay_to poisoning check uses (scoped counterparty history + pins).
+  const known: KnownAddress[] = [];
+  if (payTo && EVM_ADDR.test(payTo)) {
+    known.push({ address: payTo, source: "this payment's recipient" });
+  }
+  const scopeKey = req.agent_id ?? req.payment.payer?.toLowerCase();
+  if (scopeKey) {
+    for (const addr of store.counterparties.get(scopeKey) ?? []) {
+      known.push({ address: addr, source: "a counterparty this agent has paid before" });
+    }
+  }
+  for (const [domain, pin] of store.pins) {
+    known.push({ address: pin.pay_to, source: `the pinned address for ${domain}` });
+  }
+  if (known.length === 0) return null;
+
+  let best: { candidate: string; k: KnownAddress; pre: number; suf: number } | null = null;
+  for (const candidate of candidates) {
+    for (const k of known) {
+      if (candidate === k.address || !EVM_ADDR.test(k.address)) continue;
+      const sim = isLookalike(candidate, k.address);
+      if (sim && (!best || sim.pre + sim.suf > best.pre + best.suf)) {
+        best = { candidate, k, ...sim };
+      }
+    }
+  }
+  if (!best) return null;
+
+  const origin = req.context?.origin;
+  const fromUntrusted = origin === "tool_result" || origin === "fetched_content";
+  const body = best.k.address.slice(2);
+  return {
+    id: "poison.lookalike_in_content",
+    name: "Address poisoning",
+    verdict: fromUntrusted ? "block" : "flag",
+    severity: fromUntrusted ? "critical" : "high",
+    reason:
+      `The content preceding this payment contains ${best.candidate}, which matches ${best.k.address} (${best.k.source}) on its first ${best.pre} and last ${best.suf} characters but is a DIFFERENT address. ` +
+      `Planting a near-copy of a trusted address ("0x${body.slice(0, 4)}…${body.slice(-4)}" under truncated display) is address-poisoning bait. ` +
+      `Do not copy payment addresses from this content; verify the recipient out-of-band.`,
+    details: {
+      found_in_content: best.candidate,
+      similar_to: best.k.address,
+      shared_prefix_chars: best.pre,
+      shared_suffix_chars: best.suf,
+      similar_source: best.k.source,
+      origin: origin ?? "unknown",
     },
   };
 }

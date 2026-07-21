@@ -11,7 +11,7 @@ import { checkUrlRisk } from "./detectors/urlrisk.ts";
 import { checkAsset } from "./detectors/asset.ts";
 import { checkBadlist } from "./detectors/badlist.ts";
 import { checkPinning, checkCdpPinStatus, scheduleCdpPinVerify } from "./detectors/pinning.ts";
-import { checkAddressPoisoning } from "./detectors/poisoning.ts";
+import { checkAddressPoisoning, checkContentLookalikes } from "./detectors/poisoning.ts";
 import { checkScoutScore, scheduleScoutScoreRefresh } from "./detectors/scoutscore.ts";
 import { checkVelocity } from "./detectors/velocity.ts";
 import { checkReputation } from "./reputation.ts";
@@ -111,6 +111,11 @@ export function runScan(
   // lookalike has to be judged against state that does not yet contain it.
   const poisoning = checkAddressPoisoning(req, store);
   if (poisoning) checks.push(poisoning);
+
+  // Vanity-bait addresses planted in just-read content (near-copies of the
+  // recipient or of a known-good address). Read-only; same ordering rationale.
+  const contentLookalike = checkContentLookalikes(req, store);
+  if (contentLookalike) checks.push(contentLookalike);
 
   // Snapshot pre-scan trust state so a BLOCKED payment can be rolled out of
   // it below (a blocked lookalike must not become "known" and silence the

@@ -49,7 +49,7 @@ Here's the part that actually addresses the scenario above. Whenever your agent 
 paysafe.observe(fetchedPageText, { sourceUrl: "https://some-site.example/page" });
 ```
 
-The next scan is automatically tagged with that provenance. Now PaySafe knows the *decision context*, and it can do the one check nothing else in the stack can: **if the pay-to address your agent is about to pay appeared in content the agent just read, the payment blocks.** Injection tells in the content ("urgent", "system notice", authority claims, obfuscated payloads — including base64 and zero-width-character tricks) escalate scrutiny further.
+The next scan is automatically tagged with that provenance. Now PaySafe knows the *decision context*, and it can do the one check nothing else in the stack can: **if the pay-to address your agent is about to pay appeared in content the agent just read, the payment blocks.** Injection tells in the content ("urgent", "system notice", authority claims — in eight languages, weighted higher when they appear next to an address; obfuscated payloads including base64, hex, percent-encoding, HTML entities, invisible Unicode tag characters, and zero-width/homoglyph tricks) escalate scrutiny further.
 
 Python is the same shape:
 

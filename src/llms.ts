@@ -123,9 +123,12 @@ advisory into enforceable without PaySafe ever holding funds.
 ## What it checks
 
 PII/secret leakage in payment metadata, nonce replay, overpayment vs the quoted
-price, prompt-injection-triggered payments (fast + deep tiers, including
-base64/unicode-obfuscated payloads), incoming resource-URL risk, canonical-USDC
-verification (lookalike tokens), address-poisoning, known-bad lists, TOFU
+price, prompt-injection-triggered payments (fast + deep tiers: weighted
+multilingual tells with address-proximity scoring; base64/hex/percent/HTML-entity
+decoding; Unicode tag-character smuggling; homoglyph folding), incoming
+resource-URL risk, canonical-USDC verification (lookalike tokens),
+address-poisoning (including vanity-bait addresses planted in just-read
+content), known-bad lists, TOFU
 merchant pinning, velocity and spend caps, external trust signals, a shared
 counterparty report registry, and measured delivery-outcome history (does this
 seller actually ship?) bound to scans PaySafe performed.
