@@ -41,9 +41,10 @@
     "gen:wallet": "node --experimental-strip-types examples/gen-test-wallet.ts",
     "dryrun": "node --experimental-strip-types examples/paid-dryrun.ts",
     "test": "node --experimental-strip-types test/run-tests.ts",
+    "eval": "node --experimental-strip-types eval/run-eval.ts",
     "mcp": "node dist/mcp/server.js",
     "version": "node scripts/sync-version.mjs && git add server.json",
-    "prepublishOnly": "npm run build && npm test"
+    "prepublishOnly": "npm run build && npm test && npm run eval"
   },
   "engines": {
     "node": ">=20"

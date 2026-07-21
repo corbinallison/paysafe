@@ -29,7 +29,7 @@
  * scammer can sign a rebuttal as easily as an honest seller; agents and
  * humans weigh both sides.
  */
-import type { CheckResult, ReportCategory, ReputationDispute, ReputationReport, ReputationSummary } from "./types.ts";
+import type { CheckResult, InjectionIncident, ReportCategory, ReputationDispute, ReputationReport, ReputationSummary, ScanRequest } from "./types.ts";
 import type { Store } from "./store.ts";
 import { deliverySummary } from "./outcomes.ts";
 import { verifyPersonalSign } from "./evmsig.ts";
@@ -156,6 +156,10 @@ export function summarize(store: Store, addressRaw: string): ReputationSummary {
     first_reported: times[0],
     last_reported: times[times.length - 1],
     ...(disputes?.length ? { disputes } : {}),
+    // System-observed: scans PaySafe itself blocked with this address
+    // structurally implicated. Distinct from (and stronger than) the
+    // self-asserted reports above, but still input-spoofable — flag-only.
+    injection_history: injectionHistorySummary(store, address),
     // Measured, commitment-bound delivery history (see outcomes.ts) — a
     // categorically stronger signal than the self-asserted reports above.
     delivery: deliverySummary(store, address),
@@ -256,5 +260,120 @@ export function checkReputation(store: Store, payTo: string | undefined): CheckR
     severity,
     reason: `Counterparty ${payTo} has ${s.report_count} unverified report(s) from ${s.distinct_reporters} distinct reporter(s) (weighted score ${s.weighted_score}): ${Object.entries(s.categories).map(([k, v]) => `${k}×${v}`).join(", ")}. Reports are self-asserted — verify out-of-band before deciding.${disputeNote}`,
     details: { ...s },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Injection-incident ledger: detections feed the registry
+// ---------------------------------------------------------------------------
+//
+// When a scan BLOCKS with a finding that structurally implicates an address
+// (details.implicated_address — set only where the finding binds the address
+// to attacker-authored content, never for mere tells), the address is recorded
+// here automatically. One agent's detection becomes network-wide protection:
+// the next scan of the same wallet flags it even with no content in context.
+//
+// Threat model (audit H-2 extended): scan inputs are client-supplied, so a
+// Sybil can stage scans implicating an honest wallet — exactly as cheaply as
+// filing fake reports. Incidents therefore reuse the same defenses: one voice
+// per observer, credibility × 90-day decay weighting, and a hard cap at
+// "flag" in scan verdicts. No new attack surface, strictly more coverage.
+
+const MAX_INCIDENTS_PER_ADDRESS = 100;
+/** EVM address or base58 (Solana-style) — same shapes the detectors emit. */
+const IMPLICATED_SHAPE = /^0x[0-9a-f]{40}$|^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+/**
+ * Harvest implicated addresses from a BLOCKED scan's findings into the ledger.
+ * Call only after aggregation decided "block"; per-check filtering below still
+ * requires the individual check to be a block (a flag-severity lookalike in
+ * trusted-origin content must not seed incidents).
+ */
+export function recordInjectionIncidents(
+  store: Store,
+  req: ScanRequest,
+  scanId: string,
+  checks: CheckResult[],
+): void {
+  const observer = req.agent_id ?? req.payment.payer?.toLowerCase() ?? "anon";
+  let changed = false;
+  for (const c of checks) {
+    if (c.verdict !== "block") continue;
+    const raw = c.details?.implicated_address;
+    if (typeof raw !== "string") continue;
+    const address = raw.trim().toLowerCase();
+    if (!IMPLICATED_SHAPE.test(address)) continue;
+    const existing = store.injectionIncidents.get(address) ?? [];
+    // One voice per (observer, address) — a single agent re-scanning the same
+    // attack N times is one incident, not N (mirrors report dedup).
+    if (existing.some((i) => i.observer === observer)) continue;
+    const incident: InjectionIncident = {
+      address,
+      check_id: c.id,
+      origin: req.context?.origin ?? "unknown",
+      observer: observer.slice(0, 200),
+      scan_id: scanId,
+      at: new Date().toISOString(),
+    };
+    store.injectionIncidents.set(address, [...existing, incident].slice(-MAX_INCIDENTS_PER_ADDRESS));
+    changed = true;
+  }
+  if (changed) store.markDirty();
+}
+
+/** Weighted incident history for one address; null when none recorded. */
+export function injectionHistorySummary(
+  store: Store,
+  addressRaw: string,
+  now = Date.now(),
+): ReputationSummary["injection_history"] {
+  const incidents = store.injectionIncidents.get(addressRaw.trim().toLowerCase());
+  if (!incidents?.length) return null;
+  // Same shape as weightedScore over reports: per-observer credibility × decay.
+  const perObserver = new Map<string, number>();
+  const checkIds: Record<string, number> = Object.create(null);
+  for (const i of incidents) {
+    checkIds[i.check_id] = (checkIds[i.check_id] ?? 0) + 1;
+    const w = credibility(store, i.observer) * decay(i.at, now);
+    const prev = perObserver.get(i.observer) ?? 0;
+    if (w > prev) perObserver.set(i.observer, w);
+  }
+  let total = 0;
+  for (const w of perObserver.values()) total += w;
+  const times = incidents.map((i) => i.at).sort();
+  return {
+    incident_count: incidents.length,
+    distinct_observers: perObserver.size,
+    weighted_score: Math.round(total * 100) / 100,
+    check_ids: checkIds,
+    first_at: times[0],
+    last_at: times[times.length - 1],
+  };
+}
+
+/**
+ * Scan-time cross-check: was this counterparty previously implicated in a
+ * blocked injection scan? Flag-only — see the threat model above. Ladder:
+ * one fresh anonymous observer (0.5) already reads medium, because "PaySafe
+ * itself blocked a payment where this wallet was planted via injection" is a
+ * stronger statement than one self-asserted report; ≥1.0 (two observers, or
+ * one with payment history) reads high.
+ */
+export function checkInjectionHistory(store: Store, payTo: string | undefined): CheckResult | null {
+  if (!payTo) return null;
+  const h = injectionHistorySummary(store, payTo);
+  if (!h || h.weighted_score <= NOISE_FLOOR) return null; // decayed to noise — history stays in lookups
+  const severity = h.weighted_score >= 1.0 ? "high" : h.weighted_score >= 0.5 ? "medium" : "low";
+  return {
+    id: "reputation.injection_history",
+    name: "Counterparty injection history",
+    verdict: "flag",
+    severity,
+    reason:
+      `Counterparty ${payTo} was structurally implicated in ${h.incident_count} previously BLOCKED scan(s) ` +
+      `observed by ${h.distinct_observers} distinct agent(s) (weighted score ${h.weighted_score}, last ${h.last_at}): ` +
+      `${Object.entries(h.check_ids).map(([k, v]) => `${k}×${v}`).join(", ")}. ` +
+      `This history comes from PaySafe's own blocking verdicts, but scan inputs are client-supplied — treat it as a strong caution and verify the counterparty out-of-band.`,
+    details: { ...h, address: payTo.trim().toLowerCase() },
   };
 }

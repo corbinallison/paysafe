@@ -133,6 +133,32 @@ export interface ReputationReport {
   reported_at: string;
 }
 
+/**
+ * A system-observed injection incident: a scan BLOCKED with a finding that
+ * structurally implicated this address as attacker-controlled (pay_to planted
+ * in just-read content, an encoded payload embedding it, or a vanity-bait
+ * lookalike found in content). Recorded automatically at scan time — no one
+ * has to remember to file a report — so one agent's detection protects every
+ * agent's next scan of the same wallet.
+ *
+ * SECURITY (audit H-2 applies): scan inputs are client-supplied, so a Sybil
+ * can stage scans that implicate an honest wallet. Incidents therefore cap at
+ * "flag" in scans (never block) and are weighted by observer credibility ×
+ * time decay, exactly like self-asserted reports.
+ */
+export interface InjectionIncident {
+  address: string;
+  /** The check that implicated the address (e.g. injection.payto_from_content) */
+  check_id: string;
+  /** Declared payment origin at the time (tool_result, fetched_content, …) */
+  origin: string;
+  /** Who was scanning: agent_id ?? payer ?? "anon" — the same identity
+   * credibility() keys on, so minting fresh observers counts half. */
+  observer: string;
+  scan_id: string;
+  at: string;
+}
+
 /** A signed rebuttal from a reported wallet. Verified at submission time:
  * the EIP-191 personal_sign signature over the canonical dispute message
  * (see reputation.ts) must recover to `address`, proving key ownership.
@@ -161,6 +187,18 @@ export interface ReputationSummary {
   categories: Record<string, number>;
   first_reported?: string;
   last_reported?: string;
+  /** System-observed injection incidents: scans PaySafe itself BLOCKED where
+   * this address was structurally implicated (see InjectionIncident). Weighted
+   * like reports (credibility × 90-day decay); null = no incident history. */
+  injection_history?: {
+    incident_count: number;
+    distinct_observers: number;
+    weighted_score: number;
+    /** Which checks implicated the address, with counts */
+    check_ids: Record<string, number>;
+    first_at: string;
+    last_at: string;
+  } | null;
   /** Measured, commitment-bound delivery outcomes (null = no outcome history). */
   delivery?: {
     outcomes_total: number;

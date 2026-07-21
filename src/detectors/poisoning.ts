@@ -182,6 +182,9 @@ export function checkContentLookalikes(req: ScanRequest, store: Store): CheckRes
       `Do not copy payment addresses from this content; verify the recipient out-of-band.`,
     details: {
       found_in_content: best.candidate,
+      // The planted bait address (not pay_to) is the attacker-controlled one —
+      // the incident ledger records it so a later payment TO the bait flags.
+      implicated_address: best.candidate,
       similar_to: best.k.address,
       shared_prefix_chars: best.pre,
       shared_suffix_chars: best.suf,

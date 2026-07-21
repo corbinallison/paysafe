@@ -132,8 +132,11 @@ resource-URL risk, canonical-USDC verification (lookalike tokens),
 address-poisoning (including vanity-bait addresses planted in just-read
 content), known-bad lists, TOFU
 merchant pinning, velocity and spend caps, external trust signals, a shared
-counterparty report registry, and measured delivery-outcome history (does this
-seller actually ship?) bound to scans PaySafe performed.
+counterparty report registry, automatic injection-incident history (a wallet
+PaySafe caught being planted via prompt injection is flagged on every agent's
+future scans of it, even with no content in context), and measured
+delivery-outcome history (does this seller actually ship?) bound to scans
+PaySafe performed.
 
 ## Pricing
 

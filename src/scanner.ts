@@ -16,7 +16,7 @@ import { checkPinning, checkCdpPinStatus, scheduleCdpPinVerify } from "./detecto
 import { checkAddressPoisoning, checkContentLookalikes } from "./detectors/poisoning.ts";
 import { checkScoutScore, scheduleScoutScoreRefresh } from "./detectors/scoutscore.ts";
 import { checkVelocity } from "./detectors/velocity.ts";
-import { checkReputation } from "./reputation.ts";
+import { checkInjectionHistory, checkReputation, recordInjectionIncidents } from "./reputation.ts";
 import { checkDelivery } from "./outcomes.ts";
 
 const SEVERITY_SCORE: Record<string, number> = {
@@ -65,6 +65,8 @@ export function runScan(
   const payment = req.payment ?? {};
   const usd = resolveUsd(payment);
   const checks: CheckResult[] = [];
+  const velocityKey = req.agent_id ?? payment.payer?.toLowerCase();
+  const payToLc = payment.pay_to?.toLowerCase();
 
   // --- core detectors ---
   checks.push(...scanPii(payment));
@@ -83,18 +85,36 @@ export function runScan(
   // tier — otherwise an attacker omits `amount` to force the expensive path for
   // free. Unknown value is treated as below-threshold; use policy.force_deep to
   // opt in explicitly.
+  // Cumulative trigger: the per-payment micro bypass must not be a permanent
+  // blind spot. An attacker dripping value below MICRO_BYPASS_USD per payment
+  // unlocks the deep tier anyway once the lifetime SCANNED spend from this
+  // agent key to this counterparty crosses the same threshold. (Scans, not
+  // settlements — re-scanning over-counts, which only unlocks deep EARLIER.)
+  const cumKey = velocityKey && payToLc ? `${velocityKey}|${payToLc}` : null;
+  const cumulativeUsd = (cumKey ? store.cumulativeSpend.get(cumKey)?.usd ?? 0 : 0) + (usd ?? 0);
+  const singleEligible = usd !== null && usd >= cfg.microBypassUsd;
+  const cumulativeEligible = !singleEligible && cumKey !== null && cumulativeUsd >= cfg.microBypassUsd;
   const deepEligible =
     req.policy?.skip_deep !== true &&
-    (req.policy?.force_deep === true || (usd !== null && usd >= cfg.microBypassUsd));
+    (req.policy?.force_deep === true || singleEligible || cumulativeEligible);
   if (deepEligible) {
     checks.push(...deepContentAnalysis(payment, req.context));
+    if (cumulativeEligible && req.policy?.force_deep !== true && req.context?.content) {
+      checks.push({
+        id: "tier.deep_cumulative",
+        name: "Scan tiering",
+        verdict: "allow",
+        severity: "info",
+        reason: `Deep content analysis ran despite the micro value (${usd === null ? "unknown" : `$${usd.toFixed(4)}`}): cumulative scanned spend to this counterparty ($${cumulativeUsd.toFixed(4)}) crossed the $${cfg.microBypassUsd} MICRO_BYPASS_USD threshold. Dripping micro-payments does not evade the deep tier.`,
+      });
+    }
   } else if (req.context?.content) {
     checks.push({
       id: "tier.deep_bypassed",
       name: "Scan tiering",
       verdict: "allow",
       severity: "info",
-      reason: `Deep content analysis bypassed (value ${usd === null ? "unknown" : `$${usd.toFixed(4)}`} < $${cfg.microBypassUsd} MICRO_BYPASS_USD). Set policy.force_deep to override.`,
+      reason: `Deep content analysis bypassed (value ${usd === null ? "unknown" : `$${usd.toFixed(4)}`} < $${cfg.microBypassUsd} MICRO_BYPASS_USD; cumulative to this counterparty $${cumulativeUsd.toFixed(4)}). Set policy.force_deep to override.`,
     });
   }
 
@@ -122,8 +142,6 @@ export function runScan(
   // Snapshot pre-scan trust state so a BLOCKED payment can be rolled out of
   // it below (a blocked lookalike must not become "known" and silence the
   // poisoning detector on the next attempt).
-  const velocityKey = req.agent_id ?? payment.payer?.toLowerCase();
-  const payToLc = payment.pay_to?.toLowerCase();
   const counterpartyWasKnown =
     !!(velocityKey && payToLc && (store.counterparties.get(velocityKey) ?? []).includes(payToLc));
   let pinDomain: string | null = null;
@@ -161,6 +179,12 @@ export function runScan(
 
   checks.push(checkReputation(store, payment.pay_to));
 
+  // System-observed injection history: has a previous BLOCKED scan (anyone's)
+  // structurally implicated this pay_to? Reads the ledger only — this scan's
+  // own incidents are recorded after aggregation, so a scan never flags itself.
+  const injHistory = checkInjectionHistory(store, payment.pay_to);
+  if (injHistory) checks.push(injHistory);
+
   // Delivery outcomes: measured, commitment-bound delivery history for this
   // counterparty AND for the resource domain across pay_to rotations
   // (flag-only — H-2 applies to measured history too).
@@ -183,6 +207,24 @@ export function runScan(
     if (pinDomain !== null && !pinExistedBefore && store.pins.delete(pinDomain)) {
       store.markDirty();
     }
+    // Feed this block's structurally-implicated addresses into the shared
+    // incident ledger: the next scan of the same wallet — by ANY agent, with
+    // no content in context — inherits the signal as a flag.
+    recordInjectionIncidents(store, req, scanId, checks);
+  }
+
+  // Accumulate lifetime scanned spend for the cumulative deep-tier trigger.
+  // Deliberately includes blocked scans: over-counting only widens deep
+  // coverage, and an attacker inflating their OWN counter just deep-scans
+  // themselves sooner.
+  if (cumKey && usd !== null && usd > 0) {
+    const nowIso = new Date().toISOString();
+    const rec = store.cumulativeSpend.get(cumKey) ?? { usd: 0, scans: 0, first_at: nowIso, last_at: nowIso };
+    rec.usd += usd;
+    rec.scans += 1;
+    rec.last_at = nowIso;
+    store.cumulativeSpend.set(cumKey, rec);
+    store.markDirty();
   }
   return {
     scan_id: scanId,

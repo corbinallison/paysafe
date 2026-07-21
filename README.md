@@ -63,7 +63,7 @@ Each exposes the same three tools (scan / check reputation / report) plus a fram
 | Overpayment detection | Above a configurable multiple of expected price (flag ≥3×, block ≥10×) plus an absolute ceiling |
 | Prompt-injection-triggered payments | Payments whose *decision* originated from content the agent just read (tool result / fetched page) rather than its own planning step; escalates on weighted injection tells in that content (override/redirect phrasing in 8 languages, spoofed system/chat-template markers, concealment and urgency pressure), with extra weight when a tell sits near an address-like token; blocks when the `pay_to` address itself came from that content — even split across lines or laced with invisible characters |
 | Resource URL risk (incoming) | IP-literal hosts, punycode/homoglyphs, link shorteners, `user@host` tricks, non-HTTPS, credential demands ("send your seed phrase") |
-| Counterparty reputation | Shared post-hoc report registry, cross-checked on every scan; reporting is always free |
+| Counterparty reputation | Shared post-hoc report registry, cross-checked on every scan; reporting is always free. Blocked injection scans also feed it automatically: a wallet caught being planted in just-read content (or used as vanity-bait) is flagged on every agent's future scans of it — one detection becomes network-wide protection (flag-only; scan inputs are client-supplied) |
 | Delivery outcomes | Measured, commitment-bound delivery history per counterparty — a clean payment to a seller who never ships still fails you. Sellers with low delivery rates or repeated no-ships get flagged (never blocked: H-2 applies to measured history too) |
 
 **Zero-latency hardening tier** — checks that hold even when the calling agent's narration is compromised:
@@ -77,7 +77,7 @@ Each exposes the same three tools (scan / check reputation / report) plus a fram
 | Address poisoning | `pay_to` that matches a known counterparty or pinned merchant on its first + last characters but differs in the middle — the truncated-display ("0x2096…287C") vanity-address attack → block. Also catches bait: a near-copy of the recipient or a trusted address *planted in the content the agent just read*. Blocked payments are rolled back out of trust state, so repeat attempts keep detecting |
 | ScoutScore trust signal (opt-in) | Merchant domains rated LOW/VERY_LOW by [ScoutScore](https://scoutscore.ai) (spam farms, template clones, dead endpoints) → flag, clearly labeled as an external third-party signal. Lookups are async + cached (zero scan latency), share the domain only, and can never block on their own. Enable with `SCOUTSCORE=on` |
 | Known-bad list | O(1) membership against a curated/synced badlist |
-| Deep content analysis | Encoded/obfuscated injection payloads decoded and rescanned: base64 (both alphabets, line-wrapped, double-encoded), hex, percent-encoding, HTML entities, Unicode tag-character smuggling ("invisible ASCII"), and zero-width/Cyrillic-Greek-homoglyph obfuscation — bypassed below `MICRO_BYPASS_USD` (default $0.005), overridable per request via `policy.force_deep` |
+| Deep content analysis | Encoded/obfuscated injection payloads decoded and rescanned: base64 (both alphabets, line-wrapped, double-encoded), hex, percent-encoding, HTML entities, Unicode tag-character smuggling ("invisible ASCII"), and zero-width/Cyrillic-Greek-homoglyph obfuscation — bypassed below `MICRO_BYPASS_USD` (default $0.005) per payment, but drip-resistant: once cumulative scanned spend to a counterparty crosses the same threshold, the deep tier runs anyway; overridable per request via `policy.force_deep` |
 
 **Signed verdicts.** Every response carries an Ed25519 `attestation` over `scan_id|direction|verdict|risk_score|scanned_at|payment_commitment|expires_at` (public key at `/.well-known/paysafe-verdict-key`). The `payment_commitment` is `sha256(network|pay_to|asset|amount|nonce)`, so a wallet can confirm an allow-verdict belongs to *this* payment and hasn't been replayed onto another, and reject it after `expires_at`. Wallet policies can require a fresh signed allow-verdict before signing — turning the firewall from advisory into enforceable, still without PaySafe touching funds.
 
@@ -273,7 +273,7 @@ Published for transparency — these are the thresholds your scans are judged ag
 | Overpayment | flag ≥3× expected price, block ≥10×, absolute ceiling $10 |
 | Velocity | flag ≥10 scans/min (block at 2×), $5/hour cumulative spend cap |
 | First contact | first payment to a never-seen counterparty flagged above $1 |
-| Deep content analysis | bypassed below $0.005 payment value (`policy.force_deep` overrides; always on for Pro/Scale) |
+| Deep content analysis | bypassed below $0.005 payment value — until cumulative scanned spend to the counterparty crosses $0.005, then always on for that pair (`policy.force_deep` overrides; always on for Pro/Scale) |
 | Replay window | nonces tracked for 24 h |
 | Asset check | non-canonical USDC on the declared network → block |
 | Merchant pinning | TOFU per resource domain; rotation → block |

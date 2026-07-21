@@ -153,6 +153,19 @@ const ReputationSummary = {
         },
       },
     },
+    injection_history: {
+      type: ["object", "null"],
+      description:
+        "System-observed incidents: scans PaySafe itself BLOCKED where this address was structurally implicated as attacker-controlled (planted in just-read content, embedded in an encoded payload, or used as vanity-bait). Recorded automatically at scan time and weighted like reports (observer credibility × 90-day decay). Stronger than a self-asserted report, but still flag-only in scans — scan inputs are client-supplied.",
+      properties: {
+        incident_count: { type: "integer" },
+        distinct_observers: { type: "integer" },
+        weighted_score: { type: "number" },
+        check_ids: { type: "object", additionalProperties: { type: "integer" } },
+        first_at: { type: "string" },
+        last_at: { type: "string" },
+      },
+    },
   },
 } as const;
 

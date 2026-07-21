@@ -14,7 +14,7 @@
 import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import type { ReputationDispute, ReputationReport } from "./types.ts";
+import type { InjectionIncident, ReputationDispute, ReputationReport } from "./types.ts";
 import type { AuditLog } from "./auditlog.ts";
 
 /** API keys are stored hashed at rest (audit M-3): disk/backup disclosure of
@@ -162,6 +162,18 @@ export interface DomainOutcomes extends CounterpartyOutcomes {
   pay_tos: string[];
 }
 
+/** Lifetime scanned spend from one agent key to one counterparty, keyed
+ * "velocityKey|pay_to". Feeds the cumulative deep-tier trigger: an attacker
+ * dripping payments below MICRO_BYPASS_USD each must not evade the deep
+ * content tier forever. Counts scans, not settlements — re-scanning the same
+ * payment over-counts, which only unlocks the deep tier EARLIER (safe). */
+export interface CumulativeSpend {
+  usd: number;
+  scans: number;
+  first_at: string;
+  last_at: string;
+}
+
 export interface VelocityEvent {
   t: number;   // epoch ms
   usd: number; // scanned payment value (0 if unknown)
@@ -195,6 +207,8 @@ interface Snapshot {
   scan_index?: Record<string, ScanIndexEntry>;
   outcomes?: Record<string, CounterpartyOutcomes>;
   outcomes_by_domain?: Record<string, DomainOutcomes>;
+  injection_incidents?: Record<string, InjectionIncident[]>;
+  cumulative_spend?: Record<string, CumulativeSpend>;
   velocity: Record<string, VelocityEvent[]>;
   counterparties: Record<string, string[]>;
   pins: Record<string, PinRecord>;
@@ -219,6 +233,11 @@ export class Store {
   scanIndex: Map<string, ScanIndexEntry> = new Map();
   outcomes: Map<string, CounterpartyOutcomes> = new Map();
   outcomesByDomain: Map<string, DomainOutcomes> = new Map();
+  /** System-observed injection incidents, keyed by implicated address (see
+   * types.ts InjectionIncident). Written only on BLOCK verdicts. */
+  injectionIncidents: Map<string, InjectionIncident[]> = new Map();
+  /** Per (agent key, counterparty) lifetime scanned spend — see CumulativeSpend. */
+  cumulativeSpend: Map<string, CumulativeSpend> = new Map();
   velocity: Map<string, VelocityEvent[]> = new Map();
   counterparties: Map<string, string[]> = new Map();
   pins: Map<string, PinRecord> = new Map();
@@ -259,6 +278,8 @@ export class Store {
       this.scanIndex = new Map(Object.entries(snap.scan_index ?? {}));
       this.outcomes = new Map(Object.entries(snap.outcomes ?? {}));
       this.outcomesByDomain = new Map(Object.entries(snap.outcomes_by_domain ?? {}));
+      this.injectionIncidents = new Map(Object.entries(snap.injection_incidents ?? {}));
+      this.cumulativeSpend = new Map(Object.entries(snap.cumulative_spend ?? {}));
       this.velocity = new Map(Object.entries(snap.velocity ?? {}));
       this.counterparties = new Map(Object.entries(snap.counterparties ?? {}));
       this.pins = new Map(Object.entries(snap.pins ?? {}));
@@ -374,6 +395,8 @@ export class Store {
     Store.evict(this.scanIndex, max);
     Store.evict(this.outcomes, max);
     Store.evict(this.outcomesByDomain, max);
+    Store.evict(this.injectionIncidents, max);
+    Store.evict(this.cumulativeSpend, max);
     Store.evict(this.disputes, max);
     // approvals are NOT evicted here: dropping an in-flight approval would
     // orphan a legitimately-approved override. Creation refuses when full
@@ -398,6 +421,8 @@ export class Store {
       scan_index: Object.fromEntries(this.scanIndex),
       outcomes: Object.fromEntries(this.outcomes),
       outcomes_by_domain: Object.fromEntries(this.outcomesByDomain),
+      injection_incidents: Object.fromEntries(this.injectionIncidents),
+      cumulative_spend: Object.fromEntries(this.cumulativeSpend),
       velocity: Object.fromEntries(this.velocity),
       counterparties: Object.fromEntries(this.counterparties),
       pins: Object.fromEntries(this.pins),

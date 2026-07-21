@@ -101,7 +101,10 @@ const INJECTION_TELLS: Tell[] = [
   { id: "override_i18n", weight: 2, re: /ignora\s+(?:todas\s+)?las\s+instrucciones\s+anteriores|ignore[zr]?\s+les\s+instructions\s+pr[ée]c[ée]dentes|ignorier(?:e|en)?\s+(?:alle\s+)?(?:vorherigen|bisherigen)\s+anweisungen|ignore\s+as\s+instru[çc][õo]es\s+anteriores|игнорируй(?:те)?\s+(?:все\s+)?предыдущие\s+инструкции|忽略(?:之前|以上|所有)的?(?:指令|指示|说明)|以前の指示を無視/i, label: "instruction-override phrasing (non-English)" },
   { id: "new_instructions", weight: 2, re: /\b(?:new|updated|real|actual|true)\s+instructions?\s*[:>-]/i, label: "injected replacement instructions" },
   { id: "pay_command", weight: 1, re: /\b(?:you\s+(?:must|should|need\s+to|are\s+required\s+to)|be\s+sure\s+to|immediately)\s+(?:pay|send|transfer|authorize)\b/i, label: "imperative payment command" },
-  { id: "send_to_address", weight: 2, re: /\b(?:send|pay|transfer)\b[^.\n]{0,80}\b(?:to|at)\s+(?:0x[0-9a-fA-F]{6,}|[1-9A-HJ-NP-Za-km-z]{32,44})/, label: "payment redirection to embedded address" },
+  // NOT /i: case-insensitivity would loosen the strict base58 class into
+  // matching any long alphanumeric token. Verb/preposition case variants
+  // (lowercase / Capitalized / ALLCAPS) are spelled out instead.
+  { id: "send_to_address", weight: 2, re: /\b(?:[Ss]end|SEND|[Pp]ay|PAY|[Tt]ransfer|TRANSFER)\b[^.\n]{0,80}\b(?:[Tt]o|TO|[Aa]t|AT)\s+(?:0x[0-9a-fA-F]{6,}|[1-9A-HJ-NP-Za-km-z]{32,44})/, label: "payment redirection to embedded address" },
   { id: "secrecy", weight: 2, re: /\b(?:do\s+not|don'?t|never)\s+(?:tell|inform|notify|alert|mention\s+(?:this\s+)?to)\s+(?:the\s+)?(?:user|human|owner|operator)\b/i, label: "concealment instruction" },
   { id: "role_marker", weight: 2, re: /(?:<\/?(?:system|assistant|instructions?)>|\[(?:system|SYSTEM)\]|^system\s*:)/m, label: "spoofed role/system marker" },
   { id: "tool_spoof", weight: 1, re: /<\|im_start\|>|<<SYS>>|\[INST\]|"role"\s*:\s*"system"/, label: "spoofed chat-template/tool structure" },
@@ -243,7 +246,10 @@ export function checkInjection(
           reason: obfuscated
             ? "The payment recipient address appears in the content the agent just read, hidden by whitespace splitting or invisible characters. Obfuscating an address to evade scanning is itself a strong attack signal."
             : "The payment recipient address appears verbatim in the content the agent just read. Recipient addresses sourced from untrusted content are the classic payment-redirection attack. (If this text is the 402 offer / discovery payload itself, pass it in context.offer instead — pay_to is expected there.)",
-          details: { pay_to: payment.pay_to, origin, obfuscated },
+          // implicated_address: on a block, this finding structurally binds
+          // pay_to to injected content — the incident ledger records it so
+          // future scans of the same wallet inherit the signal (flag-only).
+          details: { pay_to: payment.pay_to, origin, obfuscated, implicated_address: payToLc },
         });
       }
     }
@@ -371,7 +377,14 @@ export function deepContentAnalysis(
         verdict: fromUntrusted || embeds ? "block" : "flag",
         severity: "critical",
         reason: `A ${doubleEncoded ? "doubly " : ""}base64-encoded blob in the just-read content decodes to ${embeds ? "text embedding the payment recipient address" : "prompt-injection content"}${tells.length ? ` (${tells.map((t) => t.label).join("; ")})` : ""}. Encoding instructions to evade filters is itself a strong attack signal.`,
-        details: { decoded_preview: decoded.slice(0, 120), indicators: tells.map((t) => t.id), double_encoded: doubleEncoded },
+        details: {
+          decoded_preview: decoded.slice(0, 120),
+          indicators: tells.map((t) => t.id),
+          double_encoded: doubleEncoded,
+          // Only an EMBEDDED pay_to implicates the recipient; tells alone
+          // don't prove the payee authored the payload.
+          ...(embeds ? { implicated_address: payToLc } : {}),
+        },
       });
       break; // one finding is enough
     }
@@ -391,7 +404,12 @@ export function deepContentAnalysis(
       verdict: fromUntrusted || embeds ? "block" : "flag",
       severity: "critical",
       reason: `${encoding}-encoded text in the just-read content decodes to ${embeds ? "text embedding the payment recipient address" : "prompt-injection content"}${fresh.length ? ` (${fresh.map((t) => t.label).join("; ")})` : ""}. Encoding instructions to evade filters is itself a strong attack signal.`,
-      details: { encoding, decoded_preview: decoded.slice(0, 120), indicators: fresh.map((t) => t.id) },
+      details: {
+        encoding,
+        decoded_preview: decoded.slice(0, 120),
+        indicators: fresh.map((t) => t.id),
+        ...(embeds ? { implicated_address: payToLc } : {}),
+      },
     });
     return true;
   };
@@ -435,7 +453,11 @@ export function deepContentAnalysis(
         verdict: "block",
         severity: "critical",
         reason: `The just-read content carries text smuggled in invisible Unicode tag characters${embeds ? ", embedding the payment recipient address" : ""}${tells.length ? ` (${tells.map((t) => t.label).join("; ")})` : hasAddr && !embeds ? " (containing an address-like token)" : ""}. Tag-character smuggling has no legitimate use in prose and targets LLM agents specifically.`,
-        details: { decoded_preview: tagDecoded.slice(0, 120), indicators: tells.map((t) => t.id) },
+        details: {
+          decoded_preview: tagDecoded.slice(0, 120),
+          indicators: tells.map((t) => t.id),
+          ...(embeds ? { implicated_address: payToLc } : {}),
+        },
       });
     }
   }
