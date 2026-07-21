@@ -894,6 +894,15 @@ console.log("\n— reputation —");
   }
   const s = summarize(store, addr);
   check("5 distinct reporters → high risk", s.risk === "high" && s.distinct_reporters === 5, s);
+  // Regression (CI flake): the ladder is calibrated on exact fresh masses
+  // (5 × 0.5 = 2.5 = HIGH_AT), so any wall-clock gap between filing and
+  // lookup decays the sum to 2.4999… — grading must tolerate it. Backdate
+  // the reports a full minute to force the condition on any machine.
+  for (const rep of store.reportsByAddress.get(addr.toLowerCase()) ?? []) {
+    rep.reported_at = new Date(Date.parse(rep.reported_at) - 60_000).toISOString();
+  }
+  const sAged = summarize(store, addr);
+  check("minutes-old reports still grade high (no fresh-mass boundary flake)", sAged.risk === "high" && sAged.weighted_score === 2.5, sAged);
   const r = scan("outgoing", { payment: { ...basePayment, pay_to: addr }, expected_price_usd: 0.01, context: { origin: "planning" } }, store);
   // H-2: unverified reports cap at flag, never block.
   check("high-risk counterparty flagged (not blocked) in scan", r.verdict === "flag" && hasCheck(r, "reputation.reported"), r.verdict);

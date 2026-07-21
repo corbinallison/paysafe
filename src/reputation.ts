@@ -132,7 +132,12 @@ export function summarize(store: Store, addressRaw: string): ReputationSummary {
   const categories: Record<string, number> = Object.create(null);
   for (const r of reports) categories[r.category] = (categories[r.category] ?? 0) + 1;
 
-  const score = weightedScore(store, reports);
+  // Grade on the 2-decimal score we report, not the raw float. The ladder is
+  // calibrated on exact fresh-reporter masses (5 × 0.5 = 2.5 = HIGH_AT), and
+  // milliseconds of decay between filing and lookup would otherwise land the
+  // sum at 2.4999… and read as a lower grade — the displayed weighted_score
+  // must never contradict the risk it graded to.
+  const score = Math.round(weightedScore(store, reports) * 100) / 100;
   let risk: ReputationSummary["risk"] = "none";
   if (score >= HIGH_AT) risk = "high";
   else if (score >= MEDIUM_AT) risk = "medium";
@@ -146,7 +151,7 @@ export function summarize(store: Store, addressRaw: string): ReputationSummary {
     risk,
     report_count: reports.length,
     distinct_reporters: reporters.size,
-    weighted_score: Math.round(score * 100) / 100,
+    weighted_score: score,
     categories,
     first_reported: times[0],
     last_reported: times[times.length - 1],
