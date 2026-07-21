@@ -95,11 +95,42 @@ interface Tell {
   weight: 1 | 2;
 }
 
+// Verbs that head an instruction-override phrase. Kept in sync with the open
+// heuristic sets (Rebuff, vigil-llm) whose corpora we benchmark against, so a
+// phrasing they flag is not one we silently miss.
+const OVERRIDE_VERBS =
+  "ignore|disregard|skip|forget|neglect|overlook|omit|bypass|pay\\s+no\\s+attention\\s+to|do\\s+not\\s+(?:follow|obey)|don'?t\\s+(?:follow|obey)";
+// Positional adjectives ("previous", "above", …). Tolerates a conjoined pair
+// so "any previous AND following instructions" (a canonical injection string)
+// matches — strict adjacency previously broke on the "and following" join.
+const OVERRIDE_ADJ =
+  "(?:previous|prior|preceding|above|foregoing|earlier|initial|following)(?:\\s+and\\s+(?:previous|prior|preceding|above|foregoing|earlier|initial|following))?";
+// High-signal objects only. Deliberately excludes context/input/data/message —
+// those appear constantly in benign prose ("ignore the previous message"), so
+// at our blocking weights they are net false positives, not coverage.
+const OVERRIDE_OBJ = "instructions?|prompts?|rules?|guidance|directives?|directions?|commands?";
+
 const INJECTION_TELLS: Tell[] = [
-  { id: "override", weight: 2, re: /\b(?:ignore|disregard|forget)\s+(?:all\s+|any\s+)?(?:previous|prior|earlier|above|your)\s+(?:instructions?|prompts?|rules?|guidance)\b/i, label: "instruction-override phrasing" },
+  // Strong override: verb + (adjective, possibly conjoined) + high-signal
+  // object. Adjective REQUIRED here — that anchor is what keeps weight 2 (which
+  // can block on its own from an untrusted origin) precise.
+  { id: "override", weight: 2, re: new RegExp(`\\b(?:${OVERRIDE_VERBS})\\s+(?:all\\s+|any\\s+|the\\s+|your\\s+|these\\s+|those\\s+)?${OVERRIDE_ADJ}\\s+(?:${OVERRIDE_OBJ})\\b`, "i"), label: "instruction-override phrasing" },
+  // Loose override: same verbs + object but NO adjective ("ignore instructions",
+  // "forget the conversation"). Weight 1 — bare verb+object can appear benignly
+  // ("you can ignore instructions in the legacy section"), so it flags on its
+  // own and only blocks when a second signal is present.
+  { id: "override_loose", weight: 1, re: new RegExp(`\\b(?:${OVERRIDE_VERBS})\\s+(?:all\\s+|any\\s+|the\\s+|these\\s+|those\\s+|my\\s+|our\\s+)?(?:${OVERRIDE_OBJ}|conversation)\\b`, "i"), label: "instruction-override phrasing (loose)" },
   // Non-English variants of the same override phrasing (es/fr/de/pt/ru/zh/ja).
   { id: "override_i18n", weight: 2, re: /ignora\s+(?:todas\s+)?las\s+instrucciones\s+anteriores|ignore[zr]?\s+les\s+instructions\s+pr[ée]c[ée]dentes|ignorier(?:e|en)?\s+(?:alle\s+)?(?:vorherigen|bisherigen)\s+anweisungen|ignore\s+as\s+instru[çc][õo]es\s+anteriores|игнорируй(?:те)?\s+(?:все\s+)?предыдущие\s+инструкции|忽略(?:之前|以上|所有)的?(?:指令|指示|说明)|以前の指示を無視/i, label: "instruction-override phrasing (non-English)" },
   { id: "new_instructions", weight: 2, re: /\b(?:new|updated|real|actual|true)\s+instructions?\s*[:>-]/i, label: "injected replacement instructions" },
+  // Context-reset suffix ("… and start over/anew/afresh/from scratch"). Weight
+  // 1 companion to the override tells; the leading "and" keeps it from firing
+  // on a bare benign "start over".
+  // "start over" is deliberately excluded — it is common benign English ("close
+  // it and start over"). The retained variants are rare enough in prose to
+  // carry signal; the "…and start over" injections all also trip an override
+  // verb we already catch, so nothing is lost.
+  { id: "context_reset", weight: 1, re: /\band\s+(?:start\s+(?:anew|afresh)|begin\s+(?:anew|afresh)|start\s+from\s+scratch|start\s+from\s+the\s+beginning)\b/i, label: "context-reset phrasing" },
   { id: "pay_command", weight: 1, re: /\b(?:you\s+(?:must|should|need\s+to|are\s+required\s+to)|be\s+sure\s+to|immediately)\s+(?:pay|send|transfer|authorize)\b/i, label: "imperative payment command" },
   // NOT /i: case-insensitivity would loosen the strict base58 class into
   // matching any long alphanumeric token. Verb/preposition case variants
@@ -107,7 +138,22 @@ const INJECTION_TELLS: Tell[] = [
   { id: "send_to_address", weight: 2, re: /\b(?:[Ss]end|SEND|[Pp]ay|PAY|[Tt]ransfer|TRANSFER)\b[^.\n]{0,80}\b(?:[Tt]o|TO|[Aa]t|AT)\s+(?:0x[0-9a-fA-F]{6,}|[1-9A-HJ-NP-Za-km-z]{32,44})/, label: "payment redirection to embedded address" },
   { id: "secrecy", weight: 2, re: /\b(?:do\s+not|don'?t|never)\s+(?:tell|inform|notify|alert|mention\s+(?:this\s+)?to)\s+(?:the\s+)?(?:user|human|owner|operator)\b/i, label: "concealment instruction" },
   { id: "role_marker", weight: 2, re: /(?:<\/?(?:system|assistant|instructions?)>|\[(?:system|SYSTEM)\]|^system\s*:)/m, label: "spoofed role/system marker" },
-  { id: "tool_spoof", weight: 1, re: /<\|im_start\|>|<<SYS>>|\[INST\]|"role"\s*:\s*"system"/, label: "spoofed chat-template/tool structure" },
+  // Chat-template / tool-structure spoofing, incl. Guidance-language markers
+  // ({{#system~}}, {{/user~}}) — templating tokens with no place in prose.
+  { id: "tool_spoof", weight: 1, re: /<\|im_start\|>|<<SYS>>|\[INST\]|"role"\s*:\s*"system"|\{\{[#/](?:system|user|assistant)~?\}\}/, label: "spoofed chat-template/tool structure" },
+  // Model boundary/control tokens smuggled into content to fake a turn/session
+  // break before injected instructions. Unambiguous — never legitimate prose.
+  { id: "control_token", weight: 2, re: /<\|endoftext\|>|<\|eot_id\|>|<\|end\|>|<end\s+of\s+(?:session|turn|conversation|transcript)>/i, label: "smuggled model boundary/control token" },
+  // Fabricated dialogue turns: an assistant line immediately followed by a user
+  // line, the "puppet both sides of the conversation" structure. Weight 1 — a
+  // genuine transcript being summarized has the same shape.
+  { id: "turn_spoof", weight: 1, re: /(?:^|\n)[ \t>]*(?:assistant|ai)\s*:[^\n]*\n[ \t>]*(?:user|human)\s*:/i, label: "fabricated conversation turn" },
+  // "Focus only on the following / disregard everything except …" — the attend-
+  // here-instead redirection used by latent document injections.
+  // Anchored on injection-specific objects only (the following / brackets /
+  // angled) — "between", "information", "below" were common enough to false-
+  // positive on ordinary prose ("focus only on one task ... between sessions").
+  { id: "exclusive_focus", weight: 1, re: /\b(?:focus|reply|respond|answer)\s+(?:with\s+)?(?:only|exclusively)\b[^.\n]{0,40}\b(?:following|brackets|angled)\b|\bdisregard\s+(?:all|everything)\b[^.\n]{0,40}\bexcept\b/i, label: "exclusive-focus / disregard-all-except redirection" },
   { id: "persona_swap", weight: 1, re: /\byou\s+are\s+(?:now|no\s+longer)\b|\bact\s+as\s+(?:an?\s+)?(?:unrestricted|different|new)\b|\bpretend\s+(?:to\s+be|you\s+are)\b/i, label: "persona/role swap instruction" },
   { id: "precedence", weight: 1, re: /\bbefore\s+(?:doing|you\s+do)\s+anything\s+else\b|\b(?:overrides?|supersedes?|takes?\s+(?:priority|precedence))\s+(?:all\s+)?(?:other|previous|prior|any)\b/i, label: "priority/precedence override phrasing" },
   { id: "urgency", weight: 1, re: /\b(?:urgent(?:ly)?|final\s+(?:warning|notice)|account\s+(?:will\s+be\s+)?(?:suspended|terminated)|within\s+\d+\s+(?:minutes?|hours?)\s+or)\b/i, label: "urgency/threat pressure" },
