@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * /llms.txt — agent- and LLM-facing description of PaySafe.
  *
@@ -146,7 +148,9 @@ reports is always free.
 - x402 manifest: ${base}/.well-known/x402
 - Agent card:  ${base}/.well-known/agent-card.json
 - Self-documenting JSON: ${base}/
+- Terms of Use:  ${base}/terms
+- Privacy Policy: ${base}/privacy
 
-Source (MIT): https://github.com/corbinallison/paysafe
+Source (source-available, BUSL 1.1): https://github.com/corbinallison/paysafe
 `;
 }

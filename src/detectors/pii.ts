@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * PII / secret detection over payment metadata.
  * Scans resource_url, description, reason, and metadata values BEFORE they leave the agent.

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /** PaySafe core types. Zero runtime dependencies. */
 
 export type Verdict = "allow" | "flag" | "block";

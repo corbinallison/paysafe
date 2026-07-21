@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * Minimal in-memory sliding-window rate limiter for the FREE endpoints
  * (key minting, reputation reports). Paid endpoints are already gated by

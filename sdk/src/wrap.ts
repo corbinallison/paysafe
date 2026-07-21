@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * The one-line diff: PaySafe in the default x402 payment path.
  *

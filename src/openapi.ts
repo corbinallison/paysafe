@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * OpenAPI 3.1 document for PaySafe, served at GET /openapi.json (free).
  *

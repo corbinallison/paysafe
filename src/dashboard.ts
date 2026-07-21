@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * PaySafe usage dashboard — a single self-contained HTML page served at
  * GET /dashboard. Security posture:

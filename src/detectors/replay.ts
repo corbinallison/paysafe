@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * Replay detection: tracks payment nonces and blocks reuse.
  * Key is scoped by network + payer (when known) so distinct payers with

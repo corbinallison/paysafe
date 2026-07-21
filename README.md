@@ -6,7 +6,7 @@
 [![network](https://img.shields.io/badge/settles%20on-Base%20(USDC)-0052FF)](https://docs.cdp.coinbase.com/x402/quickstart-for-sellers)
 [![tests](https://img.shields.io/badge/tests-264%2F264-brightgreen)](test/run-tests.ts)
 [![npm](https://img.shields.io/npm/v/paysafe-x402-client?label=sdk)](https://www.npmjs.com/package/paysafe-x402-client)
-[![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
+[![license](https://img.shields.io/badge/license-BUSL--1.1-lightgrey)](LICENSE)
 
 Agents that pay over x402 get drained in predictable ways: secrets leak through payment metadata, captured authorizations get replayed, quoted prices get inflated, and poisoned web content tricks agents into paying addresses they never planned to pay. PaySafe is one `POST` before settlement that checks for all of it and returns **allow / flag / block** with machine-readable, per-check reasons — in **~0.6 ms**.
 
@@ -321,8 +321,8 @@ Design notes: verdicts aggregate worst-first (any block ⇒ block); `risk_score`
 
 ## Contributing
 
-Issues and PRs welcome — particularly new detector patterns (with tests) and SDK improvements (the TS and Python clients live in [`sdk/`](sdk/) and [`sdk-python/`](sdk-python/)). Run `npm test` before submitting; every detector change needs a covering test.
+Issues and PRs welcome — particularly new detector patterns (with tests) and SDK improvements (the TS and Python clients live in [`sdk/`](sdk/) and [`sdk-python/`](sdk-python/)). Run `npm test` before submitting; every detector change needs a covering test. By submitting a contribution you agree to license it to PaySafe, LLC under the terms of the [LICENSE](LICENSE), and you grant PaySafe, LLC the right to relicense the contribution as part of the Licensed Work (including under the Change License).
 
 ## License
 
-MIT
+[Business Source License 1.1](LICENSE) (source-available). You can read, run, modify, and self-host PaySafe, and use the SDKs/MCP server against the hosted service — including inside commercial products. What the license restricts is offering the code itself as a competing paid payment-security service. Each version converts to Apache 2.0 four years after release. Versions ≤ 1.4.0 remain MIT.

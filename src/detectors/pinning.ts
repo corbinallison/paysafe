@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * Merchant pinning (TOFU — trust on first use). The first time a resource
  * domain is scanned, its pay_to address is pinned; any later scan of the same

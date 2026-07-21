@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /** Scan orchestration: runs detectors and aggregates a verdict. */
 import { randomUUID } from "node:crypto";
 import type { CheckResult, Direction, ScanRequest, ScanResponse, Verdict } from "./types.ts";

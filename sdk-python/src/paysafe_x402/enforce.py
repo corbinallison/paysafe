@@ -1,3 +1,5 @@
+# Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+# SPDX-License-Identifier: BUSL-1.1
 """
 Wallet-side enforcement kit (Python parity with the TypeScript SDK's enforce.ts).
 

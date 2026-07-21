@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /** /.well-known/x402 manifest + agent card. */
 import type { PaySafeConfig } from "./config.ts";
 import { VERSION } from "./version.ts";

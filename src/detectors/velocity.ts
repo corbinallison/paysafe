@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * Velocity & policy limits. These are the checks that hold even when the
  * calling agent's narration is compromised: rate of payments, cumulative

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * Input sanitization for scan requests. Detectors assume declared types;
  * this layer guarantees them, so a type-confused (or malicious) payload can

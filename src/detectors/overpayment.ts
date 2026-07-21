@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * Overpayment detection: compares the actual payment amount against the
  * expected price and an absolute ceiling.

@@ -1,3 +1,5 @@
+# Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+# SPDX-License-Identifier: BUSL-1.1
 """
 paysafe-x402 Python SDK test-suite. Stdlib + cryptography only.
 

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * PaySafe — production entrypoint.
  * Express + official x402 middleware (@x402/express) + CDP facilitator + Bazaar discovery.
@@ -54,6 +56,7 @@ import { approvePageHtml } from "./approvepage.ts";
 import { handleApprovalDecide, handleApprovalInspect, handleApprovalPoll } from "./approvals.ts";
 import { handleOutcomeReport } from "./outcomes.ts";
 import { llmsTxt } from "./llms.ts";
+import { termsPageHtml, privacyPageHtml } from "./legal.ts";
 import { handleTrustEvaluate } from "./trust.ts";
 
 const cfg = loadConfig();
@@ -337,6 +340,24 @@ app.get("/llms.txt", (_req, res) => {
 app.get("/.well-known/llms.txt", (_req, res) => {
   res.type("text/plain; charset=utf-8").send(llmsTxt(cfg));
 });
+
+// Legal pages, rendered from the canonical TERMS.md / PRIVACY.md. Static HTML
+// with no script at all, so the CSP here doesn't even allow inline script.
+const legalPage = (html: string | null, res: express.Response): void => {
+  if (html === null) {
+    res.status(404).json({ error: "Document not available in this deployment" });
+    return;
+  }
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  );
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.type("html").send(html);
+};
+app.get("/terms", (_req, res) => legalPage(termsPageHtml(), res));
+app.get("/privacy", (_req, res) => legalPage(privacyPageHtml(), res));
 
 app.get("/.well-known/agent-card.json", (_req, res) => {
   res.json(agentCard(cfg));

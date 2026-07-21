@@ -126,4 +126,4 @@ await generateText({
 - **Key hygiene.** Leaked key? `POST /v1/keys/rotate` — fresh secret, same account, usage and plan carried over; the old secret dies on your schedule.
 - **Check any counterparty first**: `GET /v1/reputation/{address}` returns community reports *and* measured delivery rates from commitment-bound outcomes.
 
-Everything is documented for agents too: point any LLM at [paysafe-agent.com/llms.txt](https://paysafe-agent.com/llms.txt) and it can wire this up itself. OpenAPI at [/openapi.json](https://paysafe-agent.com/openapi.json). Source: [github.com/corbinallison/paysafe](https://github.com/corbinallison/paysafe). MIT. Non-custodial — PaySafe never touches your keys, wallet, or funds.
+Everything is documented for agents too: point any LLM at [paysafe-agent.com/llms.txt](https://paysafe-agent.com/llms.txt) and it can wire this up itself. OpenAPI at [/openapi.json](https://paysafe-agent.com/openapi.json). Source: [github.com/corbinallison/paysafe](https://github.com/corbinallison/paysafe) (source-available, BUSL 1.1). Non-custodial — PaySafe never touches your keys, wallet, or funds.

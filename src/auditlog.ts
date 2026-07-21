@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * Tamper-evident audit log of scan DECISIONS (not funds — PaySafe is
  * non-custodial and never moves money).

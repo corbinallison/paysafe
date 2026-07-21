@@ -122,4 +122,4 @@ Enforcement — `PaySafeEnforcer` (`approve`, `guard_signer`, `assert_approved`,
 Standalone — `verify_attestation`, `compute_payment_commitment`.
 Errors — `PaySafeError` (`.status`, `.body`), `PaySafeBlockedError` (`.scan`), `AttestationError`, `PaySafeEnforcementError` (`.commitment`, `.primary_type`).
 
-MIT. PaySafe is advisory and non-custodial: this SDK never touches your keys, wallet, or funds.
+[BUSL 1.1](../LICENSE) (source-available; using this SDK against the hosted service is expressly permitted, including in commercial products). PaySafe is advisory and non-custodial: this SDK never touches your keys, wallet, or funds.

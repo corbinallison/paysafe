@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * SDK test-suite. Zero dependencies; runs a mock PaySafe server on a local
  * port and — crucially — signs attestations with the REAL server signer

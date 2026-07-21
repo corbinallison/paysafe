@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * Bump a package's version in EVERY file that carries it, atomically.
  * The antidote to editing four files by hand and missing one.

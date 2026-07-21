@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * EVM wallet signature verification (EIP-191 personal_sign), used to prove
  * key ownership for reputation disputes: only the holder of a reported

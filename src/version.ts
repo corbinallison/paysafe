@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * Single source of truth for the server/MCP version: the root package.json.
  * Read at module load by walking up from this file, which resolves correctly

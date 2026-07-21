@@ -1,6 +1,6 @@
 # PaySafe — Terms of Use
 
-**Last updated: 2026-07-16**
+**Last updated: 2026-07-21**
 
 ## 1. What PaySafe is
 
@@ -35,7 +35,22 @@ The Service includes a shared registry where users may report wallet addresses a
 
 ## 6. Acceptable use
 
-You agree not to: use the Service to facilitate illegal activity; submit another party's secrets, credentials, or personal data that you are not authorized to submit; attempt to overwhelm, reverse-engineer, or circumvent the Service's rate limits, payment gate, or free tier; submit knowingly false reputation reports; or resell or redistribute the Service in a way that misrepresents its advisory nature. We may suspend or terminate access for violations.
+You agree not to:
+
+- use the Service to facilitate illegal activity;
+- submit another party's secrets, credentials, or personal data that you are not authorized to submit;
+- attempt to overwhelm, probe, or circumvent the Service's rate limits, payment gate, free tier, or access controls, or to interfere with other users' access;
+- submit knowingly false reputation reports, or submit reports or outcomes designed to manufacture synthetic history for any address (your own or another's);
+- **scrape, crawl, bulk-query, or systematically export** the counterparty reputation registry, the outcome ledger, or any other Service dataset, whether directly or by aggregating individual lookups;
+- **resell, sublicense, redistribute, or syndicate** verdicts, attestations, reputation data, or outcome data to third parties as a standalone product or data feed, or use any Service output to **build, train, seed, or improve a competing payment-security, risk-scoring, or reputation service or dataset**;
+- resell or redistribute the Service in a way that misrepresents its advisory nature; or
+- remove, obscure, or falsify attribution or signatures on verdicts or attestations, or present a modified verdict as issued by PaySafe.
+
+Verdicts and attestations are licensed to you for one purpose: informing and enforcing **your own** systems' payment decisions (including passing them to your own wallets, agents, and policy tooling). We may suspend or terminate access, and remove or quarantine submitted data, for violations. Automated or third-party clients that call the Service on your behalf act as you, and you are responsible for their compliance.
+
+## 6a. Intellectual property
+
+The Service, including its software, detection heuristics, models, documentation, and the **selection, arrangement, and compilation** of the reputation registry and outcome ledger, is the property of PaySafe, LLC and its licensors and is protected by copyright and other intellectual-property laws. The PaySafe source code is licensed separately under the **Business Source License 1.1** (see the LICENSE file in the source repository); these Terms govern use of the hosted Service and do not grant you any license to the source code, and nothing in the source-code license grants you rights to the hosted Service, its data, or its signing keys. Individual reputation reports remain the responsibility of their submitters (§5); by submitting a report, dispute, or outcome you grant PaySafe, LLC a perpetual, irrevocable, worldwide, royalty-free license to store, process, display, and distribute it as part of the Service. "PaySafe" and the Service's logos may not be used to imply endorsement, affiliation, or that output not signed by our verdict key originated from us.
 
 ## 7. Data handling
 
@@ -49,13 +64,13 @@ Paid scans are priced as published on the Service and settled via the x402 proto
 
 **THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE," WITHOUT WARRANTIES OF ANY KIND**, express or implied, including merchantability, fitness for a particular purpose, non-infringement, accuracy, or uninterrupted or error-free operation. We do not warrant that the Service will detect any particular threat, fraud, or vulnerability.
 
-**TO THE MAXIMUM EXTENT PERMITTED BY LAW, WE WILL NOT BE LIABLE** for any indirect, incidental, special, consequential, exemplary, or punitive damages, or for any loss of funds, tokens, profits, data, goodwill, or business, arising out of or relating to your use of (or inability to use) the Service, any verdict or report, or any transaction you make or accept — even if advised of the possibility. **Our total aggregate liability** for all claims relating to the Service will not exceed the greater of **[e.g. USD 100]** or **the total fees you paid to us for the Service in the [3] months preceding the claim.** Some jurisdictions do not allow certain limitations, so parts of this section may not apply to you.
+**TO THE MAXIMUM EXTENT PERMITTED BY LAW, WE WILL NOT BE LIABLE** for any indirect, incidental, special, consequential, exemplary, or punitive damages, or for any loss of funds, tokens, profits, data, goodwill, or business, arising out of or relating to your use of (or inability to use) the Service, any verdict or report, or any transaction you make or accept — even if advised of the possibility. **Our total aggregate liability** for all claims relating to the Service will not exceed the greater of **USD 10** or **the total fees you paid to us for the Service in the 3 months preceding the claim.** Some jurisdictions do not allow certain limitations, so parts of this section may not apply to you.
 
 You agree to **indemnify and hold us harmless** from claims, losses, and expenses (including reasonable legal fees) arising from your use of the Service, your transactions, your reputation reports, or your breach of these Terms.
 
 ## 10. Changes, termination, governing law
 
-We may modify these Terms or the Service at any time; material changes take effect when posted with an updated "Last updated" date, and continued use constitutes acceptance. We may suspend or discontinue the Service at any time. These Terms are governed by the laws of the **State of Colorado**, without regard to its conflict-of-laws rules, and disputes are subject to **[VENUE / arbitration clause — have counsel decide; e.g. the state and federal courts located in Colorado, or a binding-arbitration clause]**.
+We may modify these Terms or the Service at any time; material changes take effect when posted with an updated "Last updated" date, and continued use constitutes acceptance. We may suspend or discontinue the Service at any time. These Terms are governed by the laws of the **State of Colorado**, without regard to its conflict-of-laws rules, and disputes are subject to **the state and federal courts located in Colorado**.
 
 ## 11. Contact
 

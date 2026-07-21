@@ -69,4 +69,4 @@ We may update this policy; material changes take effect when posted with a new "
 ## 11. Contact
 
 Privacy questions: **contact@paysafe-agent.com**
-Data controller: **PaySafe, LLC**, Colorado, USA — **[MAILING ADDRESS, if required by your jurisdiction]**
+Data controller: **PaySafe, LLC**, Colorado, USA

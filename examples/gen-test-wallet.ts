@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * Generate a THROWAWAY test wallet for the Base Sepolia paid dry-run.
  *

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * Resource-URL risk checks, used mainly on the incoming path
  * (screening a 402 offer / payment request someone sent to your agent).

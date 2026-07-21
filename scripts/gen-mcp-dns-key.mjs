@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * Generates the Ed25519 keypair for MCP registry DNS verification —
  * a no-openssl replacement for the commands in the registry docs.

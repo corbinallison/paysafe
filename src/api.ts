@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * Framework-agnostic API handlers. Both the production Express app (index.ts)
  * and the zero-dependency dev server (devserver.ts) route into these.
@@ -515,6 +517,8 @@ export function serviceInfo(cfg: PaySafeConfig): ApiResult {
         "GET /.well-known/agent-card.json": "Free. Agent card.",
         "GET /.well-known/paysafe-verdict-key": "Free. Ed25519 public key for verdict attestations.",
         "GET /health": "Free. Liveness.",
+        "GET /terms": "Free. Terms of Use (human-readable).",
+        "GET /privacy": "Free. Privacy Policy (human-readable).",
       },
       checks: [
         "pii: PII/secret detection on resource_url, description, reason, metadata",

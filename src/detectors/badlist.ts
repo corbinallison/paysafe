@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * Known-bad address list. O(1) set membership over a JSON file of addresses
  * (curated manually or synced from public scam-address feeds out-of-band).

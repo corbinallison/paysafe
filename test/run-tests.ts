@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * Detector test-suite. Zero dependencies; runs with:
  *   node --experimental-strip-types test/run-tests.ts
@@ -25,6 +27,7 @@ import { handleTrustEvaluate } from "../src/trust.ts";
 import { handleApprovalDecide, handleApprovalInspect, handleApprovalPoll, isPrivateAddress, validateWebhookUrl } from "../src/approvals.ts";
 import { handleOutcomeReport } from "../src/outcomes.ts";
 import { approvePageHtml } from "../src/approvepage.ts";
+import { termsPageHtml, privacyPageHtml } from "../src/legal.ts";
 import { parseScoutScore, scheduleScoutScoreRefresh } from "../src/detectors/scoutscore.ts";
 import { createServer as createHttpServer } from "node:http";
 import type { ScanRequest, ScanResponse } from "../src/types.ts";
@@ -1697,6 +1700,21 @@ console.log("\n— approve page HTML sanity —");
   check("approve page reads the token from the fragment, not the query", html.includes("location.hash") && !html.includes("location.search"));
   check("approve page warns about full-address verification", html.includes("character by character"));
   check("approve page loads zero external resources", !/(?:src|href)\s*=\s*["']\s*(?:https?:)?\/\//i.test(html) && !html.includes("<link"));
+}
+
+console.log("\n— legal pages (/terms, /privacy) —");
+{
+  const terms = termsPageHtml();
+  const privacy = privacyPageHtml();
+  check("terms page renders from TERMS.md", terms !== null && terms.includes("Terms of Use") && terms.includes("Business Source License"));
+  check("privacy page renders from PRIVACY.md", privacy !== null && privacy.includes("Privacy Policy") && privacy.includes("non-custodial"));
+  const pages = [terms ?? "", privacy ?? ""];
+  check("legal pages contain no script and load zero external resources",
+    pages.every((h) => !h.includes("<script") && !h.includes("<link") && !h.includes("<img") && !h.includes("<iframe")));
+  check("markdown headings get GitHub-style anchor ids", (terms ?? "").includes('id="6a-intellectual-property"') && (privacy ?? "").includes('id="5-the-reputation-registry"'));
+  check("repo-relative doc links are rewritten to site routes", (privacy ?? "").includes('href="/terms"') && !(privacy ?? "").includes("TERMS.md"));
+  check("privacy retention table renders as a table", (privacy ?? "").includes("<table") && (privacy ?? "").includes("<th>Retention</th>"));
+  check("markdown is HTML-escaped before inline markup", !/<(?!\/?(?:html|head|meta|title|style|body|div|footer|h[1-3]|p|ul|li|a|code|strong|em|table|thead|tbody|tr|th|td)\b)[a-z]/i.test(pages.join("")));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * PaySafe approval page — the human side of step-up approvals, served at
  * GET /approve. The webhook's decide link lands here with `#id=..&token=..`

@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * Sync static version copies from package.json (the single source of truth).
  * Runtime code reads the version via src/version.ts; the only static copy is

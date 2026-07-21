@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * Counterparty reputation v2: shared post-hoc reporting + lookup, with
  * fairness & abuse-resistance weighting. Purely observational — a report

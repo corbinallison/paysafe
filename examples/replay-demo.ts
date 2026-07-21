@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * Demo: a client agent attempts an x402 payment with a REUSED NONCE and
  * PaySafe blocks the second attempt with a clear reason.

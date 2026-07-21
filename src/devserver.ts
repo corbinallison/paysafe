@@ -1,3 +1,5 @@
+// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
 /**
  * Zero-dependency dev server (node:http only). Same API surface as index.ts
  * but with x402 payments disabled — for local development, CI, and the
@@ -31,6 +33,7 @@ import { dashboardHtml } from "./dashboard.ts";
 import { adminDashboardHtml } from "./admindash.ts";
 import { approvePageHtml } from "./approvepage.ts";
 import { llmsTxt } from "./llms.ts";
+import { termsPageHtml, privacyPageHtml } from "./legal.ts";
 import { handleTrustEvaluate } from "./trust.ts";
 import { handleApprovalDecide, handleApprovalInspect, handleApprovalPoll } from "./approvals.ts";
 import { handleOutcomeReport } from "./outcomes.ts";
@@ -118,6 +121,20 @@ const server = createServer(async (req, res) => {
       out = handlePlansCatalog(cfg);
     else if (method === "GET" && path === "/v1/usage")
       out = handleUsage(cfg, store, req.headers["x-api-key"] as string | undefined);
+    else if (method === "GET" && (path === "/terms" || path === "/privacy")) {
+      const html = path === "/terms" ? termsPageHtml() : privacyPageHtml();
+      if (html === null) out = { status: 404, body: { error: "Document not available in this deployment" } };
+      else {
+        res.writeHead(200, {
+          "content-type": "text/html; charset=utf-8",
+          "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+          "x-content-type-options": "nosniff",
+          "referrer-policy": "no-referrer",
+        });
+        res.end(html);
+        return;
+      }
+    }
     else if (method === "GET" && (path === "/dashboard" || path === "/admin" || path === "/approve")) {
       res.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
