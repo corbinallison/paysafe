@@ -34,6 +34,7 @@ import { adminDashboardHtml } from "./admindash.ts";
 import { approvePageHtml } from "./approvepage.ts";
 import { llmsTxt } from "./llms.ts";
 import { homePageHtml, termsPageHtml, privacyPageHtml } from "./pages.ts";
+import { publicStats } from "./pubstats.ts";
 import { handleTrustEvaluate } from "./trust.ts";
 import { handleApprovalDecide, handleApprovalInspect, handleApprovalPoll } from "./approvals.ts";
 import { handleOutcomeReport } from "./outcomes.ts";
@@ -83,7 +84,7 @@ const server = createServer(async (req, res) => {
   try {
     if (method === "GET" && path === "/") {
       // Same content negotiation as production: HTML for browsers, JSON otherwise.
-      const home = homePageHtml(cfg);
+      const home = homePageHtml(cfg, publicStats(store));
       if (home !== null && /text\/html/.test(req.headers.accept ?? "")) {
         res.writeHead(200, {
           "content-type": "text/html; charset=utf-8",
@@ -98,6 +99,8 @@ const server = createServer(async (req, res) => {
     }
     else if (method === "GET" && path === "/health")
       out = { status: 200, body: { ok: true, mode: cfg.mode, time: new Date().toISOString() } };
+    else if (method === "GET" && path === "/v1/stats")
+      out = { status: 200, body: publicStats(store) };
     else if (method === "GET" && path === "/.well-known/x402")
       out = { status: 200, body: x402Manifest(cfg) };
     else if (method === "GET" && (path === "/llms.txt" || path === "/.well-known/llms.txt")) {

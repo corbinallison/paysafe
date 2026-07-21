@@ -28,6 +28,7 @@ import { handleApprovalDecide, handleApprovalInspect, handleApprovalPoll, isPriv
 import { handleOutcomeReport } from "../src/outcomes.ts";
 import { approvePageHtml } from "../src/approvepage.ts";
 import { homePageHtml, termsPageHtml, privacyPageHtml } from "../src/pages.ts";
+import { computePublicStats, computeUptime, type PublicStats } from "../src/pubstats.ts";
 import { parseScoutScore, scheduleScoutScoreRefresh } from "../src/detectors/scoutscore.ts";
 import { createServer as createHttpServer } from "node:http";
 import type { ScanRequest, ScanResponse } from "../src/types.ts";
@@ -1851,6 +1852,62 @@ console.log("\n— markdown pages (/, /terms, /privacy) —");
   check("repo-relative doc links are rewritten to site routes", (privacy ?? "").includes('href="/terms"') && !(privacy ?? "").includes("TERMS.md"));
   check("privacy retention table renders as a table", (privacy ?? "").includes("<table") && (privacy ?? "").includes("<th>Retention</th>"));
   check("markdown is HTML-escaped before inline markup", !/<(?!\/?(?:html|head|meta|title|style|body|div|footer|h[1-3]|p|ul|li|a|code|pre|hr|strong|em|table|thead|tbody|tr|th|td)\b)[a-z]/i.test(pages.join("")));
+}
+
+console.log("\n— public stats + self-measured uptime (/, /v1/stats) —");
+{
+  const now = Date.parse("2026-07-21T12:00:00Z");
+  const day = 86400_000;
+  const range = (from: number, to: number) => ({ from: new Date(from).toISOString(), to: new Date(to).toISOString() });
+
+  check("no heartbeats ever -> no uptime claim", computeUptime([], now) === null);
+  const full = computeUptime([range(now - 10 * day, now)], now)!;
+  check("continuous heartbeat -> 100%, measured from the first beat (young deployment is not 'down' before it existed)",
+    full.pct === 100 && full.measured_since === new Date(now - 10 * day).toISOString() && full.interruptions === 0);
+  const gap = computeUptime([range(now - 10 * day, now - 6 * day), range(now - 4 * day, now)], now)!;
+  check("a downtime gap lowers the pct and counts one interruption", gap.pct === 80 && gap.interruptions === 1);
+  const clipped = computeUptime([range(now - 200 * day, now - 100 * day), range(now - 90 * day, now)], now)!;
+  check("uptime window clips to 90 days (ancient outages age out)", clipped.pct === 100 && clipped.interruptions === 0);
+
+  const hb = new Store(null);
+  hb.beatUptime(now);
+  hb.beatUptime(now + 5000);
+  check("heartbeats within the gap threshold extend one range",
+    hb.uptimeRanges.length === 1 && hb.uptimeRanges[0].to === new Date(now + 5000).toISOString());
+  hb.beatUptime(now + 10 * 60_000);
+  check("a gap beyond the threshold starts a new range (downtime recorded, not papered over)", hb.uptimeRanges.length === 2);
+
+  // Privacy posture: the public snapshot is aggregates only — fixed key set,
+  // and no key material, agent ids, or wallet addresses in the payload.
+  const seeded = new Store(null);
+  const kr = createApiKey(seeded, cfg, "stats-privacy-agent");
+  const seededKey = (kr.body as { api_key: string }).api_key;
+  handleScan("outgoing", { agent_id: "stats-privacy-agent", payment: { ...basePayment, nonce: "0xstats1" }, expected_price_usd: 0.01, context: { origin: "planning" } }, cfg, seeded, null, seededKey);
+  seeded.beatUptime(now);
+  const stats = computePublicStats(seeded, now);
+  check("public stats expose a fixed aggregate-only shape",
+    Object.keys(stats).sort().join(",") === "as_of,blocked,cache_ttl_seconds,distinct_agents,flagged,measuring_since,scans_total,uptime");
+  const payload = JSON.stringify(stats);
+  check("public stats leak no keys, agent ids, or addresses",
+    !payload.includes("psk_") && !payload.includes("stats-privacy-agent") && !/0x[0-9a-fA-F]{6}/.test(payload));
+  check("keyed-counter fallback counts the scan", stats.scans_total === 1 && stats.distinct_agents === 1 && stats.uptime !== null);
+
+  // Homepage substitution: server-formatted values only, page stays static.
+  const homeStats: PublicStats = {
+    scans_total: 12345, blocked: 67, flagged: 8, distinct_agents: 42,
+    measuring_since: "2026-05-01T00:00:00.000Z",
+    uptime: { window_days: 90, pct: 99.97, measured_since: "2026-05-01T00:00:00.000Z", interruptions: 3 },
+    as_of: new Date(now).toISOString(), cache_ttl_seconds: 300,
+  };
+  const home = homePageHtml(cfg, homeStats)!;
+  check("homepage fills live-stats placeholders from the snapshot",
+    home.includes("12,345") && home.includes("99.97%") && home.includes("recording since 2026-05-01") && !home.includes("{{"));
+  check("homepage labels uptime as self-measured", home.includes("self-measured"));
+  check("homepage with stats is still scriptless static HTML",
+    !home.includes("<script") && !home.includes("<link") && !home.includes("<img") && !home.includes("<iframe"));
+  const bare = homePageHtml(cfg)!;
+  check("homepage without a snapshot shows honest zeros, never fabricated numbers",
+    bare.includes("<strong>0</strong>") && bare.includes("n/a") && !bare.includes("{{"));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

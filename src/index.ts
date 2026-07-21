@@ -57,6 +57,7 @@ import { handleApprovalDecide, handleApprovalInspect, handleApprovalPoll } from 
 import { handleOutcomeReport } from "./outcomes.ts";
 import { llmsTxt } from "./llms.ts";
 import { homePageHtml, termsPageHtml, privacyPageHtml } from "./pages.ts";
+import { publicStats } from "./pubstats.ts";
 import { handleTrustEvaluate } from "./trust.ts";
 
 const cfg = loadConfig();
@@ -324,7 +325,7 @@ if (cfg.mode === "live") {
 // homepage rendered from HOME.md; agents and curl (Accept: */*) keep getting
 // the self-documenting JSON that llms.txt and existing tooling point at.
 app.get("/", (req, res) => {
-  const home = homePageHtml(cfg);
+  const home = homePageHtml(cfg, publicStats(store));
   if (home !== null && req.accepts(["json", "html"]) === "html") {
     htmlPage(home, res);
     return;
@@ -335,6 +336,15 @@ app.get("/", (req, res) => {
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true, mode: cfg.mode, time: new Date().toISOString() });
+});
+
+// Public aggregate service stats + self-measured uptime (the homepage's
+// "track record" data). Free and unauthenticated, so it must stay O(1): it
+// serves the pubstats TTL cache and never reads the audit log per request.
+// Aggregates only — same privacy rules as /v1/admin/stats, minus the per-day
+// breakdown and USD totals (see pubstats.ts).
+app.get("/v1/stats", (_req, res) => {
+  res.json(publicStats(store));
 });
 
 app.get("/.well-known/x402", (_req, res) => {

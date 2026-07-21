@@ -22,6 +22,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { PaySafeConfig } from "./config.ts";
+import type { PublicStats } from "./pubstats.ts";
 
 function loadDoc(filename: string): string | null {
   let dir = dirname(fileURLToPath(import.meta.url));
@@ -195,15 +196,26 @@ ${renderMarkdown(markdown)}
 </html>`;
 }
 
-let homeCache: string | null | undefined;
+let homeTemplateCache: string | null | undefined;
 let termsCache: string | null | undefined;
 let privacyCache: string | null | undefined;
 
-/** Browser homepage. Pricing placeholders are filled from config (llms.txt policy). */
-export function homePageHtml(cfg: PaySafeConfig): string | null {
-  if (homeCache === undefined) {
+function fmtInt(n: number): string {
+  return n.toLocaleString("en-US");
+}
+
+/**
+ * Browser homepage. Pricing placeholders are filled from config (llms.txt
+ * policy) and cached with the render; the {{stats_*}} placeholders survive
+ * the markdown render (no HTML-special chars) and are filled per request
+ * from the TTL-cached public snapshot (pubstats.ts). Every substituted value
+ * is a number or date we format ourselves — HTML-escaped anyway, so the page
+ * stays static markup with no script under the same locked-down CSP.
+ */
+export function homePageHtml(cfg: PaySafeConfig, stats?: PublicStats | null): string | null {
+  if (homeTemplateCache === undefined) {
     const md = loadDoc("HOME.md");
-    homeCache =
+    homeTemplateCache =
       md === null
         ? null
         : markdownPageHtml(
@@ -214,7 +226,19 @@ export function homePageHtml(cfg: PaySafeConfig): string | null {
               .replace(/\{\{free_calls\}\}/g, String(cfg.freeCalls)),
           );
   }
-  return homeCache;
+  if (homeTemplateCache === null) return null;
+  const u = stats?.uptime ?? null;
+  const fill: Record<string, string> = {
+    stats_scans: fmtInt(stats?.scans_total ?? 0),
+    stats_blocked: fmtInt(stats?.blocked ?? 0),
+    stats_flagged: fmtInt(stats?.flagged ?? 0),
+    stats_agents: fmtInt(stats?.distinct_agents ?? 0),
+    stats_uptime: u ? `${u.pct.toFixed(2)}%` : "n/a",
+    stats_since: u ? u.measured_since.slice(0, 10) : "n/a",
+  };
+  return homeTemplateCache.replace(/\{\{(stats_[a-z_]+)\}\}/g, (_m: string, key: string) =>
+    escapeHtml(fill[key] ?? "n/a"),
+  );
 }
 
 export function termsPageHtml(): string | null {

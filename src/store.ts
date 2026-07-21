@@ -196,6 +196,13 @@ export interface ScoutScoreRecord {
   checked_at: string;
 }
 
+/** One contiguous span of observed process liveness (self-measured uptime).
+ * A new range starts only after a heartbeat gap — i.e. a restart or outage. */
+export interface UptimeRange {
+  from: string;
+  to: string;
+}
+
 interface Snapshot {
   nonces: Record<string, NonceRecord>;
   reports: ReputationReport[];
@@ -213,6 +220,7 @@ interface Snapshot {
   counterparties: Record<string, string[]>;
   pins: Record<string, PinRecord>;
   scout_scores?: Record<string, ScoutScoreRecord>;
+  uptime_ranges?: UptimeRange[];
 }
 
 export interface StoreLimits {
@@ -242,6 +250,9 @@ export class Store {
   counterparties: Map<string, string[]> = new Map();
   pins: Map<string, PinRecord> = new Map();
   scoutScores: Map<string, ScoutScoreRecord> = new Map();
+  /** Self-measured liveness ledger (see beatUptime). Server-internal — never
+   * touched by client input, so it needs no per-client eviction. */
+  uptimeRanges: UptimeRange[] = [];
   badlist: Set<string> = new Set();
 
   /** Attached by the server; every scan decision is appended here. */
@@ -284,6 +295,7 @@ export class Store {
       this.counterparties = new Map(Object.entries(snap.counterparties ?? {}));
       this.pins = new Map(Object.entries(snap.pins ?? {}));
       this.scoutScores = new Map(Object.entries(snap.scout_scores ?? {}));
+      this.uptimeRanges = Array.isArray(snap.uptime_ranges) ? snap.uptime_ranges : [];
       this.reindexReports();
     } catch {
       // Corrupt snapshot: start fresh rather than crash an advisory service.
@@ -352,7 +364,46 @@ export class Store {
     this.pruneNonces(this.limits.nonceTtlHours);
     this.pruneApprovals();
     this.capMaps(this.limits.maxEntries);
+    this.beatUptime();
     this.flush();
+  }
+
+  /** A heartbeat gap beyond this means the process was down (restart, crash,
+   * stalled event loop) — not just the space between 5s timer ticks. */
+  private static readonly UPTIME_GAP_MS = 120_000;
+  /** Heartbeats mark the snapshot dirty at most this often, so an otherwise
+   * idle server writes one snapshot per minute, not one per tick. The
+   * persisted `to` therefore lags real time by ≤60s: a crash over-counts
+   * downtime by at most that, never under-counts it. */
+  private static readonly UPTIME_DIRTY_MS = 60_000;
+  private static readonly UPTIME_RETENTION_MS = 90 * 86400_000;
+  private static readonly UPTIME_MAX_RANGES = 1000;
+  private lastUptimeDirty = 0;
+
+  /** Timer job: record process liveness, compressed into contiguous ranges
+   * (one new range per downtime event, so the ledger stays tiny). */
+  beatUptime(now = Date.now()): void {
+    const iso = new Date(now).toISOString();
+    const last = this.uptimeRanges[this.uptimeRanges.length - 1];
+    if (!last || now - Date.parse(last.to) > Store.UPTIME_GAP_MS) {
+      this.uptimeRanges.push({ from: iso, to: iso });
+      this.markDirty(); // a downtime boundary is worth persisting immediately
+      this.lastUptimeDirty = now;
+    } else if (now > Date.parse(last.to)) {
+      last.to = iso;
+      if (now - this.lastUptimeDirty >= Store.UPTIME_DIRTY_MS) {
+        this.markDirty();
+        this.lastUptimeDirty = now;
+      }
+    }
+    const cutoff = now - Store.UPTIME_RETENTION_MS;
+    while (
+      this.uptimeRanges.length > 1 &&
+      (Date.parse(this.uptimeRanges[0].to) < cutoff || this.uptimeRanges.length > Store.UPTIME_MAX_RANGES)
+    ) {
+      this.uptimeRanges.shift();
+      this.markDirty();
+    }
   }
 
   /** Timer job: expire overdue pending approvals; drop decided/expired records
@@ -427,6 +478,7 @@ export class Store {
       counterparties: Object.fromEntries(this.counterparties),
       pins: Object.fromEntries(this.pins),
       scout_scores: Object.fromEntries(this.scoutScores),
+      uptime_ranges: this.uptimeRanges,
     };
     try {
       const tmp = `${this.file}.tmp`;

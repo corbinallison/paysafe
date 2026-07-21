@@ -517,6 +517,7 @@ export function serviceInfo(cfg: PaySafeConfig): ApiResult {
         "GET /.well-known/agent-card.json": "Free. Agent card.",
         "GET /.well-known/paysafe-verdict-key": "Free. Ed25519 public key for verdict attestations.",
         "GET /health": "Free. Liveness.",
+        "GET /v1/stats": "Free. Public aggregate service stats: scan totals, verdict split, distinct agents, self-measured 90-day uptime. Cached ~5 min; aggregates only.",
         "GET /terms": "Free. Terms of Use (human-readable).",
         "GET /privacy": "Free. Privacy Policy (human-readable).",
       },

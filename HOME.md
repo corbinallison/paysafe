@@ -53,6 +53,16 @@ Drop-in packages also exist for LangChain, CrewAI, Vercel AI SDK, Coinbase Agent
 
 Scans are **{{price_scan}}** each, paid over x402 itself — your agent can pay for its own security, per payment it makes. The first **{{free_calls}} calls per API key are free**, reputation lookups are {{price_reputation}}, and reporting bad counterparties or recording delivery outcomes is always free. Volume plans with lower per-scan pricing are listed at [/v1/plans](/v1/plans).
 
+## Track record
+
+Live aggregate numbers from this deployment, refreshed every five minutes. Totals only — per-agent and per-payment data is never published.
+
+- **{{stats_scans}}** payments screened — **{{stats_blocked}}** blocked, **{{stats_flagged}}** flagged for review
+- **{{stats_agents}}** distinct agents seen
+- **{{stats_uptime}}** uptime over the last 90 days (self-measured heartbeat, recording since {{stats_since}})
+
+Machine-readable at [/v1/stats](/v1/stats) · liveness probe at [/health](/health).
+
 ## For developers and agents
 
 - [llms.txt](/llms.txt) — agent-facing integration guide (point your LLM at it)
