@@ -1,21 +1,27 @@
 // Copyright (c) 2026 PaySafe, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
- * Legal pages — GET /terms and GET /privacy, rendered from the canonical
- * TERMS.md / PRIVACY.md at the package root (single source of truth: the
- * same files GitHub renders). Files are located by walking up from this
- * module (same trick as version.ts), read once, and cached.
+ * Human-facing markdown pages — the homepage (GET / for browsers) and the
+ * legal pages (GET /terms, GET /privacy) — rendered from the canonical
+ * HOME.md / TERMS.md / PRIVACY.md at the package root (single source of
+ * truth: the same files GitHub renders). Files are located by walking up
+ * from this module (same trick as version.ts), read once, and cached.
+ *
+ * The homepage supports {{price_scan}} / {{price_reputation}} /
+ * {{free_calls}} placeholders, filled from config so pricing can't drift
+ * from what the payment gate actually charges (same policy as llms.txt).
  *
  * The markdown is converted by a deliberately tiny renderer that supports
- * only what these documents use (headings, bold/em, code spans, links,
- * lists, tables). All text is HTML-escaped BEFORE inline markup is applied,
- * and only http(s)/mailto/fragment/site-relative link targets survive —
- * so the pages stay static HTML with no script and zero external resources,
- * under the same locked-down CSP as the dashboards.
+ * only what these documents use (headings, bold/em, code spans and fences,
+ * links, lists, tables, rules). All text is HTML-escaped BEFORE inline
+ * markup is applied, and only http(s)/mailto/fragment/site-relative link
+ * targets survive — so the pages stay static HTML with no script and zero
+ * external resources, under the same locked-down CSP as the dashboards.
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import type { PaySafeConfig } from "./config.ts";
 
 function loadDoc(filename: string): string | null {
   let dir = dirname(fileURLToPath(import.meta.url));
@@ -27,7 +33,7 @@ function loadDoc(filename: string): string | null {
     }
     dir = dirname(dir);
   }
-  return null; // never crash the server over a missing doc; the route 404s
+  return null; // never crash the server over a missing doc; the route falls back
 }
 
 function escapeHtml(s: string): string {
@@ -83,6 +89,7 @@ function renderMarkdown(md: string): string {
   let para: string[] = [];
   let list: string[] = [];
   let table: string[][] = [];
+  let fence: string[] | null = null;
 
   const flushPara = () => {
     if (para.length) out.push(`<p>${inline(para.join(" "))}</p>`);
@@ -110,11 +117,24 @@ function renderMarkdown(md: string): string {
   };
 
   for (const line of lines) {
+    if (fence !== null) {
+      if (/^```/.test(line)) {
+        out.push(`<pre><code>${escapeHtml(fence.join("\n"))}</code></pre>`);
+        fence = null;
+      } else fence.push(line);
+      continue;
+    }
     const heading = /^(#{1,3})\s+(.*)$/.exec(line);
-    if (heading) {
+    if (/^```/.test(line)) {
+      flushAll();
+      fence = [];
+    } else if (heading) {
       flushAll();
       const level = heading[1].length;
       out.push(`<h${level} id="${slug(heading[2])}">${inline(heading[2])}</h${level}>`);
+    } else if (/^-{3,}\s*$/.test(line)) {
+      flushAll();
+      out.push("<hr>");
     } else if (/^\s*\|/.test(line)) {
       flushPara();
       flushList();
@@ -131,11 +151,12 @@ function renderMarkdown(md: string): string {
       para.push(line.trim());
     }
   }
+  if (fence !== null) out.push(`<pre><code>${escapeHtml(fence.join("\n"))}</code></pre>`);
   flushAll();
   return out.join("\n");
 }
 
-function legalPageHtml(title: string, markdown: string): string {
+function markdownPageHtml(title: string, markdown: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -155,6 +176,9 @@ function legalPageHtml(title: string, markdown: string): string {
   li { margin:6px 0; }
   a { color:var(--accent); }
   code { background:#0d1017; border:1px solid var(--line); padding:1px 5px; border-radius:4px; font:13px ui-monospace,SFMono-Regular,Menlo,monospace; }
+  pre { background:#0d1017; border:1px solid var(--line); border-radius:8px; padding:14px; overflow-x:auto; }
+  pre code { background:none; border:0; padding:0; font-size:13px; line-height:1.5; }
+  hr { border:0; border-top:1px solid var(--line); margin:32px 0; }
   table { border-collapse:collapse; width:100%; margin:14px 0; font-size:14px; display:block; overflow-x:auto; }
   th, td { border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top; }
   th { background:var(--card); }
@@ -171,13 +195,32 @@ ${renderMarkdown(markdown)}
 </html>`;
 }
 
+let homeCache: string | null | undefined;
 let termsCache: string | null | undefined;
 let privacyCache: string | null | undefined;
+
+/** Browser homepage. Pricing placeholders are filled from config (llms.txt policy). */
+export function homePageHtml(cfg: PaySafeConfig): string | null {
+  if (homeCache === undefined) {
+    const md = loadDoc("HOME.md");
+    homeCache =
+      md === null
+        ? null
+        : markdownPageHtml(
+            "PaySafe — payment security firewall for AI agents",
+            md
+              .replace(/\{\{price_scan\}\}/g, cfg.priceScan)
+              .replace(/\{\{price_reputation\}\}/g, cfg.priceReputation)
+              .replace(/\{\{free_calls\}\}/g, String(cfg.freeCalls)),
+          );
+  }
+  return homeCache;
+}
 
 export function termsPageHtml(): string | null {
   if (termsCache === undefined) {
     const md = loadDoc("TERMS.md");
-    termsCache = md === null ? null : legalPageHtml("PaySafe — Terms of Use", md);
+    termsCache = md === null ? null : markdownPageHtml("PaySafe — Terms of Use", md);
   }
   return termsCache;
 }
@@ -185,7 +228,7 @@ export function termsPageHtml(): string | null {
 export function privacyPageHtml(): string | null {
   if (privacyCache === undefined) {
     const md = loadDoc("PRIVACY.md");
-    privacyCache = md === null ? null : legalPageHtml("PaySafe — Privacy Policy", md);
+    privacyCache = md === null ? null : markdownPageHtml("PaySafe — Privacy Policy", md);
   }
   return privacyCache;
 }

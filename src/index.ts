@@ -56,7 +56,7 @@ import { approvePageHtml } from "./approvepage.ts";
 import { handleApprovalDecide, handleApprovalInspect, handleApprovalPoll } from "./approvals.ts";
 import { handleOutcomeReport } from "./outcomes.ts";
 import { llmsTxt } from "./llms.ts";
-import { termsPageHtml, privacyPageHtml } from "./legal.ts";
+import { homePageHtml, termsPageHtml, privacyPageHtml } from "./pages.ts";
 import { handleTrustEvaluate } from "./trust.ts";
 
 const cfg = loadConfig();
@@ -320,7 +320,15 @@ if (cfg.mode === "live") {
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
-app.get("/", (_req, res) => {
+// Content-negotiated index: browsers (Accept: text/html) get the human
+// homepage rendered from HOME.md; agents and curl (Accept: */*) keep getting
+// the self-documenting JSON that llms.txt and existing tooling point at.
+app.get("/", (req, res) => {
+  const home = homePageHtml(cfg);
+  if (home !== null && req.accepts(["json", "html"]) === "html") {
+    htmlPage(home, res);
+    return;
+  }
   const r = serviceInfo(cfg);
   res.status(r.status).json(r.body);
 });
@@ -343,7 +351,7 @@ app.get("/.well-known/llms.txt", (_req, res) => {
 
 // Legal pages, rendered from the canonical TERMS.md / PRIVACY.md. Static HTML
 // with no script at all, so the CSP here doesn't even allow inline script.
-const legalPage = (html: string | null, res: express.Response): void => {
+const htmlPage = (html: string | null, res: express.Response): void => {
   if (html === null) {
     res.status(404).json({ error: "Document not available in this deployment" });
     return;
@@ -356,8 +364,8 @@ const legalPage = (html: string | null, res: express.Response): void => {
   res.setHeader("Referrer-Policy", "no-referrer");
   res.type("html").send(html);
 };
-app.get("/terms", (_req, res) => legalPage(termsPageHtml(), res));
-app.get("/privacy", (_req, res) => legalPage(privacyPageHtml(), res));
+app.get("/terms", (_req, res) => htmlPage(termsPageHtml(), res));
+app.get("/privacy", (_req, res) => htmlPage(privacyPageHtml(), res));
 
 app.get("/.well-known/agent-card.json", (_req, res) => {
   res.json(agentCard(cfg));

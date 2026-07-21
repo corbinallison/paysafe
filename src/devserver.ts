@@ -33,7 +33,7 @@ import { dashboardHtml } from "./dashboard.ts";
 import { adminDashboardHtml } from "./admindash.ts";
 import { approvePageHtml } from "./approvepage.ts";
 import { llmsTxt } from "./llms.ts";
-import { termsPageHtml, privacyPageHtml } from "./legal.ts";
+import { homePageHtml, termsPageHtml, privacyPageHtml } from "./pages.ts";
 import { handleTrustEvaluate } from "./trust.ts";
 import { handleApprovalDecide, handleApprovalInspect, handleApprovalPoll } from "./approvals.ts";
 import { handleOutcomeReport } from "./outcomes.ts";
@@ -81,7 +81,21 @@ const server = createServer(async (req, res) => {
 
   let out: ApiResult;
   try {
-    if (method === "GET" && path === "/") out = serviceInfo(cfg);
+    if (method === "GET" && path === "/") {
+      // Same content negotiation as production: HTML for browsers, JSON otherwise.
+      const home = homePageHtml(cfg);
+      if (home !== null && /text\/html/.test(req.headers.accept ?? "")) {
+        res.writeHead(200, {
+          "content-type": "text/html; charset=utf-8",
+          "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+          "x-content-type-options": "nosniff",
+          "referrer-policy": "no-referrer",
+        });
+        res.end(home);
+        return;
+      }
+      out = serviceInfo(cfg);
+    }
     else if (method === "GET" && path === "/health")
       out = { status: 200, body: { ok: true, mode: cfg.mode, time: new Date().toISOString() } };
     else if (method === "GET" && path === "/.well-known/x402")

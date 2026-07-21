@@ -147,7 +147,7 @@ reports is always free.
 - OpenAPI:     ${base}/openapi.json
 - x402 manifest: ${base}/.well-known/x402
 - Agent card:  ${base}/.well-known/agent-card.json
-- Self-documenting JSON: ${base}/
+- Self-documenting JSON: ${base}/ (browsers get a human homepage; agents get JSON)
 - Terms of Use:  ${base}/terms
 - Privacy Policy: ${base}/privacy
 
