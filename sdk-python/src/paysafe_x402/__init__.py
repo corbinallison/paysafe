@@ -52,7 +52,7 @@ __all__ = [
     "verify_attestation",
 ]
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 DEFAULT_BASE_URL = "https://paysafe-agent.com"
 
