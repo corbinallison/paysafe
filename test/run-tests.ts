@@ -1966,14 +1966,17 @@ console.log("\n— public stats + self-measured uptime (/, /v1/stats) —");
     as_of: new Date(now).toISOString(), cache_ttl_seconds: 300,
   };
   const home = homePageHtml(cfg, homeStats)!;
-  check("homepage fills live-stats placeholders from the snapshot",
+  check("homepage fills the stats panel from the snapshot",
     home.includes("12,345") && home.includes("99.97%") && home.includes("recording since 2026-05-01") && !home.includes("{{"));
   check("homepage labels uptime as self-measured", home.includes("self-measured"));
+  check("stats panel renders dashboard-style tiles and a proportional verdict bar",
+    home.includes('<div class="n">12,345</div>') && home.includes('class="seg-allow" style="width:99.39%"')
+      && home.includes('class="seg-flag" style="width:0.06%"') && home.includes('class="seg-block" style="width:0.54%"'));
   check("homepage with stats is still scriptless static HTML",
     !home.includes("<script") && !home.includes("<link") && !home.includes("<img") && !home.includes("<iframe"));
   const bare = homePageHtml(cfg)!;
   check("homepage without a snapshot shows honest zeros, never fabricated numbers",
-    bare.includes("<strong>0</strong>") && bare.includes("n/a") && !bare.includes("{{"));
+    bare.includes('<div class="n">0</div>') && bare.includes("n/a") && bare.includes("seg-empty") && !bare.includes("{{"));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

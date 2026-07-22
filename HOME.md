@@ -57,9 +57,7 @@ Scans are **{{price_scan}}** each, paid over x402 itself — your agent can pay 
 
 Live aggregate numbers from this deployment, refreshed every five minutes. Totals only — per-agent and per-payment data is never published.
 
-- **{{stats_scans}}** payments screened — **{{stats_blocked}}** blocked, **{{stats_flagged}}** flagged for review
-- **{{stats_agents}}** distinct agents seen
-- **{{stats_uptime}}** uptime over the last 90 days (self-measured heartbeat, recording since {{stats_since}})
+{{stats_panel}}
 
 Machine-readable at [/v1/stats](/v1/stats) · liveness probe at [/health](/health).
 
