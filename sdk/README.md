@@ -95,6 +95,21 @@ How the binding works: the wrapped signer intercepts EIP-712 payment authorizati
 
 Guarantees and options: approvals are verified against the **pinned** verdict key at `approve()` time (tampered/replayed/expired attestations throw), are **single-use** by default (`reusable: true` to opt out), expire with the attestation (tighten with `maxAgeMs`), gate on allow-only verdicts (`allowFlagged: true` to accept flags; `acceptOverrides: true` to accept human-approved `override:allow` verdicts from [step-up approvals](../README.md#human-in-the-loop-step-up-approvals) — opt-in because a self-webhooked agent could approve its own flags), and can be `revoke()`d. Unrecognized typed data passes through by default; `strictTypes: true` makes the signer deny-by-default. Enforcement is fully local and fail-closed — if PaySafe is unreachable, nothing new can be approved. For flags that pause for a human (`scan.approval` present), `client.waitForApproval(scan, { payment })` polls until the operator decides and returns the signed override.
 
+**Local policy: allowlist + spend caps.** The verdict gate answers "was this exact payment scanned and allowed?" — local policy answers a different question: "is this payment inside the bounds I set, no matter what any scan said?" Configure it on the enforcer and it is checked against the typed data at signature time, entirely offline and independent of approvals:
+
+```ts
+const enforcer = new PaySafeEnforcer({
+  trustedKeyHex: await paysafe.verdictKey(),
+  allowedRecipients: ["0xKnownMerchantA…", "0xKnownMerchantB…"], // hard allowlist (case-insensitive; [] = deny all)
+  maxAmountAtomic: 1_000_000,   // per payment: 1 USDC (6 decimals)
+  maxTotalAtomic: 10_000_000,   // cumulative across this enforcer's lifetime: 10 USDC
+});
+```
+
+Even a payment carrying a valid allow-verdict is refused if it pays an unlisted recipient or exceeds a cap — so if everything upstream is confused or compromised, the wallet can still only move bounded amounts to known parties. Unparseable values under a cap are refused (fail-closed); `enforcer.totalAuthorizedAtomic()` reports the running total. Atomic units are only comparable within one asset (for x402 that's USDC); bound multi-asset flows with separate enforcers.
+
+**Growing the allowlist.** The agent can never extend the list — that's the point (an injected agent's first move would be to add the attacker). New recipients are added out of band, by whoever owns the enforcer config. For a smoother path there's one opt-in escape hatch: `overrideAdmitsRecipient: true` (requires `acceptOverrides`) lets a human-approved `override:allow` from [step-up approvals](../README.md#human-in-the-loop-step-up-approvals) satisfy the allowlist for **exactly the payment it binds** — the human admits one commitment-bound payment, the list itself never changes, spend caps still apply, and a plain allow-verdict never admits. It inherits the `acceptOverrides` security note: only meaningful when the approval webhook receiver is out of the agent's reach.
+
 **Delivery outcomes (automatic).** The payment-path wrapper also closes the loop after settlement: x402 delivery is synchronous, so it observes the paid response mechanically and reports the outcome — 2xx → `delivered`, 5xx or a second 402 → `not_delivered`, with status/bytes/latency evidence — bound to the scan it just performed (`scan_id` + `payment_commitment`, one outcome per scan, so delivery history can't be faked). Fire-and-forget: it never delays the response. Opt out with `reportOutcomes: false`; settling another way? call `client.reportOutcome(scan, outcome, evidence)` yourself. Sellers with low measured delivery rates get flagged on everyone's future scans.
 
 Scope note: this guards the typed-data path x402 uses. If your signer also exposes raw `signTransaction`, gate that at your policy layer too.

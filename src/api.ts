@@ -142,14 +142,27 @@ export function handleScan(
       scanDomain = null;
     }
   }
+  const indexedPayTo = (req.payment.pay_to ?? "").trim().toLowerCase();
   store.scanIndex.set(scan.scan_id, {
     commitment: paymentCommitment(req.payment),
-    pay_to: (req.payment.pay_to ?? "").trim().toLowerCase(),
+    pay_to: indexedPayTo,
     ...(scanDomain ? { domain: scanDomain } : {}),
     verdict: scan.verdict,
     ...(indexedKeyHash ? { key_hash: indexedKeyHash } : {}),
     at: scan.scanned_at,
   });
+
+  // Coverage denominator: count this counterparty's non-blocked scans so
+  // outcome coverage (outcomes reported / scans seen) is measurable in
+  // reputation lookups. Blocked scans are excluded — they must not settle, so
+  // no outcome is ever expected of them.
+  if (indexedPayTo && scan.verdict !== "block") {
+    const sc = store.scanCounts.get(indexedPayTo) ?? { scans: 0, first_at: scan.scanned_at, last_at: scan.scanned_at };
+    sc.scans += 1;
+    sc.last_at = scan.scanned_at;
+    store.scanCounts.set(indexedPayTo, sc);
+    store.markDirty();
+  }
 
   let approval: ReturnType<typeof maybeCreateApproval> = null;
   if (apiKey) {
@@ -515,6 +528,7 @@ export function serviceInfo(cfg: PaySafeConfig): ApiResult {
         "GET /dashboard": "Free. Browser usage dashboard for your key — key is sent via header only, never a URL.",
         "GET /.well-known/x402": "Free. x402 manifest.",
         "GET /.well-known/agent-card.json": "Free. Agent card.",
+        "GET /.well-known/erc8004.json": "Free. ERC-8004 agent registration file (on-chain identity tokenURI).",
         "GET /.well-known/paysafe-verdict-key": "Free. Ed25519 public key for verdict attestations.",
         "GET /health": "Free. Liveness.",
         "GET /v1/stats": "Free. Public aggregate service stats: scan totals, verdict split, distinct agents, self-measured 90-day uptime. Cached ~5 min; aggregates only.",

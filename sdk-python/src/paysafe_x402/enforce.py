@@ -38,9 +38,16 @@ Design notes (identical guarantees to the TS kit):
   - Enforcement never phones home: approval happens locally against the
     pinned key. If PaySafe is unreachable, nothing new can be approved —
     fail-closed, which is the point.
+  - LOCAL POLICY (optional): ``allowed_recipients`` plus ``max_amount_atomic``
+    / ``max_total_atomic`` spend caps, checked against the typed data at sign
+    time with no server involved. Deliberately independent of the verdict
+    layer: even a payment with a valid allow-verdict is refused if it exceeds
+    the caps or pays an unlisted recipient, so a compromised advisory path can
+    only move bounded amounts to known parties.
 """
 from __future__ import annotations
 
+import re
 import time
 from typing import Any, Dict, Optional
 
@@ -81,6 +88,30 @@ def _s(v: Any) -> str:
     if isinstance(v, (bytes, bytearray)):
         return "0x" + bytes(v).hex()
     return ""
+
+
+_ASCII_DIGITS = re.compile(r"^\d+$", re.ASCII)
+
+
+def _to_atomic(v: Any, name: str) -> Optional[int]:
+    """Parse a policy cap option into a non-negative int (None = not set).
+    Raises on anything that isn't a plain integer — a cap that silently failed
+    to parse would be a cap that silently doesn't exist."""
+    if v is None:
+        return None
+    if isinstance(v, int) and not isinstance(v, bool) and v >= 0:
+        return v
+    if isinstance(v, str) and _ASCII_DIGITS.match(v.strip()):
+        return int(v.strip())
+    raise PaySafeEnforcementError(f"{name} must be a non-negative integer amount in atomic units (got {v!r})")
+
+
+def _parse_atomic_amount(amount: Any) -> Optional[int]:
+    """Parse a typed-data value into a non-negative int, or None if it isn't
+    a plain ASCII integer (callers with caps configured treat None as refuse)."""
+    if isinstance(amount, str) and _ASCII_DIGITS.match(amount):
+        return int(amount)
+    return None
 
 
 def _infer_primary_type(types: Any) -> Optional[str]:
@@ -205,7 +236,12 @@ class _GuardedSigner:
                 )
             return signer.sign_typed_data(*args, **kwargs)
         primary = (td or {}).get("primaryType") if isinstance(td, dict) else None
+        # Local policy first (allowlist, caps — offline, approval-independent),
+        # then the verdict/approval gate; count against the cumulative cap only
+        # when both have passed and the signature is about to happen.
+        enforcer.assert_policy(payment, primary)
         enforcer.assert_approved(compute_payment_commitment(payment), primary)
+        enforcer._record_authorized(payment)
         return signer.sign_typed_data(*args, **kwargs)
 
 
@@ -220,6 +256,10 @@ class PaySafeEnforcer:
         max_age_s: Optional[float] = None,
         reusable: bool = False,
         strict_types: bool = False,
+        allowed_recipients: Optional[list] = None,
+        override_admits_recipient: bool = False,
+        max_amount_atomic: Optional[Any] = None,
+        max_total_atomic: Optional[Any] = None,
     ):
         if not trusted_key_hex:
             raise PaySafeEnforcementError(
@@ -237,7 +277,99 @@ class PaySafeEnforcer:
         self.max_age_s = max_age_s
         self.reusable = reusable
         self.strict_types = strict_types
+        # LOCAL POLICY — recipient allowlist (case-insensitive; an EMPTY list
+        # refuses all recognized payments) and spend caps in atomic units of
+        # the asset (USDC has 6 decimals, so 1_000_000 = $1). Checked at sign
+        # time against the typed data, independent of the approval layer, so
+        # even a fully approved payment stays inside the bounds. Atomic units
+        # are only comparable within one asset — bound multi-asset flows with
+        # separate enforcers.
+        self.allowed_recipients = (
+            {str(a).strip().lower() for a in allowed_recipients} if allowed_recipients is not None else None
+        )
+        # Escape hatch: a human-approved "override:allow" verdict satisfies the
+        # allowlist for EXACTLY the payment it binds (the list never changes;
+        # spend caps still apply; a plain allow never admits). Requires
+        # accept_overrides — and inherits its security note: only meaningful
+        # when the approval webhook receiver is out of the agent's reach.
+        self.override_admits_recipient = override_admits_recipient
+        if self.override_admits_recipient and not self.accept_overrides:
+            raise PaySafeEnforcementError(
+                "override_admits_recipient requires accept_overrides: an enforcer that refuses override "
+                "verdicts could never admit one, so this combination is a dead setting, not a policy."
+            )
+        self.max_amount_atomic = _to_atomic(max_amount_atomic, "max_amount_atomic")
+        self.max_total_atomic = _to_atomic(max_total_atomic, "max_total_atomic")
+        #: Total atomic value of authorizations the gates have allowed to be
+        #: signed (authorizations, not settlements).
+        self.total_authorized_atomic = 0
         self._approvals: Dict[str, _Approval] = {}
+
+    def assert_policy(self, payment: Dict[str, Any], primary_type: Optional[str] = None) -> None:
+        """The LOCAL POLICY gate: recipient allowlist and spend caps, checked
+        against the payment extracted from the typed data being signed.
+        Deliberately independent of the verdict/approval layer — it bounds
+        what even a fully approved payment can move, so a subverted advisory
+        layer still can't exceed the caps or reach an unlisted recipient.
+        ``guard_signer`` calls this before the approval gate; it is public so
+        wallet authors can pre-check."""
+        if self.allowed_recipients is not None:
+            pay_to = str(payment.get("pay_to") or "").strip().lower()
+            if pay_to not in self.allowed_recipients and not self._override_admits(payment):
+                hint = (
+                    "; a human-approved override:allow for this exact payment would admit it"
+                    if self.override_admits_recipient
+                    else ""
+                )
+                raise PaySafeEnforcementError(
+                    f"recipient {payment.get('pay_to') or '(empty)'} is not on the local recipient allowlist "
+                    f"({len(self.allowed_recipients)} allowed{hint}); refusing to sign",
+                    primary_type=primary_type,
+                )
+        if self.max_amount_atomic is None and self.max_total_atomic is None:
+            return
+        amount = _parse_atomic_amount(payment.get("amount"))
+        if amount is None:
+            # Caps configured but the value isn't a plain non-negative integer:
+            # fail closed — an unparseable amount must not slip past a spend cap.
+            raise PaySafeEnforcementError(
+                f"spend caps are configured but this authorization's value ({payment.get('amount') or 'missing'}) "
+                "is not a plain integer in atomic units; refusing to sign",
+                primary_type=primary_type,
+            )
+        if self.max_amount_atomic is not None and amount > self.max_amount_atomic:
+            raise PaySafeEnforcementError(
+                f"authorization value {amount} exceeds the local per-payment cap of "
+                f"{self.max_amount_atomic} atomic units; refusing to sign",
+                primary_type=primary_type,
+            )
+        if self.max_total_atomic is not None and self.total_authorized_atomic + amount > self.max_total_atomic:
+            raise PaySafeEnforcementError(
+                f"authorization value {amount} would take this enforcer's authorized total to "
+                f"{self.total_authorized_atomic + amount}, past the local cumulative cap of "
+                f"{self.max_total_atomic} atomic units ({self.total_authorized_atomic} already authorized); "
+                "refusing to sign",
+                primary_type=primary_type,
+            )
+
+    def _override_admits(self, payment: Dict[str, Any]) -> bool:
+        """Does a registered, human-approved override admit this exact payment
+        past the recipient allowlist? Matches on the payment COMMITMENT, so the
+        admission cannot be transferred to any other payment — and only
+        verdicts ``approve`` already vetted as "override:allow" against the
+        pinned key count. Liveness (expiry, single-use) is still enforced by
+        ``assert_approved``, which always runs after this gate."""
+        if not self.override_admits_recipient:
+            return False
+        approval = self._approvals.get(compute_payment_commitment(payment))
+        return approval is not None and approval.verdict == "override:allow"
+
+    def _record_authorized(self, payment: Dict[str, Any]) -> None:
+        """Count an authorization against the cumulative cap — called by the
+        guarded signer once BOTH gates (policy, approval) have passed."""
+        amount = _parse_atomic_amount(payment.get("amount"))
+        if amount is not None:
+            self.total_authorized_atomic += amount
 
     def approve(self, scan: Dict[str, Any], payment: Dict[str, Any]) -> str:
         """Register a scan verdict as signing authority for its payment.

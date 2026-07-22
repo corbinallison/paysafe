@@ -34,6 +34,12 @@
  *  - Enforcement never phones home: approval happens locally against the
  *    pinned key. If PaySafe is unreachable, nothing new can be approved —
  *    fail-closed, which is the point.
+ *  - LOCAL POLICY (optional): `allowedRecipients` plus `maxAmountAtomic` /
+ *    `maxTotalAtomic` spend caps, checked against the typed data at sign time
+ *    with no server involved. Deliberately independent of the verdict layer:
+ *    even a payment with a valid allow-verdict is refused if it exceeds the
+ *    caps or pays an unlisted recipient, so a compromised advisory path can
+ *    only move bounded amounts to known parties.
  */
 import {
   computePaymentCommitment,
@@ -86,6 +92,33 @@ export interface EnforcerOptions {
   /** Refuse to sign ANY typed data that isn't a recognized payment
    * authorization (default false: unrecognized types pass through). */
   strictTypes?: boolean;
+  /** LOCAL POLICY — hard recipient allowlist. When set, a recognized payment
+   * authorization whose recipient (`to`/`spender`) is not on this list is
+   * refused at sign time, valid approval or not. Checked against the typed
+   * data actually being signed, entirely offline — the bound holds even if
+   * every advisory layer above it is wrong or compromised. Case-insensitive.
+   * An EMPTY array refuses all recognized payments (deny-all). */
+  allowedRecipients?: string[];
+  /** LOCAL POLICY escape hatch — let a human-approved "override:allow"
+   * verdict satisfy the recipient allowlist for EXACTLY the payment it binds
+   * (default false). The list itself never changes and the spend caps still
+   * apply: this admits one commitment-bound payment, never a recipient. A
+   * plain allow-verdict never admits — only the override path, which exists
+   * to be out of the agent's reach. Requires acceptOverrides (construction
+   * error otherwise) and inherits its security note: only meaningful when
+   * the approval webhook receiver is controlled by a human you trust. */
+  overrideAdmitsRecipient?: boolean;
+  /** LOCAL POLICY — per-authorization cap, in atomic units of the asset
+   * (USDC has 6 decimals, so 1_000_000 = $1). An authorization whose value
+   * exceeds this is refused at sign time regardless of approvals. */
+  maxAmountAtomic?: bigint | number | string;
+  /** LOCAL POLICY — cumulative cap, in atomic units, across every
+   * authorization this enforcer instance allows to be signed. Once the
+   * running total would exceed it, signing is refused; construct a new
+   * enforcer to reset. Atomic units are only comparable within one asset —
+   * for x402 that is USDC, but if your flow signs for multiple assets, bound
+   * them with separate enforcers. */
+  maxTotalAtomic?: bigint | number | string;
 }
 
 export class PaySafeEnforcementError extends Error {
@@ -139,6 +172,11 @@ export class PaySafeEnforcer {
   private readonly maxAgeMs: number | null;
   private readonly reusable: boolean;
   private readonly strictTypes: boolean;
+  private readonly allowedRecipients: Set<string> | null;
+  private readonly overrideAdmitsRecipient: boolean;
+  private readonly maxAmountAtomic: bigint | null;
+  private readonly maxTotalAtomic: bigint | null;
+  private authorizedTotal = 0n;
   private readonly approvals = new Map<string, Approval>();
 
   constructor(opts: EnforcerOptions) {
@@ -153,6 +191,85 @@ export class PaySafeEnforcer {
     this.maxAgeMs = opts.maxAgeMs ?? null;
     this.reusable = opts.reusable ?? false;
     this.strictTypes = opts.strictTypes ?? false;
+    this.allowedRecipients = opts.allowedRecipients
+      ? new Set(opts.allowedRecipients.map((a) => a.trim().toLowerCase()))
+      : null;
+    this.overrideAdmitsRecipient = opts.overrideAdmitsRecipient ?? false;
+    if (this.overrideAdmitsRecipient && !this.acceptOverrides) {
+      throw new PaySafeEnforcementError(
+        "overrideAdmitsRecipient requires acceptOverrides: an enforcer that refuses override verdicts could never admit one, so this combination is a dead setting, not a policy.",
+      );
+    }
+    this.maxAmountAtomic = toAtomic(opts.maxAmountAtomic, "maxAmountAtomic");
+    this.maxTotalAtomic = toAtomic(opts.maxTotalAtomic, "maxTotalAtomic");
+  }
+
+  /**
+   * The LOCAL POLICY gate: recipient allowlist and spend caps, checked against
+   * the payment extracted from the typed data being signed. Deliberately
+   * independent of the verdict/approval layer — it bounds what even a fully
+   * approved payment can move, so a subverted advisory layer still can't
+   * exceed the caps or reach an unlisted recipient. guardSigner calls this
+   * before the approval gate; it is public so wallet authors can pre-check.
+   */
+  assertPolicy(payment: PaymentDetails, primaryType?: string): void {
+    if (this.allowedRecipients) {
+      const payTo = (payment.pay_to ?? "").trim().toLowerCase();
+      if (!this.allowedRecipients.has(payTo) && !this.overrideAdmits(payment)) {
+        throw new PaySafeEnforcementError(
+          `recipient ${payment.pay_to || "(empty)"} is not on the local recipient allowlist (${this.allowedRecipients.size} allowed${
+            this.overrideAdmitsRecipient ? "; a human-approved override:allow for this exact payment would admit it" : ""
+          }); refusing to sign`,
+          { primaryType },
+        );
+      }
+    }
+    if (this.maxAmountAtomic === null && this.maxTotalAtomic === null) return;
+    const amount = parseAtomicAmount(payment.amount);
+    if (amount === null) {
+      // Caps configured but the value isn't a plain non-negative integer:
+      // fail closed — an unparseable amount must not slip past a spend cap.
+      throw new PaySafeEnforcementError(
+        `spend caps are configured but this authorization's value (${payment.amount ?? "missing"}) is not a plain integer in atomic units; refusing to sign`,
+        { primaryType },
+      );
+    }
+    if (this.maxAmountAtomic !== null && amount > this.maxAmountAtomic) {
+      throw new PaySafeEnforcementError(
+        `authorization value ${amount} exceeds the local per-payment cap of ${this.maxAmountAtomic} atomic units; refusing to sign`,
+        { primaryType },
+      );
+    }
+    if (this.maxTotalAtomic !== null && this.authorizedTotal + amount > this.maxTotalAtomic) {
+      throw new PaySafeEnforcementError(
+        `authorization value ${amount} would take this enforcer's authorized total to ${this.authorizedTotal + amount}, past the local cumulative cap of ${this.maxTotalAtomic} atomic units (${this.authorizedTotal} already authorized); refusing to sign`,
+        { primaryType },
+      );
+    }
+  }
+
+  /** Does a registered, human-approved override admit this exact payment past
+   * the recipient allowlist? Matches on the payment COMMITMENT, so the
+   * admission cannot be transferred to any other payment — and only verdicts
+   * approve() already vetted as "override:allow" against the pinned key count.
+   * Liveness (expiry, single-use) is still enforced by assertApproved, which
+   * always runs after this gate. */
+  private overrideAdmits(payment: PaymentDetails): boolean {
+    if (!this.overrideAdmitsRecipient) return false;
+    return this.approvals.get(computePaymentCommitment(payment))?.verdict === "override:allow";
+  }
+
+  /** Total atomic value of payment authorizations this enforcer has allowed
+   * to be signed. Counts authorizations the gates passed, not settlements. */
+  totalAuthorizedAtomic(): bigint {
+    return this.authorizedTotal;
+  }
+
+  /** Count an authorization against the cumulative cap — called by guardSigner
+   * once BOTH gates (policy, approval) have passed for a recognized payment. */
+  private recordAuthorized(payment: PaymentDetails): void {
+    const amount = parseAtomicAmount(payment.amount);
+    if (amount !== null) this.authorizedTotal += amount;
   }
 
   /**
@@ -262,7 +379,12 @@ export class PaySafeEnforcer {
         }
         return signer.signTypedData(...args);
       }
+      // Local policy first (allowlist, caps — offline, approval-independent),
+      // then the verdict/approval gate; count against the cumulative cap only
+      // when both have passed and the signature is about to happen.
+      enforcer.assertPolicy(payment, td.primaryType);
       enforcer.assertApproved(computePaymentCommitment(payment), td.primaryType);
+      enforcer.recordAuthorized(payment);
       return signer.signTypedData(...args);
     };
     return new Proxy(signer, {
@@ -273,6 +395,27 @@ export class PaySafeEnforcer {
       },
     });
   }
+}
+
+/** Parse a policy cap option into a non-negative bigint (null = not set).
+ * Throws on anything that isn't a plain integer — a cap that silently failed
+ * to parse would be a cap that silently doesn't exist. */
+function toAtomic(v: bigint | number | string | undefined, name: string): bigint | null {
+  if (v === undefined) return null;
+  try {
+    const b = BigInt(v);
+    if (b < 0n) throw new Error("negative");
+    return b;
+  } catch {
+    throw new PaySafeEnforcementError(`${name} must be a non-negative integer amount in atomic units (got ${String(v)})`);
+  }
+}
+
+/** Parse a typed-data value into a non-negative bigint, or null if it isn't
+ * a plain integer (callers with caps configured treat null as refuse). */
+function parseAtomicAmount(amount: string | undefined): bigint | null {
+  if (typeof amount !== "string" || !/^\d+$/.test(amount)) return null;
+  return BigInt(amount);
 }
 
 /** ethers v6 passes (domain, types, message) with no primaryType — infer it

@@ -203,11 +203,49 @@ function statsOf(agg: CounterpartyOutcomes, cfg?: PaySafeConfig): DeliveryStats 
   };
 }
 
-/** Delivery stats for one counterparty, for the reputation summary. Null when
- * there is no outcome history (absence of history is not a signal). */
-export function deliverySummary(store: Store, addressRaw: string, cfg?: PaySafeConfig): DeliveryStats | null {
-  const agg = store.outcomes.get(addressRaw.trim().toLowerCase());
-  return agg ? statsOf(agg, cfg) : null;
+/** The outcome ledger's DENOMINATOR, surfaced. `scans_seen` is how many
+ * non-blocked scans PaySafe has performed against this counterparty since
+ * counting began; `report_coverage` is outcomes_total over that. Publishing
+ * the denominator makes selective reporting legible — a curated slice of
+ * outcomes reads as low coverage instead of passing as a complete record.
+ * INFORMATIONAL ONLY: scan counts are client-driven (anyone can scan any
+ * pay_to, inflating the denominator), so neither field may ever feed a
+ * flag/block decision — failureVerdict must not read them. */
+export interface DeliveryCoverage {
+  scans_seen: number;
+  /** When the denominator started counting — coverage before this is unknowable. */
+  scans_tracked_since: string | null;
+  /** outcomes_total / scans_seen, clamped to [0,1] (outcomes predating the
+   * counter can push the raw ratio past 1). Null when scans_seen is 0. */
+  report_coverage: number | null;
+}
+
+function coverageOf(store: Store, address: string, outcomesTotal: number): DeliveryCoverage {
+  const sc = store.scanCounts.get(address);
+  const seen = sc?.scans ?? 0;
+  return {
+    scans_seen: seen,
+    scans_tracked_since: sc?.first_at ?? null,
+    report_coverage: seen > 0 ? Number(Math.min(1, outcomesTotal / seen).toFixed(4)) : null,
+  };
+}
+
+/** Delivery stats + coverage for one counterparty, for the reputation summary.
+ * Null when there is no outcome history (absence of history is not a signal). */
+export function deliverySummary(store: Store, addressRaw: string, cfg?: PaySafeConfig): (DeliveryStats & DeliveryCoverage) | null {
+  const address = addressRaw.trim().toLowerCase();
+  const agg = store.outcomes.get(address);
+  const stats = agg ? statsOf(agg, cfg) : null;
+  return stats ? { ...stats, ...coverageOf(store, address, stats.outcomes_total) } : null;
+}
+
+/** Reputation view for a counterparty with scans on record but ZERO reported
+ * outcomes: the un-reported population stays visible instead of reading as
+ * "no history" — exactly the selective-logging case coverage exists to
+ * expose. Null when nothing was ever counted (then absence means absence). */
+export function coverageOnlySummary(store: Store, addressRaw: string): ({ outcomes_total: 0 } & DeliveryCoverage) | null {
+  const cov = coverageOf(store, addressRaw.trim().toLowerCase(), 0);
+  return cov.scans_seen > 0 ? { outcomes_total: 0, ...cov } : null;
 }
 
 /** The two failure tests, shared by the pay_to and the domain-joined ledgers.

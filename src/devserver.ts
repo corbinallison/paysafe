@@ -27,7 +27,7 @@ import {
   handleUsage,
   serviceInfo,
 } from "./api.ts";
-import { x402Manifest, agentCard } from "./manifest.ts";
+import { x402Manifest, agentCard, erc8004Registration, logoSvg } from "./manifest.ts";
 import { openApiDoc } from "./openapi.ts";
 import { dashboardHtml } from "./dashboard.ts";
 import { adminDashboardHtml } from "./admindash.ts";
@@ -112,6 +112,13 @@ const server = createServer(async (req, res) => {
       out = { status: 200, body: openApiDoc(cfg) };
     else if (method === "GET" && path === "/.well-known/agent-card.json")
       out = { status: 200, body: agentCard(cfg) };
+    else if (method === "GET" && path === "/.well-known/erc8004.json")
+      out = { status: 200, body: erc8004Registration(cfg) };
+    else if (method === "GET" && path === "/logo.svg") {
+      res.writeHead(200, { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" });
+      res.end(logoSvg());
+      return;
+    }
     else if (method === "GET" && path === "/.well-known/paysafe-verdict-key")
       out = signer
         ? { status: 200, body: signer.publicKeyInfo() }

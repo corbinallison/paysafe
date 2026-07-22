@@ -48,7 +48,7 @@ import {
   serviceInfo,
 } from "./api.ts";
 import { PLANS, resolveEffectiveConfig, type Plan } from "./plans.ts";
-import { x402Manifest, agentCard } from "./manifest.ts";
+import { x402Manifest, agentCard, erc8004Registration, logoSvg } from "./manifest.ts";
 import { openApiDoc } from "./openapi.ts";
 import { dashboardHtml } from "./dashboard.ts";
 import { adminDashboardHtml } from "./admindash.ts";
@@ -379,6 +379,17 @@ app.get("/privacy", (_req, res) => htmlPage(privacyPageHtml(), res));
 
 app.get("/.well-known/agent-card.json", (_req, res) => {
   res.json(agentCard(cfg));
+});
+
+// ERC-8004 on-chain identity: this file is the agentURI/tokenURI of PaySafe's
+// agent NFT in the IdentityRegistry on Base (minted by the PAY_TO wallet).
+app.get("/.well-known/erc8004.json", (_req, res) => {
+  res.json(erc8004Registration(cfg));
+});
+
+app.get("/logo.svg", (_req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=86400");
+  res.type("image/svg+xml").send(logoSvg());
 });
 
 // Canonical machine-readable API contract (x402scan discovery + agent tooling).

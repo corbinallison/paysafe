@@ -72,6 +72,61 @@ export function x402Manifest(cfg: PaySafeConfig): object {
   };
 }
 
+/** ERC-8004 IdentityRegistry singleton — same vanity address on Base mainnet,
+ * Ethereum mainnet, and 35+ other chains. */
+export const ERC8004_IDENTITY_REGISTRY = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432";
+
+/** Minimal scriptless logo (served at /logo.svg) so the ERC-8004 registration
+ * file can carry the spec's `image` field without any external asset host. */
+export function logoSvg(): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <path d="M32 4 L56 14 V32 C56 46 46 56 32 60 C18 56 8 46 8 32 V14 Z" fill="#0b5cff"/>
+  <path d="M32 10 L50 17.5 V32 C50 42.8 42.5 50.6 32 54 C21.5 50.6 14 42.8 14 32 V17.5 Z" fill="#0e1526"/>
+  <path d="M22 32.5 L29 39.5 L43 25.5" fill="none" stroke="#22c55e" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+`;
+}
+
+/**
+ * ERC-8004 registration file (/.well-known/erc8004.json) — the tokenURI
+ * target for PaySafe's on-chain agent identity. The identity NFT is minted BY
+ * the PAY_TO wallet (admintools/register-erc8004.ts), so the wallet that
+ * receives x402 payments and the on-chain identity are the same key. The file
+ * must exist BEFORE the mint (it is passed as agentURI), but the agentId only
+ * exists after — so `registrations` self-completes once ERC8004_AGENT_ID is
+ * set post-mint, with no redeploy of anything on-chain.
+ */
+export function erc8004Registration(cfg: PaySafeConfig): object {
+  const agentIdNum = /^\d+$/.test(cfg.erc8004AgentId) ? Number(cfg.erc8004AgentId) : null;
+  return {
+    type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+    name: "PaySafe",
+    description:
+      "Payment security firewall for x402 micropayments. Call PaySafe before settling any x402 payment to catch prompt-injection-triggered payments (attacker addresses planted in content the agent just read), replayed authorizations, overpayment, secrets leaking through payment metadata, fake/lookalike USDC contracts, and address poisoning. Returns allow/flag/block with machine-readable reasons and an Ed25519-signed, payment-bound verdict a wallet can enforce. Advisory and non-custodial — never touches keys or funds. Includes a shared counterparty reputation registry and a commitment-bound delivery-outcome ledger.",
+    image: `${cfg.publicBaseUrl}/logo.svg`,
+    services: [
+      { name: "web", endpoint: cfg.publicBaseUrl },
+      { name: "x402", endpoint: `${cfg.publicBaseUrl}/.well-known/x402`, version: "2" },
+      { name: "A2A", endpoint: `${cfg.publicBaseUrl}/.well-known/agent-card.json`, version: "0.3.0" },
+      { name: "OpenAPI", endpoint: `${cfg.publicBaseUrl}/openapi.json`, version: "3.1.0" },
+      { name: "MCP", endpoint: "https://registry.modelcontextprotocol.io/v0/servers?search=com.paysafe-agent/paysafe", version: VERSION },
+    ],
+    x402Support: true,
+    active: true,
+    // Trust models PaySafe itself supports as a provider today. Validator
+    // wiring (validationResponse against the Validation Registry) lands once
+    // that portion of the spec settles — see ROADMAP §6.
+    supportedTrust: ["reputation"],
+    registrations:
+      agentIdNum !== null
+        ? [{ agentId: agentIdNum, agentRegistry: `eip155:8453:${ERC8004_IDENTITY_REGISTRY}` }]
+        : [],
+    // The wallet that mints (and owns) the identity NFT is the same wallet
+    // that receives x402 payments — one key, one identity.
+    ...(cfg.payTo ? { agentWallet: cfg.payTo } : {}),
+  };
+}
+
 export function agentCard(cfg: PaySafeConfig): object {
   return {
     protocolVersion: "0.3.0",

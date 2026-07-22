@@ -166,6 +166,26 @@ const ReputationSummary = {
         last_at: { type: "string" },
       },
     },
+    delivery: {
+      type: ["object", "null"],
+      description:
+        "Measured, commitment-bound delivery outcomes for this counterparty, plus the ledger's denominator: scans_seen counts the non-blocked scans PaySafe performed against it, and report_coverage is outcomes_total over that — so selectively reported outcomes read as low coverage instead of passing as a complete record. When scans exist but no outcome was ever reported, outcomes_total is 0 and only the coverage fields are present. Coverage is informational only (scan counts are client-driven) and never feeds a flag; null means no outcomes and no counted scans.",
+      properties: {
+        outcomes_total: { type: "integer" },
+        delivered: { type: "integer" },
+        not_delivered: { type: "integer" },
+        partial: { type: "integer" },
+        wrong_content: { type: "integer" },
+        delivery_rate: { type: "number", description: "Raw observed rate — always reported, never the flag trigger." },
+        smoothed_delivery_rate: { type: "number", description: "Prior-smoothed rate (Beta prior, mean 0.9, strength 10) — what flag decisions compare." },
+        distinct_reporters: { type: "integer" },
+        first_at: { type: "string" },
+        last_at: { type: "string" },
+        scans_seen: { type: "integer", description: "Non-blocked scans of this counterparty since the counter began — the outcome ledger's denominator." },
+        scans_tracked_since: { type: ["string", "null"] },
+        report_coverage: { type: ["number", "null"], description: "outcomes_total / scans_seen, clamped to [0,1]; null when scans_seen is 0." },
+      },
+    },
   },
 } as const;
 

@@ -549,6 +549,125 @@ check("approved Permit signs", enforcer.guard_signer(wallet).sign_typed_data(per
 check("enforcer refuses to construct without a pinned key",
       expect_refusal(PaySafeEnforcer, trusted_key_hex="") is not None)
 
+print("\n— local policy (recipient allowlist + spend caps) —")
+
+# Allowlist: an APPROVED payment to an unlisted recipient is still refused —
+# the policy gate is independent of the verdict layer.
+p = dict(base_payment, nonce="0xpol1")
+enforcer = PaySafeEnforcer(trusted_key_hex=PINNED, allowed_recipients=["0xSomeoneElse0000000000000000000000000001"])
+wallet = FakeSigner()
+guarded = enforcer.guard_signer(wallet)
+enforcer.approve(make_scan(p, "outgoing"), p)
+e = expect_refusal(guarded.sign_typed_data, typed_data_for(p))
+check("approved payment to unlisted recipient refused",
+      e is not None and "allowlist" in str(e) and len(wallet.signed) == 0)
+
+# Allowlist match is case-insensitive; listed recipient signs normally.
+p = dict(base_payment, nonce="0xpol2")
+enforcer = PaySafeEnforcer(trusted_key_hex=PINNED, allowed_recipients=[base_payment["pay_to"].upper()])
+guarded = enforcer.guard_signer(FakeSigner())
+enforcer.approve(make_scan(p, "outgoing"), p)
+check("listed recipient signs (case-insensitive)", guarded.sign_typed_data(typed_data_for(p)) == "0xsigned")
+
+# An EMPTY allowlist is deny-all, not unrestricted.
+deny_all = PaySafeEnforcer(trusted_key_hex=PINNED, allowed_recipients=[])
+p = dict(base_payment, nonce="0xpol3")
+deny_all.approve(make_scan(p, "outgoing"), p)
+check("empty allowlist refuses all recipients",
+      expect_refusal(deny_all.guard_signer(FakeSigner()).sign_typed_data, typed_data_for(p)) is not None)
+
+# Per-payment cap in atomic units, checked against the typed data's value.
+p = dict(base_payment, nonce="0xpol4")  # amount 10000
+capped = PaySafeEnforcer(trusted_key_hex=PINNED, max_amount_atomic=5000)
+capped.approve(make_scan(p, "outgoing"), p)
+e = expect_refusal(capped.guard_signer(FakeSigner()).sign_typed_data, typed_data_for(p))
+check("value above per-payment cap refused", e is not None and "per-payment cap" in str(e))
+
+roomy = PaySafeEnforcer(trusted_key_hex=PINNED, max_amount_atomic="10000")
+p = dict(base_payment, nonce="0xpol5")
+roomy.approve(make_scan(p, "outgoing"), p)
+check("value at the per-payment cap signs", roomy.guard_signer(FakeSigner()).sign_typed_data(typed_data_for(p)) == "0xsigned")
+
+# Cumulative cap: the running total of authorized value is bounded.
+enforcer = PaySafeEnforcer(trusted_key_hex=PINNED, max_total_atomic=25000)
+guarded = enforcer.guard_signer(FakeSigner())
+for nonce in ("0xpol6", "0xpol7"):
+    p = dict(base_payment, nonce=nonce)
+    enforcer.approve(make_scan(p, "outgoing"), p)
+    guarded.sign_typed_data(typed_data_for(p))  # 10000 each
+check("authorized total tracks signed value", enforcer.total_authorized_atomic == 20000)
+p = dict(base_payment, nonce="0xpol8")
+enforcer.approve(make_scan(p, "outgoing"), p)
+e = expect_refusal(guarded.sign_typed_data, typed_data_for(p))
+check("payment past the cumulative cap refused", e is not None and "cumulative cap" in str(e))
+check("refused payment does not count toward the total", enforcer.total_authorized_atomic == 20000)
+
+# Fail-closed: with caps configured, a non-integer value must not slip past.
+p = dict(base_payment, amount="0x2710", nonce="0xpol9")
+enforcer = PaySafeEnforcer(trusted_key_hex=PINNED, max_amount_atomic=1_000_000)
+enforcer.approve(make_scan(p, "outgoing"), p)
+e = expect_refusal(enforcer.guard_signer(FakeSigner()).sign_typed_data, typed_data_for(p))
+check("unparseable value under a spend cap is refused (fail-closed)",
+      e is not None and "not a plain integer" in str(e))
+
+# Malformed cap options are a construction-time error, not a silent no-op.
+check("non-integer cap option raises at construction",
+      expect_refusal(PaySafeEnforcer, trusted_key_hex=PINNED, max_amount_atomic="five dollars") is not None)
+
+
+# Override admission: a human-approved override:allow can admit ONE
+# commitment-bound payment past the allowlist — opt-in, on top of accept_overrides.
+def make_override_scan(payment: dict) -> dict:
+    scan = make_scan(payment, "outgoing")
+    scan["verdict"] = "override:allow"
+    att = scan["attestation"]
+    message = (
+        f"{scan['scan_id']}|{scan['direction']}|override:allow|{scan['risk_score']}"
+        f"|{scan['scanned_at']}|{att['payment_commitment']}|{att['expires_at']}"
+    )
+    att["message"] = message
+    att["signature_hex"] = signer_key.sign(message.encode("utf-8")).hex()
+    return scan
+
+
+# Dead-setting guard: the option without accept_overrides is a construction error.
+check("override_admits_recipient without accept_overrides raises at construction",
+      expect_refusal(PaySafeEnforcer, trusted_key_hex=PINNED, allowed_recipients=[], override_admits_recipient=True) is not None)
+
+# Default hard bound: even with accept_overrides, an approved override to an
+# unlisted recipient is refused unless override_admits_recipient is on.
+p = dict(base_payment, nonce="0xova1")
+hard = PaySafeEnforcer(trusted_key_hex=PINNED, accept_overrides=True,
+                       allowed_recipients=["0xSomeoneElse0000000000000000000000000001"])
+hard.approve(make_override_scan(p), p)
+e = expect_refusal(hard.guard_signer(FakeSigner()).sign_typed_data, typed_data_for(p))
+check("override does NOT cross the allowlist by default", e is not None and "allowlist" in str(e))
+
+# Opt-in: the override admits exactly the payment it binds.
+p = dict(base_payment, nonce="0xova2")
+lenient = PaySafeEnforcer(trusted_key_hex=PINNED, accept_overrides=True, override_admits_recipient=True,
+                          allowed_recipients=["0xSomeoneElse0000000000000000000000000001"])
+lenient.approve(make_override_scan(p), p)
+guarded = lenient.guard_signer(FakeSigner())
+check("human-approved override admits its one payment past the allowlist",
+      guarded.sign_typed_data(typed_data_for(p)) == "0xsigned")
+
+# The admission is per-payment, not per-recipient: the next payment to the
+# SAME recipient with a plain allow-verdict is refused again.
+p = dict(base_payment, nonce="0xova3")
+lenient.approve(make_scan(p, "outgoing"), p)  # plain allow
+e = expect_refusal(guarded.sign_typed_data, typed_data_for(p))
+check("admission does not stick to the recipient (plain allow refused after)",
+      e is not None and "allowlist" in str(e))
+
+# Spend caps still bound override-admitted payments.
+p = dict(base_payment, nonce="0xova4")  # amount 10000
+capped_ov = PaySafeEnforcer(trusted_key_hex=PINNED, accept_overrides=True, override_admits_recipient=True,
+                            allowed_recipients=[], max_amount_atomic=5000)
+capped_ov.approve(make_override_scan(p), p)
+e = expect_refusal(capped_ov.guard_signer(FakeSigner()).sign_typed_data, typed_data_for(p))
+check("override admission never bypasses spend caps", e is not None and "per-payment cap" in str(e))
+
 # Cross-language: an attestation signed by the REAL Node server signer
 # authorizes a signature through the Python enforcement gate end to end.
 fx_enforcer = PaySafeEnforcer(trusted_key_hex=FIXTURE["public_key_spki_hex"])

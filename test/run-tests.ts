@@ -28,6 +28,7 @@ import { handleApprovalDecide, handleApprovalInspect, handleApprovalPoll, isPriv
 import { handleOutcomeReport } from "../src/outcomes.ts";
 import { approvePageHtml } from "../src/approvepage.ts";
 import { homePageHtml, termsPageHtml, privacyPageHtml } from "../src/pages.ts";
+import { erc8004Registration, ERC8004_IDENTITY_REGISTRY, logoSvg } from "../src/manifest.ts";
 import { computePublicStats, computeUptime, type PublicStats } from "../src/pubstats.ts";
 import { parseScoutScore, scheduleScoutScoreRefresh } from "../src/detectors/scoutscore.ts";
 import { createServer as createHttpServer } from "node:http";
@@ -1741,7 +1742,70 @@ console.log("\n— delivery outcomes: commitment binding —");
   // The reputation summary carries the measured delivery section.
   const rep = summarize(store, seller.pay_to);
   check("reputation summary includes measured delivery stats", rep.delivery?.outcomes_total === 3 && rep.delivery?.delivered === 3 && rep.delivery?.delivery_rate === 1);
+  check("summary carries the coverage denominator", rep.delivery?.scans_seen === 3 && rep.delivery?.report_coverage === 1);
   check("no outcome history reads as null, never suspicion", summarize(store, "0xNeverSeen000000000000000000000000000001").delivery === null);
+}
+
+console.log("\n— delivery outcomes: coverage denominator —");
+{
+  const store = new Store(null);
+  const signer = new VerdictSigner(null);
+  const key = (createApiKey(store, cfg) as { body: { api_key: string } }).body.api_key;
+  const seller = { ...basePayment, pay_to: "0xCoverageSeller000000000000000000000001", resource_url: "https://coverage.example.net/api", nonce: "0xcov0" };
+
+  // Four non-blocked scans; only ONE outcome ever reported — the selective-
+  // logging case. The un-reported population must be visible as low coverage.
+  let firstScan: any = null;
+  for (let i = 0; i < 4; i++) {
+    const s = (handleScan("outgoing", { payment: { ...seller, nonce: `0xcov${i + 1}` }, expected_price_usd: 0.01, context: { origin: "planning" } }, cfg, store, signer, key) as { body: any }).body;
+    if (i === 0) firstScan = s;
+  }
+  handleOutcomeReport(store, cfg, key, { scan_id: firstScan.scan_id, payment_commitment: firstScan.attestation.payment_commitment, outcome: "delivered" });
+  const rep = summarize(store, seller.pay_to);
+  check("selective reporting reads as low coverage", rep.delivery?.outcomes_total === 1 && rep.delivery?.scans_seen === 4 && rep.delivery?.report_coverage === 0.25);
+
+  // Scans but ZERO reported outcomes: the population stays visible instead of
+  // reading as "no history".
+  const ghost = { ...basePayment, pay_to: "0xScannedNeverReported0000000000000000001", nonce: "0xcovg" };
+  handleScan("outgoing", { payment: ghost, expected_price_usd: 0.01, context: { origin: "planning" } }, cfg, store, signer, key);
+  const ghostRep = summarize(store, ghost.pay_to);
+  check("zero-outcome counterparty exposes coverage-only view", ghostRep.delivery?.outcomes_total === 0 && ghostRep.delivery?.scans_seen === 1 && ghostRep.delivery?.report_coverage === 0);
+
+  // Blocked scans are not part of the denominator — no outcome is expected of
+  // a payment that must not settle. Re-using the nonce makes the second scan
+  // a replay block.
+  const replayed = { ...basePayment, pay_to: "0xBlockedNotCounted00000000000000000000001", resource_url: "https://replays.example.net/api", nonce: "0xcovsame" };
+  handleScan("outgoing", { payment: replayed, expected_price_usd: 0.01, context: { origin: "planning" } }, cfg, store, signer, key);
+  const second = (handleScan("outgoing", { payment: replayed, expected_price_usd: 0.01, context: { origin: "planning" } }, cfg, store, signer, key) as { body: any }).body;
+  check("blocked scan excluded from the denominator", second.verdict === "block" && store.scanCounts.get(replayed.pay_to.toLowerCase())?.scans === 1);
+
+  // Outcomes predating the counter can outnumber counted scans — coverage is
+  // clamped, never reported as >100%.
+  const legacy = "0xlegacyseller000000000000000000000000001";
+  store.outcomes.set(legacy, { delivered: 5, not_delivered: 0, partial: 0, wrong_content: 0, reporters: ["anon"], first_at: new Date().toISOString(), last_at: new Date().toISOString() });
+  store.scanCounts.set(legacy, { scans: 2, first_at: new Date().toISOString(), last_at: new Date().toISOString() });
+  check("coverage clamps at 1 when outcomes predate the counter", summarize(store, legacy).delivery?.report_coverage === 1);
+}
+
+console.log("\n— ERC-8004 registration file —");
+{
+  // Pre-mint: the file must serve (it's the agentURI the mint points at)
+  // with an EMPTY registrations array — the agentId doesn't exist yet.
+  const pre = erc8004Registration(cfg) as Record<string, any>;
+  check("registration file has the spec type", pre.type === "https://eips.ethereum.org/EIPS/eip-8004#registration-v1");
+  check("pre-mint file serves with empty registrations", Array.isArray(pre.registrations) && pre.registrations.length === 0);
+  check("agentWallet is the PAY_TO wallet (one key, one identity)", pre.agentWallet === cfg.payTo);
+  check("x402 service endpoint advertised", (pre.services as any[]).some((s) => s.name === "x402" && String(s.endpoint).endsWith("/.well-known/x402")));
+
+  // Post-mint: ERC8004_AGENT_ID completes the registrations entry.
+  const post = erc8004Registration({ ...cfg, erc8004AgentId: "42" }) as Record<string, any>;
+  check("agent id completes the on-chain registration entry",
+    post.registrations.length === 1 && post.registrations[0].agentId === 42 &&
+    post.registrations[0].agentRegistry === `eip155:8453:${ERC8004_IDENTITY_REGISTRY}`);
+  // A malformed id must not serve a bogus on-chain claim.
+  const junk = erc8004Registration({ ...cfg, erc8004AgentId: "not-a-number" }) as Record<string, any>;
+  check("non-numeric agent id serves no registration claim", junk.registrations.length === 0);
+  check("logo is scriptless inline svg", logoSvg().startsWith("<svg") && !logoSvg().includes("script"));
 }
 
 console.log("\n— delivery outcomes: scan-time check —");

@@ -522,6 +522,129 @@ function fakeSigner(): { address: string; signed: TypedDataLike[]; signTypedData
   check("enforcer refuses to construct without a pinned key", threw instanceof PaySafeEnforcementError);
 }
 
+console.log("\n— local policy (recipient allowlist + spend caps) —");
+{
+  // Allowlist: an APPROVED payment to an unlisted recipient is still refused —
+  // the policy gate is independent of the verdict layer.
+  const p = { ...basePayment, nonce: "0xpol1" };
+  const enforcer = new PaySafeEnforcer({ trustedKeyHex: PINNED, allowedRecipients: ["0xSomeoneElse0000000000000000000000000001"] });
+  const wallet = fakeSigner();
+  const guarded = enforcer.guardSigner(wallet);
+  enforcer.approve(makeScan(p), p);
+  let threw: unknown = null;
+  try { await guarded.signTypedData(typedDataFor(p)); } catch (e) { threw = e; }
+  check("approved payment to unlisted recipient refused", threw instanceof PaySafeEnforcementError && String((threw as Error).message).includes("allowlist") && wallet.signed.length === 0);
+}
+{
+  // Allowlist match is case-insensitive; listed recipient signs normally.
+  const p = { ...basePayment, nonce: "0xpol2" };
+  const enforcer = new PaySafeEnforcer({ trustedKeyHex: PINNED, allowedRecipients: [basePayment.pay_to!.toUpperCase()] });
+  const guarded = enforcer.guardSigner(fakeSigner());
+  enforcer.approve(makeScan(p), p);
+  check("listed recipient signs (case-insensitive)", (await guarded.signTypedData(typedDataFor(p))) === "0xsigned");
+
+  // An EMPTY allowlist is deny-all, not unrestricted.
+  const denyAll = new PaySafeEnforcer({ trustedKeyHex: PINNED, allowedRecipients: [] });
+  const p2 = { ...basePayment, nonce: "0xpol3" };
+  denyAll.approve(makeScan(p2), p2);
+  let threw: unknown = null;
+  try { await denyAll.guardSigner(fakeSigner()).signTypedData(typedDataFor(p2)); } catch (e) { threw = e; }
+  check("empty allowlist refuses all recipients", threw instanceof PaySafeEnforcementError);
+}
+{
+  // Per-payment cap in atomic units, checked against the typed data's value.
+  const p = { ...basePayment, nonce: "0xpol4" }; // amount 10000
+  const capped = new PaySafeEnforcer({ trustedKeyHex: PINNED, maxAmountAtomic: 5000 });
+  capped.approve(makeScan(p), p);
+  let threw: unknown = null;
+  try { await capped.guardSigner(fakeSigner()).signTypedData(typedDataFor(p)); } catch (e) { threw = e; }
+  check("value above per-payment cap refused", threw instanceof PaySafeEnforcementError && String((threw as Error).message).includes("per-payment cap"));
+
+  const roomy = new PaySafeEnforcer({ trustedKeyHex: PINNED, maxAmountAtomic: "10000" });
+  const p2 = { ...basePayment, nonce: "0xpol5" };
+  roomy.approve(makeScan(p2), p2);
+  check("value at the per-payment cap signs", (await roomy.guardSigner(fakeSigner()).signTypedData(typedDataFor(p2))) === "0xsigned");
+}
+{
+  // Cumulative cap: the running total of authorized value is bounded.
+  const enforcer = new PaySafeEnforcer({ trustedKeyHex: PINNED, maxTotalAtomic: 25000 });
+  const guarded = enforcer.guardSigner(fakeSigner());
+  for (const nonce of ["0xpol6", "0xpol7"]) {
+    const p = { ...basePayment, nonce };
+    enforcer.approve(makeScan(p), p);
+    await guarded.signTypedData(typedDataFor(p)); // 10000 each
+  }
+  check("authorized total tracks signed value", enforcer.totalAuthorizedAtomic() === 20000n);
+  const p3 = { ...basePayment, nonce: "0xpol8" };
+  enforcer.approve(makeScan(p3), p3);
+  let threw: unknown = null;
+  try { await guarded.signTypedData(typedDataFor(p3)); } catch (e) { threw = e; }
+  check("payment past the cumulative cap refused", threw instanceof PaySafeEnforcementError && String((threw as Error).message).includes("cumulative cap"));
+  check("refused payment does not count toward the total", enforcer.totalAuthorizedAtomic() === 20000n);
+}
+{
+  // Fail-closed: with caps configured, a non-integer value must not slip past.
+  const p = { ...basePayment, amount: "0x2710", nonce: "0xpol9" };
+  const enforcer = new PaySafeEnforcer({ trustedKeyHex: PINNED, maxAmountAtomic: 1_000_000 });
+  enforcer.approve(makeScan(p), p);
+  let threw: unknown = null;
+  try { await enforcer.guardSigner(fakeSigner()).signTypedData(typedDataFor(p)); } catch (e) { threw = e; }
+  check("unparseable value under a spend cap is refused (fail-closed)", threw instanceof PaySafeEnforcementError && String((threw as Error).message).includes("not a plain integer"));
+
+  // Malformed cap options are a construction-time error, not a silent no-op.
+  let badCap: unknown = null;
+  try { new PaySafeEnforcer({ trustedKeyHex: PINNED, maxAmountAtomic: "five dollars" }); } catch (e) { badCap = e; }
+  check("non-integer cap option throws at construction", badCap instanceof PaySafeEnforcementError);
+}
+{
+  // Override admission: a human-approved override:allow can admit ONE
+  // commitment-bound payment past the allowlist — opt-in, and only on top of
+  // acceptOverrides.
+  const makeOverrideScan = (p: PaymentDetails): ScanResponse => {
+    const scan = makeScan(p);
+    scan.verdict = "override:allow";
+    scan.attestation = signer.attest(scan, paymentCommitment(p));
+    return scan;
+  };
+
+  // Dead-setting guard: the option without acceptOverrides is a construction error.
+  let dead: unknown = null;
+  try { new PaySafeEnforcer({ trustedKeyHex: PINNED, allowedRecipients: [], overrideAdmitsRecipient: true }); } catch (e) { dead = e; }
+  check("overrideAdmitsRecipient without acceptOverrides throws at construction", dead instanceof PaySafeEnforcementError);
+
+  // Default hard bound: even with acceptOverrides, an approved override to an
+  // unlisted recipient is refused unless overrideAdmitsRecipient is on.
+  const p1 = { ...basePayment, nonce: "0xova1" };
+  const hard = new PaySafeEnforcer({ trustedKeyHex: PINNED, acceptOverrides: true, allowedRecipients: ["0xSomeoneElse0000000000000000000000000001"] });
+  hard.approve(makeOverrideScan(p1), p1);
+  let threw: unknown = null;
+  try { await hard.guardSigner(fakeSigner()).signTypedData(typedDataFor(p1)); } catch (e) { threw = e; }
+  check("override does NOT cross the allowlist by default", threw instanceof PaySafeEnforcementError && String((threw as Error).message).includes("allowlist"));
+
+  // Opt-in: the override admits exactly the payment it binds.
+  const p2 = { ...basePayment, nonce: "0xova2" };
+  const lenient = new PaySafeEnforcer({ trustedKeyHex: PINNED, acceptOverrides: true, overrideAdmitsRecipient: true, allowedRecipients: ["0xSomeoneElse0000000000000000000000000001"] });
+  lenient.approve(makeOverrideScan(p2), p2);
+  const wallet = fakeSigner();
+  check("human-approved override admits its one payment past the allowlist", (await lenient.guardSigner(wallet).signTypedData(typedDataFor(p2))) === "0xsigned");
+
+  // The admission is per-payment, not per-recipient: the next payment to the
+  // SAME recipient with a plain allow-verdict is refused again.
+  const p3 = { ...basePayment, nonce: "0xova3" };
+  lenient.approve(makeScan(p3), p3); // plain allow
+  let again: unknown = null;
+  try { await lenient.guardSigner(wallet).signTypedData(typedDataFor(p3)); } catch (e) { again = e; }
+  check("admission does not stick to the recipient (plain allow refused after)", again instanceof PaySafeEnforcementError && String((again as Error).message).includes("allowlist"));
+
+  // Spend caps still bound override-admitted payments.
+  const p4 = { ...basePayment, nonce: "0xova4" }; // amount 10000
+  const cappedOv = new PaySafeEnforcer({ trustedKeyHex: PINNED, acceptOverrides: true, overrideAdmitsRecipient: true, allowedRecipients: [], maxAmountAtomic: 5000 });
+  cappedOv.approve(makeOverrideScan(p4), p4);
+  let capped: unknown = null;
+  try { await cappedOv.guardSigner(fakeSigner()).signTypedData(typedDataFor(p4)); } catch (e) { capped = e; }
+  check("override admission never bypasses spend caps", capped instanceof PaySafeEnforcementError && String((capped as Error).message).includes("per-payment cap"));
+}
+
 console.log("\n— wrapFetchWithPaySafe (default payment path) —");
 
 // A mock x402 merchant: 402 with an offer unless X-PAYMENT is present.

@@ -93,6 +93,14 @@ export interface PaySafeConfig {
    * /admin dashboard) for that ONE key. Empty = endpoint disabled (404).
    * Only the hash lives in config — consistent with keys-hashed-at-rest (M-3). */
   adminKeyHash: string;
+
+  // --- ERC-8004 on-chain identity ---
+  /** Agent id minted in the ERC-8004 IdentityRegistry on Base (as a decimal
+   * string). Set AFTER running admintools/register-erc8004.ts — the
+   * registration file must exist before the mint (it is the agentURI), so the
+   * `registrations` entry self-completes once this is set. Empty = not yet
+   * registered; the file serves with an empty registrations array. */
+  erc8004AgentId: string;
 }
 
 function num(v: string | undefined, d: number): number {
@@ -151,5 +159,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     maxStoreEntries: num(env.MAX_STORE_ENTRIES, 100_000),
     adminToken: env.ADMIN_TOKEN ?? "",
     adminKeyHash: (env.ADMIN_KEY_SHA256 ?? "").trim().toLowerCase(),
+
+    erc8004AgentId: (env.ERC8004_AGENT_ID ?? "").trim(),
   };
 }

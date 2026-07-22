@@ -31,7 +31,7 @@
  */
 import type { CheckResult, InjectionIncident, ReportCategory, ReputationDispute, ReputationReport, ReputationSummary, ScanRequest } from "./types.ts";
 import type { Store } from "./store.ts";
-import { deliverySummary } from "./outcomes.ts";
+import { coverageOnlySummary, deliverySummary } from "./outcomes.ts";
 import { verifyPersonalSign } from "./evmsig.ts";
 
 const HALF_LIFE_DAYS = 90;
@@ -162,7 +162,10 @@ export function summarize(store: Store, addressRaw: string): ReputationSummary {
     injection_history: injectionHistorySummary(store, address),
     // Measured, commitment-bound delivery history (see outcomes.ts) — a
     // categorically stronger signal than the self-asserted reports above.
-    delivery: deliverySummary(store, address),
+    // When scans exist but no outcome was ever reported, the coverage-only
+    // view keeps the un-reported population visible (selective-logging
+    // legibility) instead of reading as "no history".
+    delivery: deliverySummary(store, address) ?? coverageOnlySummary(store, address),
   };
 }
 

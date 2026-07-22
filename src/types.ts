@@ -199,16 +199,28 @@ export interface ReputationSummary {
     first_at: string;
     last_at: string;
   } | null;
-  /** Measured, commitment-bound delivery outcomes (null = no outcome history). */
+  /** Measured, commitment-bound delivery outcomes, plus the ledger's
+   * DENOMINATOR (scans_seen / report_coverage) so selective outcome reporting
+   * is legible as low coverage. Null only when PaySafe has neither outcomes
+   * nor counted scans for the address; when scans exist but no outcome was
+   * ever reported, outcomes_total is 0 and only the coverage fields are
+   * present. Coverage is informational only (scan counts are client-driven)
+   * and never feeds a flag. */
   delivery?: {
     outcomes_total: number;
-    delivered: number;
-    not_delivered: number;
-    partial: number;
-    wrong_content: number;
-    delivery_rate: number;
-    distinct_reporters: number;
-    first_at: string;
-    last_at: string;
+    delivered?: number;
+    not_delivered?: number;
+    partial?: number;
+    wrong_content?: number;
+    delivery_rate?: number;
+    smoothed_delivery_rate?: number;
+    distinct_reporters?: number;
+    first_at?: string;
+    last_at?: string;
+    /** Non-blocked scans of this counterparty since the counter began. */
+    scans_seen?: number;
+    scans_tracked_since?: string | null;
+    /** outcomes_total / scans_seen, clamped to [0,1]; null when scans_seen is 0. */
+    report_coverage?: number | null;
   } | null;
 }

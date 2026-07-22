@@ -162,6 +162,19 @@ export interface DomainOutcomes extends CounterpartyOutcomes {
   pay_tos: string[];
 }
 
+/** Per-counterparty count of non-blocked scans — the outcome ledger's
+ * DENOMINATOR. Publishing it next to outcomes_total makes selective outcome
+ * reporting legible: a curated slice of reported outcomes reads as low
+ * coverage instead of passing as a complete record. Scan counts are
+ * client-driven (anyone can scan any pay_to, inflating the denominator), so
+ * coverage derived from this is INFORMATIONAL ONLY and must never feed a
+ * flag/block decision. */
+export interface ScanCount {
+  scans: number;
+  first_at: string;
+  last_at: string;
+}
+
 /** Lifetime scanned spend from one agent key to one counterparty, keyed
  * "velocityKey|pay_to". Feeds the cumulative deep-tier trigger: an attacker
  * dripping payments below MICRO_BYPASS_USD each must not evade the deep
@@ -214,6 +227,7 @@ interface Snapshot {
   scan_index?: Record<string, ScanIndexEntry>;
   outcomes?: Record<string, CounterpartyOutcomes>;
   outcomes_by_domain?: Record<string, DomainOutcomes>;
+  scan_counts?: Record<string, ScanCount>;
   injection_incidents?: Record<string, InjectionIncident[]>;
   cumulative_spend?: Record<string, CumulativeSpend>;
   velocity: Record<string, VelocityEvent[]>;
@@ -241,6 +255,8 @@ export class Store {
   scanIndex: Map<string, ScanIndexEntry> = new Map();
   outcomes: Map<string, CounterpartyOutcomes> = new Map();
   outcomesByDomain: Map<string, DomainOutcomes> = new Map();
+  /** Per-counterparty non-blocked scan counts — see ScanCount. */
+  scanCounts: Map<string, ScanCount> = new Map();
   /** System-observed injection incidents, keyed by implicated address (see
    * types.ts InjectionIncident). Written only on BLOCK verdicts. */
   injectionIncidents: Map<string, InjectionIncident[]> = new Map();
@@ -289,6 +305,7 @@ export class Store {
       this.scanIndex = new Map(Object.entries(snap.scan_index ?? {}));
       this.outcomes = new Map(Object.entries(snap.outcomes ?? {}));
       this.outcomesByDomain = new Map(Object.entries(snap.outcomes_by_domain ?? {}));
+      this.scanCounts = new Map(Object.entries(snap.scan_counts ?? {}));
       this.injectionIncidents = new Map(Object.entries(snap.injection_incidents ?? {}));
       this.cumulativeSpend = new Map(Object.entries(snap.cumulative_spend ?? {}));
       this.velocity = new Map(Object.entries(snap.velocity ?? {}));
@@ -446,6 +463,7 @@ export class Store {
     Store.evict(this.scanIndex, max);
     Store.evict(this.outcomes, max);
     Store.evict(this.outcomesByDomain, max);
+    Store.evict(this.scanCounts, max);
     Store.evict(this.injectionIncidents, max);
     Store.evict(this.cumulativeSpend, max);
     Store.evict(this.disputes, max);
@@ -472,6 +490,7 @@ export class Store {
       scan_index: Object.fromEntries(this.scanIndex),
       outcomes: Object.fromEntries(this.outcomes),
       outcomes_by_domain: Object.fromEntries(this.outcomesByDomain),
+      scan_counts: Object.fromEntries(this.scanCounts),
       injection_incidents: Object.fromEntries(this.injectionIncidents),
       cumulative_spend: Object.fromEntries(this.cumulativeSpend),
       velocity: Object.fromEntries(this.velocity),
