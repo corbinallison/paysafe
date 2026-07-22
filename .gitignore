@@ -13,3 +13,6 @@ SUBMISSIONS-TODO.md
 
 # Ecosystem scout agent workspace (holds a funded hot-wallet key) — never commit
 /paysafe-agent
+
+# Internal project notes — never commit
+CLAUDE.md

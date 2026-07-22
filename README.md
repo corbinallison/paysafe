@@ -4,7 +4,7 @@
 
 [![x402](https://img.shields.io/badge/x402-v2-blue)](https://github.com/x402-foundation/x402)
 [![network](https://img.shields.io/badge/settles%20on-Base%20(USDC)-0052FF)](https://docs.cdp.coinbase.com/x402/quickstart-for-sellers)
-[![tests](https://img.shields.io/badge/tests-264%2F264-brightgreen)](test/run-tests.ts)
+[![tests](https://img.shields.io/badge/tests-381%2F381-brightgreen)](test/run-tests.ts)
 [![npm](https://img.shields.io/npm/v/paysafe-x402-client?label=sdk)](https://www.npmjs.com/package/paysafe-x402-client)
 [![license](https://img.shields.io/badge/license-BUSL--1.1-lightgrey)](LICENSE)
 
@@ -106,6 +106,7 @@ Each exposes the same three tools (scan / check reputation / report) plus a fram
 | `POST /v1/plans/subscribe` | plan price | Subscribe/renew a key on a plan — itself paid via x402, so agents upgrade autonomously |
 | `GET /.well-known/x402` | free | x402 manifest |
 | `GET /.well-known/agent-card.json` | free | Agent card |
+| `GET /.well-known/erc8004.json` | free | ERC-8004 agent registration file (tokenURI of PaySafe's on-chain identity) |
 | `GET /.well-known/paysafe-verdict-key` | free | Ed25519 public key for verdict attestations |
 | `GET /v1/audit/verify` | free | Verify the audit-log hash chain (integrity check) |
 | `GET /v1/audit/head` | free | Current audit-log head hash + sequence |
@@ -229,7 +230,8 @@ npm install
 
 npm run dev            # local dev server — payments off
 npm run demo:replay    # replay-attack demo: fresh nonce ALLOW → reused nonce BLOCK
-npm test               # 264-test detector + hardening + plans + audit-log + dashboard + key-lifecycle + approvals + outcomes suite
+npm test               # 381-test detector + hardening + plans + audit-log + dashboard + key-lifecycle + approvals + outcomes suite
+npm run eval           # detection eval corpus: attack payloads + benign FP guards, graded via real scans (gates CI + publish)
 ```
 
 ## Performance
@@ -238,12 +240,13 @@ Measured on the zero-dependency dev server (same handlers as production): **2,00
 
 ## The hosted service
 
-The production service at **https://paysafe-agent.com** is live on Base mainnet, indexed in the [x402 Bazaar](https://docs.cdp.coinbase.com/x402/bazaar), registered on [x402scan](https://www.x402scan.com), and monitored with a tamper-evident audit chain. Verify it yourself:
+The production service at **https://paysafe-agent.com** is live on Base mainnet, indexed in the [x402 Bazaar](https://docs.cdp.coinbase.com/x402/bazaar), registered on [x402scan](https://www.x402scan.com), monitored with a tamper-evident audit chain, and registered as an on-chain [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) agent (agentId **59586** in the IdentityRegistry on Base — the token's URI resolves back to this service's registration file). Verify it yourself:
 
 ```bash
 curl https://paysafe-agent.com/health
 curl https://paysafe-agent.com/.well-known/x402
 curl https://paysafe-agent.com/v1/audit/verify
+curl https://paysafe-agent.com/.well-known/erc8004.json
 ```
 
 ## MCP server
@@ -301,15 +304,16 @@ src/
   dashboard.ts    Self-contained usage dashboard (GET /dashboard)
   admindash.ts    Owner dashboard, audit-log-backed (GET /admin)
   verdictsign.ts  Ed25519 verdict attestation
-  manifest.ts     /.well-known/x402 + agent card
+  manifest.ts     /.well-known/x402 + agent card + ERC-8004 registration
   store.ts        JSON-file-backed state (tiny interface)
 mcp/server.ts     MCP server (11 tools — npx paysafe-x402)
 examples/         replay-demo.ts — reused-nonce attack blocked end-to-end
 auditlog.ts       Tamper-evident hash-chained decision log
   commitment.ts     Payment hashing (attestation binding + audit digest)
-test/             264-test suite (detectors, hardening, plans, crypto, audit, dashboards, key lifecycle, approvals, outcomes — npm test)
-sdk/              TypeScript client SDK + wallet enforcement kit + payment-path wrapper (npm: paysafe-x402-client, 86 tests)
-sdk-python/       Python client SDK + wallet enforcement kit + payment-path wrapper (PyPI: paysafe-x402, 89 tests)
+test/             381-test suite (detectors, hardening, plans, crypto, audit, dashboards, key lifecycle, approvals, outcomes — npm test)
+eval/             detection eval corpus + runner (attacks must catch, benign must pass — npm run eval, gates CI)
+sdk/              TypeScript client SDK + wallet enforcement kit + payment-path wrapper (npm: paysafe-x402-client, 101 tests)
+sdk-python/       Python client SDK + wallet enforcement kit + payment-path wrapper (PyPI: paysafe-x402, 104 tests)
 ```
 
 Design notes: verdicts aggregate worst-first (any block ⇒ block); `risk_score` is severity-based with compounding for multiple independent findings; the detection core has **zero runtime dependencies**, so the full suite runs with `node --experimental-strip-types` and no install.
