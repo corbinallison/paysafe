@@ -121,9 +121,11 @@ export function erc8004Registration(cfg: PaySafeConfig): object {
       agentIdNum !== null
         ? [{ agentId: agentIdNum, agentRegistry: `eip155:8453:${ERC8004_IDENTITY_REGISTRY}` }]
         : [],
-    // The wallet that mints (and owns) the identity NFT is the same wallet
-    // that receives x402 payments — one key, one identity.
-    ...(cfg.payTo ? { agentWallet: cfg.payTo } : {}),
+    // The wallet that mints (and owns) the identity NFT. Decoupled from the
+    // x402 receiving address (payTo) because a custodial deposit address has
+    // no exportable key and can never sign; falls back to payTo for
+    // deployments where the receiving wallet IS self-custody.
+    ...(cfg.erc8004Wallet || cfg.payTo ? { agentWallet: cfg.erc8004Wallet || cfg.payTo } : {}),
   };
 }
 

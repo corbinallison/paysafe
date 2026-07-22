@@ -101,6 +101,12 @@ export interface PaySafeConfig {
    * `registrations` entry self-completes once this is set. Empty = not yet
    * registered; the file serves with an empty registrations array. */
   erc8004AgentId: string;
+  /** Self-custody operator wallet that OWNS the identity NFT (mints it, signs
+   * for it). Decoupled from payTo because the receiving address may be
+   * custodial (a Coinbase deposit address has no exportable key and can never
+   * sign a contract call). Empty = fall back to payTo (fine when the
+   * receiving wallet IS self-custody). */
+  erc8004Wallet: string;
 }
 
 function num(v: string | undefined, d: number): number {
@@ -161,5 +167,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     adminKeyHash: (env.ADMIN_KEY_SHA256 ?? "").trim().toLowerCase(),
 
     erc8004AgentId: (env.ERC8004_AGENT_ID ?? "").trim(),
+    erc8004Wallet: (env.ERC8004_WALLET ?? "").trim(),
   };
 }

@@ -1794,7 +1794,9 @@ console.log("\n— ERC-8004 registration file —");
   const pre = erc8004Registration(cfg) as Record<string, any>;
   check("registration file has the spec type", pre.type === "https://eips.ethereum.org/EIPS/eip-8004#registration-v1");
   check("pre-mint file serves with empty registrations", Array.isArray(pre.registrations) && pre.registrations.length === 0);
-  check("agentWallet is the PAY_TO wallet (one key, one identity)", pre.agentWallet === cfg.payTo);
+  check("agentWallet falls back to PAY_TO when no identity wallet is set", pre.agentWallet === cfg.payTo);
+  const opWallet = erc8004Registration({ ...cfg, erc8004Wallet: "0xOperatorIdentity000000000000000000000001" }) as Record<string, any>;
+  check("ERC8004_WALLET decouples the identity wallet from a custodial payTo", opWallet.agentWallet === "0xOperatorIdentity000000000000000000000001");
   check("x402 service endpoint advertised", (pre.services as any[]).some((s) => s.name === "x402" && String(s.endpoint).endsWith("/.well-known/x402")));
 
   // Post-mint: ERC8004_AGENT_ID completes the registrations entry.
