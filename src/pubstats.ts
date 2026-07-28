@@ -52,10 +52,17 @@ export interface PublicStats {
    */
   third_party: PartyStats;
   /**
-   * The operator's own agents, chiefly the ecosystem scout. Published rather
-   * than netted out silently: the scout is open source and its run count is
-   * public, so this figure is checkable against it. A disclosure sentence is a
-   * claim someone has to trust; a number that reconciles is evidence.
+   * The operator's own agents, chiefly the ecosystem scout. Computed from the
+   * per-key usage counters of keys the owner has tagged first-party, so the
+   * attribution is authenticated (the key was presented at scan time) and the
+   * split covers scans recorded BEFORE the key was tagged. The audit-record
+   * first_party flag cannot do that job. Audit records are immutable and only
+   * scans made after tagging carry the flag, so a flag-derived figure would
+   * leave every earlier operator scan permanently counted as third-party.
+   * Published rather than netted out silently. The scout is open source and
+   * its run count is public, so this figure is checkable against it. A
+   * disclosure sentence is a claim someone has to trust. A number that
+   * reconciles is evidence.
    */
   first_party: PartyStats;
   /** First recorded scan (audit log), null before the first scan. */
@@ -120,17 +127,34 @@ export function computePublicStats(store: Store, now = Date.now()): PublicStats 
     flagged = s.by_verdict.flag;
     distinct_agents = s.distinct_agents;
     since = s.first_ts;
+    // First-party share from per-key counters on owner-tagged keys, so scans
+    // recorded before the key was tagged are attributed correctly (see the
+    // interface docs). The audit-flag split in AuditStats stays as an owner
+    // cross-check; it converges with this one for scans made after tagging.
+    for (const rec of store.keys.values()) {
+      if (!rec.first_party || !rec.scans) continue;
+      first_party.scans += rec.scans.total;
+      first_party.blocked += rec.scans.block;
+      first_party.flagged += rec.scans.flag;
+      if (rec.scans.total > 0) first_party.distinct_agents += 1;
+    }
+    // agent_id is caller-supplied, so this subtraction can only remove ids.
+    // An outsider spoofing an operator agent_id deflates the third-party agent
+    // count rather than inflating it. Understating our third-party reach is
+    // the acceptable direction for a self-published usage figure.
+    const taggedIds = new Set(
+      [...store.keys.values()]
+        .filter((r) => r.first_party && r.agent_id)
+        .map((r) => r.agent_id as string),
+    );
+    const overlap = s.agent_ids.filter((id) => taggedIds.has(id)).length;
+    // Clamped subtraction, so a counter that outlives its audit records can
+    // never push a third-party figure below zero.
     third_party = {
-      scans: s.third_party.count,
-      blocked: s.third_party.by_verdict.block,
-      flagged: s.third_party.by_verdict.flag,
-      distinct_agents: s.third_party.distinct_agents,
-    };
-    first_party = {
-      scans: s.first_party.count,
-      blocked: s.first_party.by_verdict.block,
-      flagged: s.first_party.by_verdict.flag,
-      distinct_agents: s.first_party.distinct_agents,
+      scans: Math.max(0, scans_total - first_party.scans),
+      blocked: Math.max(0, blocked - first_party.blocked),
+      flagged: Math.max(0, flagged - first_party.flagged),
+      distinct_agents: Math.max(0, distinct_agents - overlap),
     };
   } else {
     // No audit log: fall back to per-key counters (keys that have scanned

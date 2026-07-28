@@ -249,6 +249,26 @@ curl https://paysafe-agent.com/v1/audit/verify
 curl https://paysafe-agent.com/.well-known/erc8004.json
 ```
 
+### Public stats, and who is in them
+
+`GET /v1/stats` publishes aggregate service numbers (scan totals, verdict split, distinct
+agents, self-measured 90-day uptime). The response reports **third-party and first-party
+usage separately**. Keys the operator tags as first-party (our own agents, chiefly the
+open-source ecosystem scout that buys real x402 resources twice a day) are counted under
+`first_party`, and the homepage panel shows `third_party` only. The attribution comes from
+per-key usage counters recorded at scan time, so it is authenticated by the key that made
+each scan and covers scans made before a key was tagged.
+
+Why publish the first-party number instead of quietly subtracting it? The scout is public
+and its run count is checkable, so a reader can reconcile the figure themselves. A
+disclosure sentence is a claim someone has to trust. A number that reconciles is evidence.
+
+Tagging is owner-only (`POST /v1/admin/keys/first-party`, guarded the same way as
+`/v1/admin/stats`, taking the key **hash** rather than the key). There is no client-facing
+way to set the flag. A caller able to tag itself first-party could remove its own scans
+from the public third-party denominator, which is the exact thing the split exists to
+prevent.
+
 ## MCP server
 
 Listed in the [official MCP registry](https://registry.modelcontextprotocol.io) as **`com.paysafe-agent/paysafe`** — or run it directly with zero config:

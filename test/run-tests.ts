@@ -1880,6 +1880,15 @@ console.log("\n— owner/admin stats —");
   check("admin stats never echo any key", flat.indexOf(adminKey) === -1 && flat.indexOf(otherKey) === -1);
   check("admin stats leak no addresses or agent ids", flat.indexOf(clean.pay_to) === -1);
 
+  // Retroactive split on the audit-log branch. otherKey made two keyed scans
+  // (one blocked) BEFORE being tagged; the anonymous scan stays third-party.
+  check("tag after the scans were recorded", fp(cfgAdmin, adminKey, { key_hash: otherHash, first_party: true }).status === 200);
+  const pub = computePublicStats(store, Date.now());
+  check("audit-branch split is retroactive from per-key counters",
+    pub.first_party.scans === 2 && pub.first_party.blocked === 1 && pub.third_party.scans === 1);
+  check("audit-branch split still reconciles to the blended totals",
+    pub.first_party.scans + pub.third_party.scans === pub.scans_total);
+
   // Audit disabled: aggregates still work, audit section is null. (The admin
   // key must LIVE in the store now — hash match alone no longer unlocks admin,
   // so a rotated/revoked admin key actually loses access.)
@@ -2407,6 +2416,14 @@ console.log("\n— public stats + self-measured uptime (/, /v1/stats) —");
     stats.first_party.scans + stats.third_party.scans === stats.scans_total
       && stats.first_party.blocked + stats.third_party.blocked === stats.blocked
       && stats.first_party.flagged + stats.third_party.flagged === stats.flagged);
+  // Tag AFTER the scan was recorded. The split must move the key's history,
+  // which only works because it reads authenticated per-key counters rather
+  // than the immutable audit records.
+  const seededHash = createHash("sha256").update(seededKey, "utf8").digest("hex");
+  seeded.keys.get(seededHash)!.first_party = true;
+  const retro = computePublicStats(seeded, now);
+  check("tagging is retroactive (the split reads per-key counters, not audit flags)",
+    retro.first_party.scans === 1 && retro.third_party.scans === 0 && retro.first_party.distinct_agents === 1);
 
   // Homepage substitution: server-formatted values only, page stays static.
   const homeStats: PublicStats = {
@@ -2419,11 +2436,13 @@ console.log("\n— public stats + self-measured uptime (/, /v1/stats) —");
   };
   const home = homePageHtml(cfg, homeStats)!;
   check("homepage fills the stats panel from the snapshot",
-    home.includes("12,345") && home.includes("99.97%") && home.includes("recording since 2026-05-01") && !home.includes("{{"));
+    home.includes("12,000") && home.includes("99.97%") && home.includes("recording since 2026-05-01") && !home.includes("{{"));
+  check("homepage headline is third-party only and discloses the first-party share",
+    home.includes("Third-party usage only") && home.includes("further 345") && !home.includes("12,345"));
   check("homepage labels uptime as self-measured", home.includes("self-measured"));
   check("stats panel renders dashboard-style tiles and a proportional verdict bar",
-    home.includes('<div class="n">12,345</div>') && home.includes('class="seg-allow" style="width:99.39%"')
-      && home.includes('class="seg-flag" style="width:0.06%"') && home.includes('class="seg-block" style="width:0.54%"'));
+    home.includes('<div class="n">12,000</div>') && home.includes('class="seg-allow" style="width:99.43%"')
+      && home.includes('class="seg-flag" style="width:0.07%"') && home.includes('class="seg-block" style="width:0.50%"'));
   check("homepage with stats is still scriptless static HTML",
     !home.includes("<script") && !home.includes("<link") && !home.includes("<img") && !home.includes("<iframe"));
   const bare = homePageHtml(cfg)!;

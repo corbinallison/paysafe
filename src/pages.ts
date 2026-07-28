@@ -236,9 +236,14 @@ function fmtInt(n: number): string {
  * under the locked-down CSP (style-src 'unsafe-inline' covers it).
  */
 function statsPanelHtml(stats?: PublicStats | null): string {
-  const total = stats?.scans_total ?? 0;
-  const blocked = stats?.blocked ?? 0;
-  const flagged = stats?.flagged ?? 0;
+  // Headline figures are THIRD-PARTY only. Blended totals would count the
+  // operator's own agents (chiefly the ecosystem scout) as usage, and the
+  // scout is public, so anyone could do the subtraction themselves. Better
+  // that the panel does it first and says so.
+  const total = stats?.third_party.scans ?? 0;
+  const blocked = stats?.third_party.blocked ?? 0;
+  const flagged = stats?.third_party.flagged ?? 0;
+  const firstParty = stats?.first_party.scans ?? 0;
   const allowed = Math.max(0, total - blocked - flagged);
   const u = stats?.uptime ?? null;
   const pct = (n: number) => ((n / total) * 100).toFixed(2);
@@ -248,6 +253,10 @@ function statsPanelHtml(stats?: PublicStats | null): string {
         `<div class="seg-flag" style="width:${pct(flagged)}%" title="flagged: ${fmtInt(flagged)}"></div>` +
         `<div class="seg-block" style="width:${pct(blocked)}%" title="blocked: ${fmtInt(blocked)}"></div>`
       : `<div class="seg-empty" style="width:100%"></div>`;
+  const partyMeta =
+    firstParty > 0
+      ? `Third-party usage only. Our own agents account for a further ${fmtInt(firstParty)} screenings, reported separately under first_party in /v1/stats.`
+      : `Third-party usage only. Scans from our own agents are counted separately under first_party in /v1/stats.`;
   const uptimeMeta = u
     ? `Uptime is self-measured process liveness (a heartbeat cannot see network-level unreachability), recording since ${escapeHtml(u.measured_since.slice(0, 10))}.`
     : `Uptime is self-measured process liveness; no heartbeats recorded yet.`;
@@ -256,11 +265,12 @@ function statsPanelHtml(stats?: PublicStats | null): string {
 <div class="stat"><div class="n ok">${fmtInt(allowed)}</div><div class="l">Allowed</div></div>
 <div class="stat"><div class="n warn">${fmtInt(flagged)}</div><div class="l">Flagged</div></div>
 <div class="stat"><div class="n bad">${fmtInt(blocked)}</div><div class="l">Blocked</div></div>
-<div class="stat"><div class="n">${fmtInt(stats?.distinct_agents ?? 0)}</div><div class="l">Distinct agents</div></div>
+<div class="stat"><div class="n">${fmtInt(stats?.third_party.distinct_agents ?? 0)}</div><div class="l">Distinct agents</div></div>
 <div class="stat"><div class="n${u ? " ok" : ""}">${u ? `${u.pct.toFixed(2)}%` : "n/a"}</div><div class="l">Uptime · 90 days</div></div>
 </div>
 <div class="bar">${bar}</div>
 <div class="legend"><div class="lg-allow">allow</div><div class="lg-flag">flag</div><div class="lg-block">block</div></div>
+<p class="statmeta">${partyMeta}</p>
 <p class="statmeta">${uptimeMeta}</p>`;
 }
 

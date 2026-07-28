@@ -55,7 +55,7 @@ Scans are **{{price_scan}}** each, paid over x402 itself — your agent can pay 
 
 ## Track record
 
-Live aggregate numbers from this deployment, refreshed every five minutes. Totals only — per-agent and per-payment data is never published.
+Live aggregate numbers from this deployment, refreshed every five minutes. The headline figures are third-party usage only. Scans from our own agents, including the open-source ecosystem scout, are reported separately under `first_party` in [/v1/stats](/v1/stats). Totals only. Per-agent and per-payment data is never published.
 
 {{stats_panel}}
 

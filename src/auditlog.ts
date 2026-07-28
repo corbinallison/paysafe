@@ -76,6 +76,9 @@ export interface AuditStats {
     by_verdict: { allow: number; flag: number; block: number };
     distinct_agents: number;
   };
+  /** Distinct caller-supplied agent_id values seen. Owner and internal use
+   * only. Public stats lift numbers derived from this list, never the list. */
+  agent_ids: string[];
   third_party: {
     count: number;
     by_verdict: { allow: number; flag: number; block: number };
@@ -210,6 +213,7 @@ export class AuditLog {
       top_checks,
       distinct_agents: agents.size,
       total_scanned_usd: Number(total_scanned_usd.toFixed(2)),
+      agent_ids: [...agents].sort(),
       first_party: { ...fp, distinct_agents: fpAgents.size },
       third_party: { ...tp, distinct_agents: tpAgents.size },
     };
