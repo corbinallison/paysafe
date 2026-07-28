@@ -149,6 +149,11 @@ export interface CounterpartyOutcomes {
   /** Distinct reporter tokens (key hashes, or "anon"), capped — enough to
    * distinguish one noisy reporter from many independent ones. */
   reporters: string[];
+  /** Settlements the buyer observed on-chain for which the seller returned NO
+   * settlement receipt header — the paid call looks free to a stock client, so
+   * the charge is invisible without an on-chain audit. Optional: absent on
+   * ledgers written before the field existed. */
+  receiptless?: number;
   first_at: string;
   last_at: string;
 }

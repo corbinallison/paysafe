@@ -9,6 +9,7 @@ import { scanPii } from "./detectors/pii.ts";
 import { checkReplay } from "./detectors/replay.ts";
 import { checkOverpayment, resolveUsd } from "./detectors/overpayment.ts";
 import { checkInjection, deepContentAnalysis } from "./detectors/injection.ts";
+import { checkOfferDrift, checkFreshnessClaim } from "./detectors/offerdrift.ts";
 import { checkUrlRisk } from "./detectors/urlrisk.ts";
 import { checkAsset } from "./detectors/asset.ts";
 import { checkBadlist } from "./detectors/badlist.ts";
@@ -68,6 +69,25 @@ export function runScan(
   const velocityKey = req.agent_id ?? payment.payer?.toLowerCase();
   const payToLc = payment.pay_to?.toLowerCase();
 
+  // Resource domain, resolved once. Pure — no state touched.
+  let pinDomain: string | null = null;
+  try {
+    pinDomain = payment.resource_url ? new URL(payment.resource_url).hostname.toLowerCase() : null;
+  } catch {
+    pinDomain = null;
+  }
+  const pinExistedBefore = pinDomain !== null && store.pins.has(pinDomain);
+
+  // Read prior pin state BEFORE checkPinning writes it (TOFU pins on first
+  // sighting). "The domain was already pinned to this exact pay_to" is a
+  // server-observed fact that the payee predates any content in this request;
+  // it is the only input allowed to MITIGATE the provenance finding, and it can
+  // only ever lower a flag — never raise one.
+  // Gated on cfg.pinning: with pinning off nothing maintains the pin map, so a
+  // stale entry must not be treated as evidence.
+  const priorPin = cfg.pinning && pinDomain !== null ? store.pins.get(pinDomain) : undefined;
+  const payeeEstablishedBefore = !!(priorPin && payToLc && priorPin.pay_to === payToLc);
+
   // --- core detectors ---
   checks.push(...scanPii(payment));
   checks.push(checkReplay(payment, store, scanId, cfg.nonceTtlHours, req.context?.phase));
@@ -78,7 +98,16 @@ export function runScan(
       maxUsd: cfg.maxPaymentUsd,
     }),
   );
-  checks.push(...checkInjection(payment, req.context));
+  checks.push(...checkInjection(payment, req.context, { payeeEstablishedBefore }));
+
+  // Offer drift: the payment about to be signed vs the offer it was decided
+  // from. Parse-only and stateless, so it runs in the fast tier alongside the
+  // other structural checks.
+  checks.push(...checkOfferDrift(payment, req.context));
+
+  // Advisory only: tells the buyer which verification to run when the offer
+  // sells recency. Never gates — see checkFreshnessClaim.
+  checks.push(...checkFreshnessClaim(payment, req.context));
 
   // Deep content tier: bypassed for micropayments unless forced (developer policy).
   // NOTE (audit M-2): a missing/unparseable amount does NOT unlock the deep
@@ -90,15 +119,43 @@ export function runScan(
   // unlocks the deep tier anyway once the lifetime SCANNED spend from this
   // agent key to this counterparty crosses the same threshold. (Scans, not
   // settlements — re-scanning over-counts, which only unlocks deep EARLIER.)
+  // Untrusted-origin trigger: value is the wrong gate for the deep tier when
+  // the request carries counterparty-controlled prose. A $0.001 offer is
+  // exactly where an injection payload is CHEAPEST to plant, and the fast tier
+  // alone does not see base64/unicode obfuscation. So content the agent
+  // declares as tool_result / fetched_content always gets the deep tier,
+  // whatever it cost.
+  //
+  // This does not reopen audit M-2 (omit `amount` to force the expensive path
+  // for free): the trigger requires positively DECLARING an untrusted origin,
+  // which by itself raises a provenance finding. An attacker who sets it buys
+  // themselves more scrutiny, not less — the same reasoning as the cumulative
+  // counter below.
   const cumKey = velocityKey && payToLc ? `${velocityKey}|${payToLc}` : null;
   const cumulativeUsd = (cumKey ? store.cumulativeSpend.get(cumKey)?.usd ?? 0 : 0) + (usd ?? 0);
   const singleEligible = usd !== null && usd >= cfg.microBypassUsd;
   const cumulativeEligible = !singleEligible && cumKey !== null && cumulativeUsd >= cfg.microBypassUsd;
+  const untrustedOrigin =
+    req.context?.origin === "tool_result" || req.context?.origin === "fetched_content";
+  const untrustedContentEligible =
+    !singleEligible && !cumulativeEligible && untrustedOrigin && !!req.context?.content;
   const deepEligible =
     req.policy?.skip_deep !== true &&
-    (req.policy?.force_deep === true || singleEligible || cumulativeEligible);
+    (req.policy?.force_deep === true ||
+      singleEligible ||
+      cumulativeEligible ||
+      untrustedContentEligible);
   if (deepEligible) {
     checks.push(...deepContentAnalysis(payment, req.context));
+    if (untrustedContentEligible && req.policy?.force_deep !== true) {
+      checks.push({
+        id: "tier.deep_untrusted_origin",
+        name: "Scan tiering",
+        verdict: "allow",
+        severity: "info",
+        reason: `Deep content analysis ran despite the micro value (${usd === null ? "unknown" : `$${usd.toFixed(4)}`} < $${cfg.microBypassUsd} MICRO_BYPASS_USD): the content is declared ${req.context?.origin}. Counterparty-controlled prose is analysed on content provenance, not on payment value — a cheap offer is not a safe one.`,
+      });
+    }
     if (cumulativeEligible && req.policy?.force_deep !== true && req.context?.content) {
       checks.push({
         id: "tier.deep_cumulative",
@@ -144,13 +201,6 @@ export function runScan(
   // poisoning detector on the next attempt).
   const counterpartyWasKnown =
     !!(velocityKey && payToLc && (store.counterparties.get(velocityKey) ?? []).includes(payToLc));
-  let pinDomain: string | null = null;
-  try {
-    pinDomain = payment.resource_url ? new URL(payment.resource_url).hostname.toLowerCase() : null;
-  } catch {
-    pinDomain = null;
-  }
-  const pinExistedBefore = pinDomain !== null && store.pins.has(pinDomain);
 
   if (cfg.pinning) {
     checks.push(checkPinning(payment, store));

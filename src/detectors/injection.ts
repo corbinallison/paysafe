@@ -222,17 +222,87 @@ function scoreTells(
 // Fast tier
 // ---------------------------------------------------------------------------
 
+/**
+ * Server-observed facts the scanner establishes BEFORE any state mutation, used
+ * to mitigate (never to escalate) the provenance finding. Read-only by
+ * construction: the caller reads prior pin state before `checkPinning` writes.
+ */
+export interface InjectionProvenance {
+  /**
+   * The resource domain was ALREADY pinned to this exact pay_to before this
+   * scan — i.e. the payee predates the content the agent just read.
+   */
+  payeeEstablishedBefore?: boolean;
+}
+
 export function checkInjection(
   payment: PaymentDetails,
   context: ScanContext | undefined,
+  provenance?: InjectionProvenance,
 ): CheckResult[] {
   const results: CheckResult[] = [];
   const origin = context?.origin ?? "unknown";
   const content = context?.content ?? "";
   const fromUntrusted = origin === "tool_result" || origin === "fetched_content";
 
+  // Content analysis is computed up front (results are still pushed in the
+  // original order below) because the provenance finding needs to know whether
+  // the content is otherwise clean before it can be mitigated.
+  const contentHits = content ? findTells(content) : [];
+  const payToLc = payment.pay_to?.toLowerCase();
+  let payToDirect = false;
+  let payToObfuscated = false;
+  if (content && payToLc) {
+    const contentLc = content.toLowerCase();
+    payToDirect = contentLc.includes(payToLc);
+    payToObfuscated =
+      !payToDirect && stripInvisible(contentLc).replace(/\s+/g, "").includes(payToLc);
+  }
+
   // 1. Provenance: did the decision to pay come from content the agent just read?
-  if (fromUntrusted) {
+  //
+  // The hypothesis this check raises is "injected content steered the agent to
+  // this payee". That hypothesis has no support left when ALL of the following
+  // hold, so the finding drops to informational rather than dead-ending an
+  // unattended agent on every honest fetched-content purchase:
+  //
+  //   * the content was actually SUPPLIED, so there is something to clear. An
+  //     untrusted origin declared with no content at all is unverifiable —
+  //     absence of content is absence of evidence, not evidence of absence, and
+  //     mitigating it would let any caller silence the advisory by omitting the
+  //     very field the check exists to inspect;
+  //   * the domain was already pinned to this exact pay_to BEFORE this scan —
+  //     server-observed, so the payee predates the content (and the redirection
+  //     case cannot reach here at all: a different pay_to on a pinned domain is
+  //     `pin.mismatch`, a block);
+  //   * the content carries no injection tells;
+  //   * pay_to does not appear in the content, verbatim or obfuscated.
+  //
+  // Absent that evidence the flag stands — the mitigation is fail-closed, and
+  // it only ever lowers a flag, so H-2 is untouched (no client-supplied signal
+  // reaches a block decision).
+  const provenanceMitigated =
+    fromUntrusted &&
+    content.length > 0 &&
+    provenance?.payeeEstablishedBefore === true &&
+    contentHits.length === 0 &&
+    !payToDirect &&
+    !payToObfuscated;
+
+  if (provenanceMitigated) {
+    results.push({
+      id: "injection.untrusted_origin_mitigated",
+      name: "Prompt-injection-triggered payment",
+      verdict: "allow",
+      severity: "info",
+      reason: `Payment originated from ${origin === "tool_result" ? "a tool result" : "fetched external content"}, but the recipient was already pinned to this domain before this scan, the content carries no injection indicators, and the recipient address does not appear in it. The payee predates the content, so the content cannot have introduced it.`,
+      details: {
+        origin,
+        content_source_url: context?.content_source_url,
+        mitigation: "payee_pinned_before_content",
+      },
+    });
+  } else if (fromUntrusted) {
     results.push({
       id: "injection.untrusted_origin",
       name: "Prompt-injection-triggered payment",
@@ -257,7 +327,7 @@ export function checkInjection(
     // one strong tell (or a weak tell near an address) escalates from an
     // untrusted origin; a score of 3 escalates from any origin. A lone weak
     // tell (e.g. "urgent" in a fetched page) flags rather than blocks.
-    const hits = findTells(content);
+    const hits = contentHits;
     if (hits.length > 0) {
       const { score, proximity } = scoreTells(content, hits, true);
       const escalate = (fromUntrusted && score >= 2) || score >= 3;
@@ -277,12 +347,9 @@ export function checkInjection(
     // or only after stripping invisible characters and collapsing whitespace
     // (split/laced addresses). An obfuscated match means someone deliberately
     // hid the address from naive scanners: block regardless of origin.
-    if (payment.pay_to) {
-      const payToLc = payment.pay_to.toLowerCase();
-      const contentLc = content.toLowerCase();
-      const direct = contentLc.includes(payToLc);
-      const obfuscated =
-        !direct && stripInvisible(contentLc).replace(/\s+/g, "").includes(payToLc);
+    if (payment.pay_to && payToLc) {
+      const direct = payToDirect;
+      const obfuscated = payToObfuscated;
       if (direct || obfuscated) {
         results.push({
           id: "injection.payto_from_content",

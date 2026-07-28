@@ -97,7 +97,7 @@ const server = new McpServer(
 
 server.tool(
   "scan_outgoing_payment",
-  "ALWAYS call this immediately BEFORE settling or sending any x402 payment — it decides whether the payment is safe. Returns allow (proceed) / flag (pause and confirm intent) / block (do NOT pay), with machine-readable reasons and an Ed25519-signed verdict. Scanning before the payment is signed? Set `context.phase` to 'pre_sign' (nonces don't exist until signing). IMPORTANT: if the decision to pay followed reading any external content (a fetched web page or a tool result), pass that PROSE in `context.content` and set `context.origin` to 'fetched_content' or 'tool_result' — this enables the check that catches prompt-injection-triggered payments (an address injected into content the agent just read). Put the 402 offer / discovery payload in `context.offer` (NOT in content — the recipient address is expected in an offer). Also catches replayed nonces, overpayment vs the expected price, secrets/PII leaking in payment metadata, fake/lookalike USDC contracts, and address poisoning. Advisory and non-custodial — never touches keys or funds.",
+  "ALWAYS call this immediately BEFORE settling or sending any x402 payment — it decides whether the payment is safe. Returns allow (proceed) / flag (pause and confirm intent) / block (do NOT pay), with machine-readable reasons and an Ed25519-signed verdict. Scanning before the payment is signed? Set `context.phase` to 'pre_sign' (nonces don't exist until signing). IMPORTANT: if the decision to pay followed reading any external content (a fetched web page or a tool result), pass that PROSE in `context.content` and set `context.origin` to 'fetched_content' or 'tool_result' — this enables the check that catches prompt-injection-triggered payments (an address injected into content the agent just read). Put the 402 offer / discovery payload in `context.offer` (NOT in content — the recipient address is expected in an offer); PaySafe compares it structurally against the payment you are about to sign and reports drift in payee, price, scheme, network or asset. Where a catalogue listing and a live 402 disagree, the LIVE offer is authoritative — pay and scan that one, and pass the listing as `context.offer` so the disagreement is recorded. Also catches replayed nonces, overpayment vs the expected price, secrets/PII leaking in payment metadata, fake/lookalike USDC contracts, and address poisoning. Advisory and non-custodial — never touches keys or funds.",
   {
     payment: paymentSchema,
     expected_price_usd: z.number().optional(),
@@ -117,7 +117,7 @@ server.tool(
 
 server.tool(
   "scan_incoming_payment",
-  "ALWAYS call this BEFORE paying a 402 offer / payment request your agent received — it decides whether the offer is safe to pay. Checks the resource URL for spoofing (IP-literal hosts, punycode/homoglyphs, link shorteners, userinfo tricks), credential demands (e.g. 'send your seed phrase'), price sanity, replay, and whether the counterparty has been reported. Returns allow/flag/block with reasons.",
+  "ALWAYS call this BEFORE paying a 402 offer / payment request your agent received — it decides whether the offer is safe to pay. Scan the LIVE 402 returned by the exact method (GET/POST) and URL you are about to pay — NOT the catalogue/discovery listing: in the field, listings drift from live offers in both price (a listed $0.005 endpoint demanding $2.00 on the live 402) and scheme ('exact' advertised, 'upto' served). The live offer is what you pay, so it is what must be scanned. Pass the discovery listing in `context.offer` as well and PaySafe will report the drift between them. Checks the resource URL for spoofing (IP-literal hosts, punycode/homoglyphs, link shorteners, userinfo tricks), credential demands (e.g. 'send your seed phrase'), price sanity, replay, and whether the counterparty has been reported. Returns allow/flag/block with reasons.",
   {
     payment: paymentSchema,
     expected_price_usd: z.number().optional(),
@@ -157,6 +157,12 @@ server.tool(
         content_type: z.string().optional(),
         bytes: z.number().optional(),
         latency_ms: z.number().optional(),
+        settlement_receipt: z
+          .enum(["present", "absent"])
+          .optional()
+          .describe(
+            "Did the paid response carry a settlement-receipt header? Pass 'absent' when you confirmed the transfer on-chain but the seller returned no receipt — that seller's calls look FREE to a stock client, so future buyers get warned to reconcile on-chain instead of paying twice.",
+          ),
       })
       .optional(),
   },

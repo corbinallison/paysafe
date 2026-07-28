@@ -16,3 +16,11 @@ SUBMISSIONS-TODO.md
 
 # Internal project notes — never commit
 CLAUDE.md
+
+# Obsidian vault (repo doubles as a vault) — config + private notes stay local
+.obsidian/
+/notes/
+
+# Claude Code local settings (records approved commands verbatim — may contain secrets)
+.claude/
+.DS_Store

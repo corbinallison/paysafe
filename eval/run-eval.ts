@@ -26,6 +26,7 @@ const cfg = loadConfig({ PAYSAFE_MODE: "dev", PAY_TO: "0xtest" });
  * clean-marker are plumbing, not detection. */
 const EXCLUDED = new Set([
   "injection.untrusted_origin",
+  "injection.untrusted_origin_mitigated",
   "injection.unknown_origin",
   "injection.clean",
 ]);

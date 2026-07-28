@@ -446,6 +446,7 @@ class PaySafeClient:
         content_type: Optional[str] = None,
         bytes_received: Optional[int] = None,
         latency_ms: Optional[int] = None,
+        settlement_receipt: Optional[str] = None,
     ) -> Any:
         """Record whether a scanned, settled payment actually DELIVERED
         (outcome: delivered | not_delivered | partial | wrong_content).
@@ -453,7 +454,13 @@ class PaySafeClient:
         Bound to the scan (scan_id + payment_commitment), so delivery history
         can't be fabricated without real, scanned payments. One outcome per
         scan. The payment-path wrapper (wrap_transport_with_paysafe) calls
-        this automatically; call it yourself when you settle another way."""
+        this automatically; call it yourself when you settle another way.
+
+        settlement_receipt ("present" | "absent"): whether the paid response
+        carried a settlement-receipt header. Pass "absent" when the transfer is
+        visible on-chain but the seller returned no receipt — such calls read as
+        FREE to a stock client, and future buyers get flagged to reconcile
+        on-chain rather than pay twice."""
         commitment = (scan.get("attestation") or {}).get("payment_commitment")
         if not commitment:
             raise PaySafeError(
@@ -468,6 +475,8 @@ class PaySafeClient:
             evidence["bytes"] = bytes_received
         if latency_ms is not None:
             evidence["latency_ms"] = latency_ms
+        if settlement_receipt in ("present", "absent"):
+            evidence["settlement_receipt"] = settlement_receipt
         return self._request(
             "POST",
             "/v1/outcomes",

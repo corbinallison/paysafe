@@ -524,7 +524,19 @@ export class PaySafeClient {
   async reportOutcome(
     scan: ScanResponse,
     outcome: "delivered" | "not_delivered" | "partial" | "wrong_content",
-    evidence?: { status?: number; contentType?: string; bytes?: number; latencyMs?: number },
+    evidence?: {
+      status?: number;
+      contentType?: string;
+      bytes?: number;
+      latencyMs?: number;
+      /**
+       * Whether the paid response carried a settlement-receipt header. Pass
+       * "absent" when the transfer is visible on-chain but the seller returned
+       * no receipt: such calls read as FREE to a stock client, and future
+       * buyers get flagged to reconcile on-chain rather than pay twice.
+       */
+      settlementReceipt?: "present" | "absent";
+    },
   ): Promise<unknown> {
     const commitment = scan.attestation?.payment_commitment;
     if (!commitment) {
@@ -535,7 +547,13 @@ export class PaySafeClient {
       payment_commitment: commitment,
       outcome,
       evidence: evidence
-        ? { status: evidence.status, content_type: evidence.contentType, bytes: evidence.bytes, latency_ms: evidence.latencyMs }
+        ? {
+            status: evidence.status,
+            content_type: evidence.contentType,
+            bytes: evidence.bytes,
+            latency_ms: evidence.latencyMs,
+            settlement_receipt: evidence.settlementReceipt,
+          }
         : undefined,
     });
   }

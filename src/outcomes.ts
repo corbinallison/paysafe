@@ -153,6 +153,25 @@ export function handleOutcomeReport(store: Store, cfg: PaySafeConfig, apiKey: st
   store.markDirty();
 
   const evidence = (typeof b.evidence === "object" && b.evidence !== null ? b.evidence : {}) as Record<string, unknown>;
+
+  // Receiptless settlement: the buyer saw the transfer on-chain but the seller
+  // returned no settlement-receipt header, so a stock client believes the call
+  // was free and may pay again. Client-supplied and therefore Sybil-forgeable
+  // (H-2) — counted and surfaced, never allowed to block.
+  const receiptRaw = evidence.settlement_receipt;
+  const receiptless = receiptRaw === "absent";
+  if (receiptless) {
+    if (entry.pay_to) {
+      const agg = store.outcomes.get(entry.pay_to);
+      if (agg) agg.receiptless = (agg.receiptless ?? 0) + 1;
+    }
+    if (entry.domain && entry.pay_to) {
+      const dagg = store.outcomesByDomain.get(entry.domain);
+      if (dagg) dagg.receiptless = (dagg.receiptless ?? 0) + 1;
+    }
+    store.markDirty();
+  }
+
   return {
     status: 201,
     body: {
@@ -165,6 +184,7 @@ export function handleOutcomeReport(store: Store, cfg: PaySafeConfig, apiKey: st
         content_type: typeof evidence.content_type === "string" ? evidence.content_type.slice(0, 100) : null,
         bytes: typeof evidence.bytes === "number" ? evidence.bytes : null,
         latency_ms: typeof evidence.latency_ms === "number" ? evidence.latency_ms : null,
+        settlement_receipt: receiptRaw === "present" || receiptRaw === "absent" ? receiptRaw : null,
       },
       note: "Outcome bound to the scanned payment. Delivery rates feed GET /v1/reputation/{address} and future scans of this counterparty.",
     },
@@ -182,6 +202,8 @@ interface DeliveryStats {
   /** Prior-smoothed rate (see smoothedRate) — what the flag checks compare. */
   smoothed_delivery_rate: number;
   distinct_reporters: number;
+  /** Settlements reported with no seller receipt header (see CounterpartyOutcomes). */
+  receiptless: number;
   first_at: string;
   last_at: string;
 }
@@ -198,6 +220,7 @@ function statsOf(agg: CounterpartyOutcomes, cfg?: PaySafeConfig): DeliveryStats 
     delivery_rate: Number((agg.delivered / total).toFixed(4)),
     smoothed_delivery_rate: Number(smoothedRate(agg.delivered, total, cfg).toFixed(4)),
     distinct_reporters: agg.reporters.length,
+    receiptless: agg.receiptless ?? 0,
     first_at: agg.first_at,
     last_at: agg.last_at,
   };
@@ -325,6 +348,22 @@ export function checkDelivery(store: Store, payment: PaymentDetails, cfg: PaySaf
         severity: "info",
         reason: `Counterparty delivered on ${(d.delivery_rate * 100).toFixed(1)}% of ${d.outcomes_total} commitment-bound settlement(s).`,
         details: { ...d },
+      });
+    }
+
+    // Receiptless settlement is orthogonal to whether the goods arrived, so it
+    // reports independently of the delivery verdict above. A seller can ship
+    // perfectly and still leave the buyer unable to see that they were
+    // charged. Flag-only (H-2): the signal is buyer-reported.
+    if (d.receiptless > 0) {
+      const majority = d.receiptless * 2 >= d.outcomes_total;
+      checks.push({
+        id: "delivery.receiptless_settlement",
+        name: "Delivery outcomes",
+        verdict: "flag",
+        severity: majority && d.receiptless >= 3 ? "high" : "medium",
+        reason: `${d.receiptless} of ${d.outcomes_total} reported settlement(s) with this counterparty moved funds on-chain but returned NO settlement-receipt header. A stock x402 client reads such a call as free, so the charge is invisible without an on-chain audit — and an agent that retries a "free" call pays twice. Reconcile this payment against an on-chain transfer log rather than trusting the response headers.`,
+        details: { receiptless: d.receiptless, outcomes_total: d.outcomes_total },
       });
     }
   }
