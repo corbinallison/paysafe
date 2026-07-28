@@ -14,7 +14,7 @@ import { secp256k1 } from "@noble/curves/secp256k1";
 import { keccak_256 } from "@noble/hashes/sha3";
 import { VerdictSigner } from "../src/verdictsign.ts";
 import { CANONICAL_USDC } from "../src/detectors/asset.ts";
-import { handleScan, createApiKey, consumeFreeCall, freeCallsRemaining, handlePlanSubscribe, handleUsage, handleAdminStats, handleKeyRotate, handleKeyRevoke, handleApprovalConfig, handleReputationDispute } from "../src/api.ts";
+import { handleScan, createApiKey, consumeFreeCall, freeCallsRemaining, handlePlanSubscribe, handleUsage, handleAdminStats, handleAdminSetFirstParty, handleKeyRotate, handleKeyRevoke, handleApprovalConfig, handleReputationDispute } from "../src/api.ts";
 import { PLANS, HARD_CEILINGS, activePlan, resolveEffectiveConfig, plansCatalog } from "../src/plans.ts";
 import { sanitizeScanRequest } from "../src/sanitize.ts";
 import { RateLimiter } from "../src/ratelimit.ts";
@@ -1836,6 +1836,31 @@ console.log("\n— owner/admin stats —");
   check("admin stats 401 for a non-admin (but valid) key", (handleAdminStats(cfgAdmin, store, otherKey) as { status: number }).status === 401);
   check("admin stats 401 for a bogus key", (handleAdminStats(cfgAdmin, store, "psk_bogus") as { status: number }).status === 401);
 
+  // First-party tagging: same owner gate, and no other way in.
+  const otherHash = createHash("sha256").update(otherKey, "utf8").digest("hex");
+  const fp = (c: typeof cfg, k: string | undefined, b: unknown) =>
+    handleAdminSetFirstParty(c, store, k, b) as { status: number; body: Record<string, unknown> };
+  check("first-party tag 404 when ADMIN_KEY_SHA256 unset",
+    fp(cfg, adminKey, { key_hash: otherHash, first_party: true }).status === 404);
+  check("first-party tag 401 for a non-admin (but valid) key",
+    fp(cfgAdmin, otherKey, { key_hash: otherHash, first_party: true }).status === 401);
+  check("first-party tag 401 without a key",
+    fp(cfgAdmin, undefined, { key_hash: otherHash, first_party: true }).status === 401);
+  check("first-party tag 400 on a malformed hash",
+    fp(cfgAdmin, adminKey, { key_hash: "not-a-hash", first_party: true }).status === 400);
+  check("first-party tag 400 when the flag is not a boolean",
+    fp(cfgAdmin, adminKey, { key_hash: otherHash, first_party: "yes" }).status === 400);
+  check("first-party tag 404 on an unknown key hash",
+    fp(cfgAdmin, adminKey, { key_hash: "f".repeat(64), first_party: true }).status === 404);
+  check("a fresh key is never first-party by default", store.keys.get(otherHash)?.first_party === undefined);
+  const setOk = fp(cfgAdmin, adminKey, { key_hash: otherHash, first_party: true });
+  check("owner can tag a key first-party", setOk.status === 200 && setOk.body.first_party === true
+    && store.keys.get(otherHash)?.first_party === true);
+  const unset = fp(cfgAdmin, adminKey, { key_hash: otherHash, first_party: false });
+  check("owner can untag, and the field is removed rather than set false",
+    unset.status === 200 && unset.body.first_party === false
+    && !("first_party" in (store.keys.get(otherHash) as object)));
+
   // Record scans: two keyed (one block via nonce reuse), one anonymous.
   const clean = { ...basePayment, pay_to: "0xNiceMerchant0000000000000000000000000002" };
   handleScan("outgoing", { payment: { ...clean, nonce: "0xa1" }, context: { origin: "planning" } }, cfg, store, null, otherKey);
@@ -2368,15 +2393,26 @@ console.log("\n— public stats + self-measured uptime (/, /v1/stats) —");
   seeded.beatUptime(now);
   const stats = computePublicStats(seeded, now);
   check("public stats expose a fixed aggregate-only shape",
-    Object.keys(stats).sort().join(",") === "as_of,blocked,cache_ttl_seconds,distinct_agents,flagged,measuring_since,scans_total,uptime");
+    Object.keys(stats).sort().join(",") === "as_of,blocked,cache_ttl_seconds,distinct_agents,first_party,flagged,measuring_since,scans_total,third_party,uptime");
+  check("party splits are aggregate-only too",
+    Object.keys(stats.first_party).sort().join(",") === "blocked,distinct_agents,flagged,scans"
+      && Object.keys(stats.third_party).sort().join(",") === "blocked,distinct_agents,flagged,scans");
   const payload = JSON.stringify(stats);
   check("public stats leak no keys, agent ids, or addresses",
     !payload.includes("psk_") && !payload.includes("stats-privacy-agent") && !/0x[0-9a-fA-F]{6}/.test(payload));
   check("keyed-counter fallback counts the scan", stats.scans_total === 1 && stats.distinct_agents === 1 && stats.uptime !== null);
+  check("an untagged key counts as third-party, never first-party",
+    stats.third_party.scans === 1 && stats.first_party.scans === 0);
+  check("the party splits reconcile to the totals",
+    stats.first_party.scans + stats.third_party.scans === stats.scans_total
+      && stats.first_party.blocked + stats.third_party.blocked === stats.blocked
+      && stats.first_party.flagged + stats.third_party.flagged === stats.flagged);
 
   // Homepage substitution: server-formatted values only, page stays static.
   const homeStats: PublicStats = {
     scans_total: 12345, blocked: 67, flagged: 8, distinct_agents: 42,
+    third_party: { scans: 12000, blocked: 60, flagged: 8, distinct_agents: 41 },
+    first_party: { scans: 345, blocked: 7, flagged: 0, distinct_agents: 1 },
     measuring_since: "2026-05-01T00:00:00.000Z",
     uptime: { window_days: 90, pct: 99.97, measured_since: "2026-05-01T00:00:00.000Z", interruptions: 3 },
     as_of: new Date(now).toISOString(), cache_ttl_seconds: 300,

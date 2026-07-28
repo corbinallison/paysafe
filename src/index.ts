@@ -39,6 +39,7 @@ import {
   handleReputationDispute,
   handleReputationLookup,
   handleReputationReport,
+  handleAdminSetFirstParty,
   handleAdminStats,
   handleApprovalConfig,
   handleKeyRevoke,
@@ -478,6 +479,13 @@ app.get("/v1/admin/stats", (req, res) => {
 
 // Owner dashboard — same CSP posture as /dashboard: zero external resources,
 // key via header only, read-only endpoints.
+// Owner-only: mark a key as operator-owned so its scans are reported
+// separately from third-party usage. See handleAdminSetFirstParty.
+app.post("/v1/admin/keys/first-party", (req, res) => {
+  const r = handleAdminSetFirstParty(cfg, store, req.header("x-api-key"), req.body);
+  res.status(r.status).json(r.body);
+});
+
 app.get("/admin", (_req, res) => {
   res.setHeader(
     "Content-Security-Policy",

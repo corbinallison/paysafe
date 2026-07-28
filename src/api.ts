@@ -121,6 +121,9 @@ export function handleScan(
     amount_usd: req.expected_price_usd ?? req.payment.amount_usd ?? null,
     fired: scan.checks.filter((c) => c.verdict !== "allow").map((c) => c.id),
     attestation_sig: scan.attestation?.signature_hex,
+    // Resolved from the presented key, never from the request body. Omitted
+    // (rather than false) for third-party scans so record shape is unchanged.
+    ...(store.resolveKey(apiKey).rec?.first_party ? { first_party: true } : {}),
   });
 
   // Per-key aggregate stats for the usage dashboard (counts only — no payment
@@ -452,7 +455,18 @@ export function handleApprovalConfig(store: Store, cfg: PaySafeConfig, apiKey: s
  * same shape as /v1/usage so probes learn nothing. Aggregates only — no
  * per-customer keys, agent ids, addresses, or payment data are returned.
  */
-export function handleAdminStats(cfg: PaySafeConfig, store: Store, apiKey: string | undefined): ApiResult {
+/**
+ * Owner-only gate, shared by every /v1/admin route. Returns an ApiResult to
+ * send back when the caller is NOT the owner, or null when it is.
+ *
+ * Fails closed in three ways, all deliberate. No configured admin hash means
+ * the routes do not exist (404, not 403, so their existence is not probeable).
+ * The comparison is timing-safe. And a hash match alone is not enough: the key
+ * must still be LIVE in the store, so a rotated or revoked admin key loses
+ * admin access, which is the point of revocation. After rotating, update
+ * ADMIN_KEY_SHA256 to the new hash (the rotate response includes it).
+ */
+function requireOwner(cfg: PaySafeConfig, store: Store, apiKey: string | undefined): ApiResult | null {
   if (!cfg.adminKeyHash) return { status: 404, body: { error: "Not found" } };
   if (!apiKey) {
     return { status: 401, body: { error: "Provide your API key in the X-API-Key header." } };
@@ -462,14 +476,68 @@ export function handleAdminStats(cfg: PaySafeConfig, store: Store, apiKey: strin
   if (given.length !== want.length || !timingSafeEqual(given, want)) {
     return { status: 401, body: { error: "Unknown or invalid API key." } };
   }
-  // The hash match alone isn't enough: a rotated/revoked admin key must lose
-  // admin access too (that's the point of revocation). The key must still be
-  // LIVE in the store — after rotating the admin key, update ADMIN_KEY_SHA256
-  // to the new hash (the rotate response includes it).
   const live = store.resolveKey(apiKey);
   if (!live.rec || live.viaGrace) {
     return { status: 401, body: { error: "Unknown or invalid API key." } };
   }
+  return null;
+}
+
+/**
+ * POST /v1/admin/keys/first-party — mark a key as operator-owned.
+ *
+ * Owner-only, and deliberately the ONLY way the flag can ever be set. It is
+ * never derivable from request input on a scan, and POST /v1/keys cannot set
+ * it, because a caller able to tag itself first-party could remove its own
+ * scans from the public third-party denominator.
+ *
+ * Takes the key HASH, not the key, so tagging an agent never requires sending
+ * that agent's live credential anywhere. The hash is what /v1/keys returns on
+ * creation and what /v1/keys/rotate returns on rotation.
+ *
+ * Only scans recorded AFTER tagging carry the flag. Existing audit records are
+ * immutable by design, so the split is honest going forward and silent about
+ * the past rather than retroactively rewritten.
+ */
+export function handleAdminSetFirstParty(
+  cfg: PaySafeConfig,
+  store: Store,
+  apiKey: string | undefined,
+  body: unknown,
+): ApiResult {
+  const denied = requireOwner(cfg, store, apiKey);
+  if (denied) return denied;
+
+  const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
+  const keyHash = typeof b.key_hash === "string" ? b.key_hash.trim().toLowerCase() : "";
+  if (!/^[0-9a-f]{64}$/.test(keyHash)) {
+    return { status: 400, body: { error: "key_hash must be the 64-hex SHA-256 of the target key." } };
+  }
+  if (typeof b.first_party !== "boolean") {
+    return { status: 400, body: { error: "first_party must be true or false." } };
+  }
+
+  const rec = store.keys.get(keyHash);
+  if (!rec) return { status: 404, body: { error: "Unknown key hash." } };
+
+  if (b.first_party) rec.first_party = true;
+  else delete rec.first_party;
+  store.markDirty();
+
+  return {
+    status: 200,
+    body: {
+      key_hash: keyHash,
+      first_party: rec.first_party === true,
+      note:
+        "Applies to scans recorded from now on. Audit records are immutable, so earlier scans on this key stay counted as third-party.",
+    },
+  };
+}
+
+export function handleAdminStats(cfg: PaySafeConfig, store: Store, apiKey: string | undefined): ApiResult {
+  const denied = requireOwner(cfg, store, apiKey);
+  if (denied) return denied;
 
   // Per-key counters (exist only for keyed scans, since the dashboard feature).
   const keyed = { total: 0, allow: 0, flag: 0, block: 0 };

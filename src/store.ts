@@ -41,6 +41,20 @@ export interface KeyRecord {
   scans?: { total: number; allow: number; flag: number; block: number };
   /** ISO timestamp of the most recent scan on this key */
   last_used_at?: string;
+  /**
+   * Operator-owned key (the ecosystem scout, internal tooling, CI). Two
+   * effects, both deliberate:
+   *  - Scans on this key are EXCLUDED from the third-party figures reported by
+   *    GET /v1/stats and the homepage panel, so "agents using PaySafe" never
+   *    silently counts PaySafe using PaySafe.
+   *  - It carries standing internal quota, because charging yourself moves USDC
+   *    between your own wallets and manufactures settlement volume on your own
+   *    route for no information gain.
+   * Set only by the operator on key creation. Never client-settable: a caller
+   * that could tag itself first-party could hide its own scans from the public
+   * denominator.
+   */
+  first_party?: boolean;
 }
 
 /**

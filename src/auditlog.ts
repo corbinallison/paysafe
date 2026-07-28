@@ -41,6 +41,13 @@ export interface AuditRecord {
   fired: string[];
   /** hex signature of the verdict attestation, if signing is enabled */
   attestation_sig?: string;
+  /**
+   * Set (and only set) when the scanning key is operator-owned. Absent means
+   * third-party. Written from the resolved KeyRecord at scan time, never from
+   * request input. Omitted rather than written false so existing records and
+   * their entry hashes are untouched.
+   */
+  first_party?: boolean;
   prev_hash: string;
   entry_hash: string;
 }
@@ -59,6 +66,21 @@ export interface AuditStats {
   distinct_agents: number;
   /** Sum of scanned payment values (USD) where the amount was known. */
   total_scanned_usd: number;
+  /**
+   * The operator's own share of the numbers above, so a caller can subtract it.
+   * Agent sets are counted separately rather than by subtraction, because
+   * agent_id is caller-supplied and the same string can appear on both sides.
+   */
+  first_party: {
+    count: number;
+    by_verdict: { allow: number; flag: number; block: number };
+    distinct_agents: number;
+  };
+  third_party: {
+    count: number;
+    by_verdict: { allow: number; flag: number; block: number };
+    distinct_agents: number;
+  };
 }
 
 const GENESIS = "0".repeat(64);
@@ -144,6 +166,10 @@ export class AuditLog {
     const by_direction = { outgoing: 0, incoming: 0 };
     const checkCounts = new Map<string, number>();
     const agents = new Set<string>();
+    const fpAgents = new Set<string>();
+    const tpAgents = new Set<string>();
+    const fp = { count: 0, by_verdict: { allow: 0, flag: 0, block: 0 } };
+    const tp = { count: 0, by_verdict: { allow: 0, flag: 0, block: 0 } };
     const dayTotals = new Map<string, { total: number; block: number }>();
     let total_scanned_usd = 0;
     for (const r of recs) {
@@ -151,6 +177,10 @@ export class AuditLog {
       if (r.direction in by_direction) by_direction[r.direction] += 1;
       for (const id of r.fired) checkCounts.set(id, (checkCounts.get(id) ?? 0) + 1);
       if (r.agent_id) agents.add(r.agent_id);
+      const side = r.first_party ? fp : tp;
+      side.count += 1;
+      if (r.verdict in side.by_verdict) side.by_verdict[r.verdict] += 1;
+      if (r.agent_id) (r.first_party ? fpAgents : tpAgents).add(r.agent_id);
       if (typeof r.amount_usd === "number" && Number.isFinite(r.amount_usd)) total_scanned_usd += r.amount_usd;
       const day = r.ts.slice(0, 10);
       const d = dayTotals.get(day) ?? { total: 0, block: 0 };
@@ -180,6 +210,8 @@ export class AuditLog {
       top_checks,
       distinct_agents: agents.size,
       total_scanned_usd: Number(total_scanned_usd.toFixed(2)),
+      first_party: { ...fp, distinct_agents: fpAgents.size },
+      third_party: { ...tp, distinct_agents: tpAgents.size },
     };
   }
 

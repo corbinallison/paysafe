@@ -32,11 +32,32 @@ export interface UptimeSummary {
   interruptions: number;
 }
 
+/** One side of the first-party / third-party split. */
+export interface PartyStats {
+  scans: number;
+  blocked: number;
+  flagged: number;
+  distinct_agents: number;
+}
+
 export interface PublicStats {
+  /** Every scan, both parties. Unchanged meaning, kept for compatibility. */
   scans_total: number;
   blocked: number;
   flagged: number;
   distinct_agents: number;
+  /**
+   * Scans from agents that are not the operator's. This is the honest answer to
+   * "how much is PaySafe used", and it is what the homepage panel shows.
+   */
+  third_party: PartyStats;
+  /**
+   * The operator's own agents, chiefly the ecosystem scout. Published rather
+   * than netted out silently: the scout is open source and its run count is
+   * public, so this figure is checkable against it. A disclosure sentence is a
+   * claim someone has to trust; a number that reconciles is evidence.
+   */
+  first_party: PartyStats;
   /** First recorded scan (audit log), null before the first scan. */
   measuring_since: string | null;
   uptime: UptimeSummary | null;
@@ -87,6 +108,9 @@ export function computePublicStats(store: Store, now = Date.now()): PublicStats 
   let flagged = 0;
   let distinct_agents = 0;
   let since: string | null = null;
+  const empty = (): PartyStats => ({ scans: 0, blocked: 0, flagged: 0, distinct_agents: 0 });
+  let third_party = empty();
+  let first_party = empty();
   if (store.auditLog) {
     // All-time truth, including anonymous (keyless) scans. The daily series
     // and USD total are computed but deliberately dropped — see module doc.
@@ -96,6 +120,18 @@ export function computePublicStats(store: Store, now = Date.now()): PublicStats 
     flagged = s.by_verdict.flag;
     distinct_agents = s.distinct_agents;
     since = s.first_ts;
+    third_party = {
+      scans: s.third_party.count,
+      blocked: s.third_party.by_verdict.block,
+      flagged: s.third_party.by_verdict.flag,
+      distinct_agents: s.third_party.distinct_agents,
+    };
+    first_party = {
+      scans: s.first_party.count,
+      blocked: s.first_party.by_verdict.block,
+      flagged: s.first_party.by_verdict.flag,
+      distinct_agents: s.first_party.distinct_agents,
+    };
   } else {
     // No audit log: fall back to per-key counters (keys that have scanned
     // stand in for distinct agents — the closest honest approximation).
@@ -105,6 +141,11 @@ export function computePublicStats(store: Store, now = Date.now()): PublicStats 
       blocked += rec.scans.block;
       flagged += rec.scans.flag;
       distinct_agents += 1;
+      const side = rec.first_party ? first_party : third_party;
+      side.scans += rec.scans.total;
+      side.blocked += rec.scans.block;
+      side.flagged += rec.scans.flag;
+      side.distinct_agents += 1;
     }
   }
   return {
@@ -112,6 +153,8 @@ export function computePublicStats(store: Store, now = Date.now()): PublicStats 
     blocked,
     flagged,
     distinct_agents,
+    third_party,
+    first_party,
     measuring_since: since,
     uptime: computeUptime(store.uptimeRanges, now),
     as_of: new Date(now).toISOString(),
