@@ -1,28 +1,30 @@
 // Copyright (c) 2026 PaySafe, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
- * Human-facing markdown pages — the homepage (GET / for browsers) and the
- * legal pages (GET /terms, GET /privacy) — rendered from the canonical
- * HOME.md / TERMS.md / PRIVACY.md at the package root (single source of
- * truth: the same files GitHub renders). Files are located by walking up
- * from this module (same trick as version.ts), read once, and cached.
+ * Human-facing pages.
  *
- * The homepage supports {{price_scan}} / {{price_reputation}} /
- * {{free_calls}} placeholders, filled from config so pricing can't drift
- * from what the payment gate actually charges (same policy as llms.txt).
+ * The legal pages (GET /terms, GET /privacy) are rendered from the canonical
+ * TERMS.md / PRIVACY.md at the package root by the tiny markdown renderer
+ * below (single source of truth: the same files GitHub renders).
  *
- * The markdown is converted by a deliberately tiny renderer that supports
- * only what these documents use (headings, bold/em, code spans and fences,
- * links, lists, tables, rules). All text is HTML-escaped BEFORE inline
- * markup is applied, and only http(s)/mailto/fragment/site-relative link
- * targets survive — so the pages stay static HTML with no script and zero
- * external resources, under the same locked-down CSP as the dashboards.
+ * The homepage (GET / for browsers) is a dedicated server-rendered template
+ * (homeBodyHtml) rather than rendered HOME.md: the proof-led layout — live
+ * headline numbers, verdict bar, stat tiles, detector table — can't be
+ * expressed in the mini markdown dialect. HOME.md remains the GitHub-facing
+ * prose document; keep the two in sync when copy changes.
+ *
+ * Everything stays static HTML with no script and zero external resources,
+ * under the same locked-down CSP as the dashboards. Pricing comes from
+ * config and the plan catalog (plans.ts) so it can't drift from what the
+ * payment gate actually charges; stats come from the TTL-cached public
+ * snapshot (pubstats.ts), refreshed every five minutes.
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import type { PaySafeConfig } from "./config.ts";
 import type { PublicStats } from "./pubstats.ts";
+import { PLANS } from "./plans.ts";
 
 function loadDoc(filename: string): string | null {
   let dir = dirname(fileURLToPath(import.meta.url));
@@ -162,6 +164,28 @@ function renderMarkdown(md: string): string {
   return out.join("\n");
 }
 
+/** Shared shell: base palette + prose styles (legal pages use only these). */
+const BASE_CSS = `
+  :root { color-scheme: dark; --bg:#0b0e14; --inset:#0d1017; --card:#141a24; --line:#232c3b; --fg:#e6edf3; --muted:#8b98a9; --accent:#4c8dff; --allow:#3fb950; --flag:#d29922; --block:#f85149; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  h1 { font-size:26px; line-height:1.3; margin:0 0 16px; }
+  h2 { font-size:19px; line-height:1.3; margin:32px 0 10px; padding-top:16px; border-top:1px solid var(--line); }
+  h3 { font-size:16px; margin:24px 0 8px; }
+  p, li { color:var(--fg); }
+  ul { padding-left:22px; margin:10px 0; }
+  li { margin:6px 0; }
+  a { color:var(--accent); }
+  code { background:var(--inset); border:1px solid var(--line); padding:1px 5px; border-radius:4px; font:13px ui-monospace,SFMono-Regular,Menlo,monospace; }
+  pre { background:var(--inset); border:1px solid var(--line); border-radius:8px; padding:14px; overflow-x:auto; }
+  pre code { background:none; border:0; padding:0; font-size:13px; line-height:1.5; white-space:pre-wrap; word-break:break-word; }
+  hr { border:0; border-top:1px solid var(--line); margin:32px 0; }
+  table { border-collapse:collapse; width:100%; margin:14px 0; font-size:14px; display:block; overflow-x:auto; }
+  th, td { border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:var(--card); }
+  footer { margin-top:48px; padding-top:16px; border-top:1px solid var(--line); color:var(--muted); font-size:13px; }
+  footer a { color:var(--muted); }`;
+
 function markdownPageHtml(title: string, markdown: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -170,45 +194,8 @@ function markdownPageHtml(title: string, markdown: string): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title>
 <style>
-  :root { color-scheme: dark; --bg:#0b0e14; --card:#141a24; --line:#232c3b; --fg:#e6edf3; --muted:#8b98a9; --accent:#4c8dff; --allow:#3fb950; --flag:#d29922; --block:#f85149; }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+${BASE_CSS}
   .wrap { max-width:760px; margin:0 auto; padding:32px 20px 64px; }
-  h1 { font-size:26px; line-height:1.3; margin:0 0 16px; }
-  h2 { font-size:19px; margin:32px 0 10px; padding-top:16px; border-top:1px solid var(--line); }
-  h3 { font-size:16px; margin:24px 0 8px; }
-  p, li { color:var(--fg); }
-  ul { padding-left:22px; margin:10px 0; }
-  li { margin:6px 0; }
-  a { color:var(--accent); }
-  code { background:#0d1017; border:1px solid var(--line); padding:1px 5px; border-radius:4px; font:13px ui-monospace,SFMono-Regular,Menlo,monospace; }
-  pre { background:#0d1017; border:1px solid var(--line); border-radius:8px; padding:14px; overflow-x:auto; }
-  pre code { background:none; border:0; padding:0; font-size:13px; line-height:1.5; }
-  hr { border:0; border-top:1px solid var(--line); margin:32px 0; }
-  table { border-collapse:collapse; width:100%; margin:14px 0; font-size:14px; display:block; overflow-x:auto; }
-  th, td { border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top; }
-  th { background:var(--card); }
-  footer { margin-top:48px; padding-top:16px; border-top:1px solid var(--line); color:var(--muted); font-size:13px; }
-  footer a { color:var(--muted); }
-  .statgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; margin:16px 0 0; }
-  .stat { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
-  .stat .n { font-size:26px; font-weight:700; line-height:1.2; }
-  .stat .n.ok { color:var(--allow); }
-  .stat .n.warn { color:var(--flag); }
-  .stat .n.bad { color:var(--block); }
-  .stat .l { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; margin-top:2px; }
-  .bar { display:flex; height:10px; border-radius:6px; overflow:hidden; background:#0d1017; margin:14px 0 10px; }
-  .bar > div { display:block; }
-  .seg-allow { background:var(--allow); }
-  .seg-flag { background:var(--flag); }
-  .seg-block { background:var(--block); }
-  .seg-empty { background:#232c3b; }
-  .legend { display:flex; gap:16px; flex-wrap:wrap; color:var(--muted); font-size:13px; }
-  .legend div::before { content:""; display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
-  .lg-allow::before { background:var(--allow); }
-  .lg-flag::before { background:var(--flag); }
-  .lg-block::before { background:var(--block); }
-  .statmeta { color:var(--muted); font-size:13px; margin:10px 0 0; }
 </style>
 </head>
 <body>
@@ -220,7 +207,6 @@ ${renderMarkdown(markdown)}
 </html>`;
 }
 
-let homeTemplateCache: string | null | undefined;
 let termsCache: string | null | undefined;
 let privacyCache: string | null | undefined;
 
@@ -228,18 +214,116 @@ function fmtInt(n: number): string {
   return n.toLocaleString("en-US");
 }
 
-/**
- * The "Track record" panel — same visual language as the dashboards (stat
- * tiles, verdict proportion bar, legend). Every value is a number or date we
- * format ourselves from the TTL-cached public snapshot; the markup is static
- * divs with inline width percentages only, so the page stays scriptless
- * under the locked-down CSP (style-src 'unsafe-inline' covers it).
- */
-function statsPanelHtml(stats?: PublicStats | null): string {
-  // Headline figures are THIRD-PARTY only. Blended totals would count the
-  // operator's own agents (chiefly the ecosystem scout) as usage, and the
-  // scout is public, so anyone could do the subtraction themselves. Better
-  // that the panel does it first and says so.
+/* ------------------------------------------------------------------ */
+/*  Homepage (proof-led layout)                                        */
+/* ------------------------------------------------------------------ */
+
+const HOME_CSS = `
+${BASE_CSS}
+  .navbar { border-bottom:1px solid var(--line); }
+  .navin { max-width:840px; margin:0 auto; padding:14px 20px; display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+  .navin .brand { color:var(--fg); font-weight:600; font-size:16px; text-decoration:none; }
+  .navin nav { display:flex; gap:20px; font-size:14px; flex-wrap:wrap; }
+  .navin nav a { color:var(--muted); text-decoration:none; }
+  .navin nav a:hover { text-decoration:underline; }
+  main { max-width:840px; margin:0 auto; padding:48px 20px 64px; }
+  .live { color:var(--muted); font:12px ui-monospace,SFMono-Regular,Menlo,monospace; text-transform:uppercase; letter-spacing:.04em; margin-bottom:14px; }
+  .hero-h { font-size:34px; line-height:1.3; margin:0; font-weight:600; letter-spacing:-.01em; text-wrap:pretty; }
+  .hero-h .num { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-weight:700; }
+  .hero-h .num.bad { color:var(--block); }
+  .tagline { font-size:19px; line-height:1.5; margin:14px 0 0; max-width:640px; }
+  .lede { margin:10px 0 0; max-width:640px; color:var(--muted); }
+  .lede .v-allow { color:var(--allow); } .lede .v-flag { color:var(--flag); } .lede .v-block { color:var(--block); }
+  .bar { display:flex; height:10px; border-radius:6px; overflow:hidden; background:var(--inset); margin:24px 0 10px; }
+  .seg-allow { background:var(--allow); } .seg-flag { background:var(--flag); } .seg-block { background:var(--block); } .seg-empty { background:var(--line); }
+  .legend { display:flex; gap:16px; flex-wrap:wrap; color:var(--muted); font-size:13px; }
+  .legend div::before { content:""; display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
+  .lg-allow::before { background:var(--allow); } .lg-flag::before { background:var(--flag); } .lg-block::before { background:var(--block); }
+  .statgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin:20px 0 0; }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .stat .n { font-size:26px; font-weight:700; line-height:1.2; }
+  .stat .n.ok { color:var(--allow); } .stat .n.warn { color:var(--flag); } .stat .n.bad { color:var(--block); }
+  .stat .l { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; margin-top:2px; }
+  .statmeta { color:var(--muted); font-size:13px; margin:12px 0 0; max-width:720px; }
+  .ctarow { display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin:24px 0 0; }
+  .btn { display:inline-block; background:var(--accent); color:#04101f; font-weight:600; font-size:14px; padding:9px 16px; border-radius:8px; text-decoration:none; }
+  .btn:hover { background:#3d78e0; }
+  .install { display:flex; align-items:center; gap:10px; background:var(--inset); border:1px solid var(--line); border-radius:8px; padding:8px 12px; font:13px ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .prose { max-width:720px; }
+  .vcard { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; margin:16px 0 0; }
+  .vhead { display:flex; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
+  .vbadge { display:inline-flex; align-items:center; gap:6px; background:rgba(248,81,73,.12); color:var(--block); border:1px solid var(--block); border-radius:999px; padding:2px 10px; font:12px ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .vbadge::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--block); }
+  .vmeta { font:13px ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--muted); }
+  .vcard pre { margin:0; }
+  .detrow { display:grid; grid-template-columns:220px 1fr; gap:16px; padding:14px 0; border-top:1px solid var(--line); }
+  .detrow .dn { font-weight:600; font-size:15px; line-height:1.5; }
+  .detrow .dc { font:12px ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--muted); margin-top:2px; word-break:break-all; }
+  .detrow .dd { color:var(--muted); font-size:14px; line-height:1.65; margin:0; }
+  .twocol { display:grid; grid-template-columns:1fr 1fr; gap:24px; margin:16px 0 0; align-items:start; }
+  .twocol p { margin:0 0 10px; }
+  .startcards { display:flex; flex-direction:column; gap:16px; margin:16px 0 0; max-width:720px; }
+  .startcards .kicker { font:12px ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin-bottom:10px; }
+  .startcards .vcard { margin:0; }
+  .pricetable { margin:16px 0 0; max-width:720px; }
+  .pricetable .row { display:grid; grid-template-columns:1fr 1fr 1fr 1.4fr; gap:16px; padding:10px 0; border-top:1px solid var(--line); font-size:14px; }
+  .pricetable .row:last-child { border-bottom:1px solid var(--line); }
+  .pricetable .head { font:12px ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .pricetable .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .pricetable .muted { color:var(--muted); }
+  @media (max-width:640px) {
+    .hero-h { font-size:26px; }
+    .detrow { grid-template-columns:1fr; gap:4px; }
+    .twocol { grid-template-columns:1fr; }
+    .pricetable .row { grid-template-columns:1fr 1fr; }
+  }`;
+
+interface Detector {
+  name: string;
+  checks: string;
+  desc: string;
+}
+
+/** Check IDs are the literal values emitted by the detectors in src/detectors/. */
+const DETECTORS: Detector[] = [
+  {
+    name: "Prompt-injection-triggered payments",
+    checks: "injection.payto_from_content",
+    desc: "The strongest check. If the payee address arrived in content your agent just read — a web page, a tool result — that payment is blocked. Detection survives base64/hex encoding, invisible Unicode, homoglyphs, and multilingual override phrasing.",
+  },
+  {
+    name: "Replay",
+    checks: "replay.nonce_reuse",
+    desc: "A payment authorization your agent already used, presented again.",
+  },
+  {
+    name: "Overpayment",
+    checks: "overpay.flag_multiple · overpay.absolute_cap",
+    desc: "Amounts far beyond the quoted price, or beyond an absolute ceiling you set.",
+  },
+  {
+    name: "Secret and PII leakage",
+    checks: "pii.evm_private_key · pii.seed_phrase · …",
+    desc: "Private keys, seed phrases, API keys, card numbers, SSNs in payment metadata — caught before they're transmitted.",
+  },
+  {
+    name: "Lookalike tokens and address poisoning",
+    checks: "asset.not_canonical_usdc · poison.lookalike",
+    desc: "Non-canonical \"USDC\" contracts, and addresses crafted to match a legitimate counterparty's first and last characters — the truncated-display attack.",
+  },
+  {
+    name: "Counterparty risk",
+    checks: "reputation.reported · delivery.low_rate",
+    desc: "A shared reputation registry with time decay and signed rebuttals, plus measured delivery history: sellers who take payment and don't deliver get flagged, based on commitment-bound outcomes, not self-reports.",
+  },
+  {
+    name: "Velocity",
+    checks: "velocity.rate_flag · velocity.spend_cap",
+    desc: "Rate and hourly spend caps, so a compromised agent can't drain a wallet in a burst.",
+  },
+];
+
+function heroStatsHtml(stats?: PublicStats | null): string {
   const total = stats?.third_party.scans ?? 0;
   const blocked = stats?.third_party.blocked ?? 0;
   const flagged = stats?.third_party.flagged ?? 0;
@@ -255,48 +339,155 @@ function statsPanelHtml(stats?: PublicStats | null): string {
       : `<div class="seg-empty" style="width:100%"></div>`;
   const partyMeta =
     firstParty > 0
-      ? `Third-party usage only. Our own agents account for a further ${fmtInt(firstParty)} screenings, reported separately under first_party in /v1/stats.`
-      : `Third-party usage only. Scans from our own agents are counted separately under first_party in /v1/stats.`;
+      ? `Third-party usage only — our own agents, including the open-source ecosystem scout, account for a further ${fmtInt(firstParty)} screenings, reported separately under <code>first_party</code> in <a href="/v1/stats">/v1/stats</a>. Totals only; per-agent and per-payment data is never published.`
+      : `Third-party usage only — scans from our own agents are counted separately under <code>first_party</code> in <a href="/v1/stats">/v1/stats</a>. Totals only; per-agent and per-payment data is never published.`;
   const uptimeMeta = u
-    ? `Uptime is self-measured process liveness (a heartbeat cannot see network-level unreachability), recording since ${escapeHtml(u.measured_since.slice(0, 10))}.`
-    : `Uptime is self-measured process liveness; no heartbeats recorded yet.`;
-  return `<div class="statgrid">
-<div class="stat"><div class="n">${fmtInt(total)}</div><div class="l">Payments screened</div></div>
-<div class="stat"><div class="n ok">${fmtInt(allowed)}</div><div class="l">Allowed</div></div>
-<div class="stat"><div class="n warn">${fmtInt(flagged)}</div><div class="l">Flagged</div></div>
-<div class="stat"><div class="n bad">${fmtInt(blocked)}</div><div class="l">Blocked</div></div>
-<div class="stat"><div class="n">${fmtInt(stats?.third_party.distinct_agents ?? 0)}</div><div class="l">Distinct agents</div></div>
-<div class="stat"><div class="n${u ? " ok" : ""}">${u ? `${u.pct.toFixed(2)}%` : "n/a"}</div><div class="l">Uptime · 90 days</div></div>
-</div>
+    ? `Uptime is self-measured process liveness (a heartbeat cannot see network-level unreachability), recording since ${escapeHtml(u.measured_since.slice(0, 10))}. Refreshed every five minutes; machine-readable at <a href="/v1/stats">/v1/stats</a>, liveness probe at <a href="/health">/health</a>.`
+    : `Uptime is self-measured process liveness; no heartbeats recorded yet. Refreshed every five minutes; machine-readable at <a href="/v1/stats">/v1/stats</a>, liveness probe at <a href="/health">/health</a>.`;
+  return `<div class="live">Live · third-party usage only · refreshed every five minutes</div>
+<h1 class="hero-h"><span class="num">${fmtInt(total)}</span> payments screened. <span class="num bad">${fmtInt(blocked)}</span> blocked before settlement.</h1>
+<p class="tagline"><strong>The payment security firewall for AI agents that pay for things.</strong></p>
+<p class="lede">One HTTP call between your agent and settlement. Submit the payment, get back <span class="v-allow">allow</span>, <span class="v-flag">flag</span> or <span class="v-block">block</span> — with machine-readable reasons and an Ed25519 attestation bound to that exact payment. Advisory and non-custodial: it never touches your keys, your wallet, or your funds.</p>
 <div class="bar">${bar}</div>
 <div class="legend"><div class="lg-allow">allow</div><div class="lg-flag">flag</div><div class="lg-block">block</div></div>
+<div class="statgrid">
+<div class="stat"><div class="n ok">${fmtInt(allowed)}</div><div class="l">Allowed</div></div>
+<div class="stat"><div class="n warn">${fmtInt(flagged)}</div><div class="l">Flagged</div></div>
+<div class="stat"><div class="n">${fmtInt(stats?.third_party.distinct_agents ?? 0)}</div><div class="l">Distinct agents</div></div>
+<div class="stat"><div class="n${u ? " ok" : ""}">${u ? `${u.pct.toFixed(2)}%` : "–"}</div><div class="l">Uptime · 90 days</div></div>
+<div class="stat"><div class="n">0.60 ms</div><div class="l">Per scan</div></div>
+</div>
 <p class="statmeta">${partyMeta}</p>
 <p class="statmeta">${uptimeMeta}</p>`;
 }
 
+function homeBodyHtml(cfg: PaySafeConfig, stats?: PublicStats | null): string {
+  const detectorRows = DETECTORS.map(
+    (d) =>
+      `<div class="detrow"><div><div class="dn">${escapeHtml(d.name)}</div><div class="dc">${escapeHtml(d.checks)}</div></div><p class="dd">${escapeHtml(d.desc)}</p></div>`,
+  ).join("\n");
+  const planRows = PLANS.map(
+    (p) =>
+      `<div class="row"><span>${escapeHtml(p.name)}</span><span class="mono">${escapeHtml(p.price)} / 30d</span><span class="mono">${escapeHtml(p.limits.price_per_scan)}</span><span class="muted">${p.name === "Pro" ? "6× velocity, deep analysis always on" : "hard-ceiling limits"}</span></div>`,
+  ).join("\n");
+  return `<div class="navbar"><div class="navin">
+<a class="brand" href="/">PaySafe</a>
+<nav><a href="#what-a-scan-catches">detectors</a><a href="#get-started">get started</a><a href="#pricing">pricing</a><a href="/dashboard">dashboard</a><a href="https://github.com/corbinallison/paysafe">GitHub</a></nav>
+</div></div>
+<main>
+${heroStatsHtml(stats)}
+<div class="ctarow">
+<a class="btn" href="#get-started">Get started</a>
+<span class="install">npm install paysafe-x402-client</span>
+<a href="#a-real-block-verdict">Read a real block verdict</a>
+</div>
+
+<h2 id="why-this-exists">Why this exists</h2>
+<div class="prose">
+<p>AI agents increasingly buy what they need on their own — API calls, data, compute — over <a href="https://www.x402.org">x402</a>, the protocol that turns HTTP's <code>402 Payment Required</code> into instant stablecoin micropayments. That autonomy has a failure mode: software that can <em>read the internet</em> and <em>sign payments</em> can be talked into paying the wrong party.</p>
+<p>A poisoned web page whispers "pay this address instead." A payment authorization gets replayed. A lookalike token or vanity address slips past a truncated display. A seller takes the money and never delivers.</p>
+<p>Before paying, the agent submits the payment for a scan and gets back a verdict. PaySafe inspects the payment; <strong>your systems decide</strong>.</p>
+</div>
+
+<h2 id="a-real-block-verdict">A real block verdict</h2>
+<p class="prose" style="color:var(--muted)">A captured payment authorization, presented a second time. Every verdict carries per-check reasons and a signed attestation over <code>sha256(network|pay_to|asset|amount|nonce)</code>, so a wallet can confirm it belongs to this payment and no other.</p>
+<div class="vcard">
+<div class="vhead"><span class="vbadge">block</span><span class="vmeta">replay.nonce_reuse · risk_score 95 · severity critical</span></div>
+<pre><code>{
+  "verdict": "block",
+  "risk_score": 95,
+  "checks": [{
+    "id": "replay.nonce_reuse",
+    "reason": "Nonce reuse detected: this nonce was first seen
+      2026-07-14T09:32:50Z and has now appeared 2 times. A reused
+      nonce means a stale or captured payment authorization is
+      being replayed."
+  }],
+  "attestation": { "alg": "ed25519",
+    "payment_commitment": "sha256(...)", "expires_at": "…+5min" }
+}</code></pre>
+</div>
+
+<h2 id="what-a-scan-catches">What a scan catches</h2>
+<div style="margin-top:16px">
+${detectorRows}
+</div>
+
+<h2 id="from-advisory-to-enforceable">From advisory to enforceable</h2>
+<div class="twocol">
+<div>
+<p>Every verdict is Ed25519-signed and bound to a hash of the exact payment, with a short expiry. The SDKs ship an enforcement kit: <code>guardSigner(account)</code> wraps your wallet's signer so it <strong>physically refuses to sign</strong> an x402 payment authorization unless a fresh, verified allow-verdict exists for exactly that payment.</p>
+<p>A compromised agent that scanned payment A cannot sign payment B — and one that skips scanning cannot sign at all. Flagged payments can pause for one-click human approval instead.</p>
+</div>
+<pre><code>const guarded = PaySafeEnforcer.guardSigner(account, {
+  allowedRecipients: ["0x2096…287C"],
+  maxTotalAtomic: 5_000_000n
+});
+// unscanned payment → signature refused</code></pre>
+</div>
+
+<h2 id="get-started">Get started</h2>
+<div class="startcards">
+<div class="vcard"><div class="kicker">MCP — zero config</div>
+<pre><code>{ "mcpServers": { "paysafe": { "command": "npx", "args": ["-y", "paysafe-x402"] } } }</code></pre></div>
+<div class="vcard"><div class="kicker">TypeScript</div>
+<pre><code>npm install paysafe-x402-client
+
+const paysafe = new PaySafeClient({ agentId: "my-agent" });
+paysafe.observe(pageText, { sourceUrl });
+await paysafe.guardOutgoing(payment); // throws on block</code></pre></div>
+<div class="vcard"><div class="kicker">Python</div>
+<pre><code>pip install paysafe-x402
+
+paysafe = PaySafeClient(agent_id="my-agent")
+paysafe.guard_outgoing(payment)</code></pre></div>
+</div>
+<p class="prose" style="color:var(--muted);font-size:14px;margin-top:14px">Drop-in packages: LangChain · CrewAI · Vercel AI SDK · Coinbase AgentKit · NVIDIA NeMo Agent Toolkit — the first ${cfg.freeCalls} calls per key are free, no signup.</p>
+
+<h2 id="pricing">Pricing</h2>
+<p class="prose">Scans are <strong>${escapeHtml(cfg.priceScan)}</strong> each, paid over x402 itself — your agent pays for its own security, per payment it makes. The first <strong>${cfg.freeCalls} calls per API key are free</strong>. Reputation lookups are ${escapeHtml(cfg.priceReputation)}; reporting bad counterparties and recording delivery outcomes is always free.</p>
+<div class="pricetable">
+<div class="row head"><span>Plan</span><span>Price</span><span>Per scan</span><span>Headroom</span></div>
+<div class="row"><span>Starter (default)</span><span class="mono">$0.00</span><span class="mono">${escapeHtml(cfg.priceScan)}</span><span class="muted">defaults</span></div>
+${planRows}
+</div>
+<p class="statmeta">Plans raise your own velocity and spend headroom only — replay detection, merchant pinning, asset verification, and PII scanning are identical on every tier and can't be relaxed by paying more. Machine-readable at <a href="/v1/plans">/v1/plans</a>.</p>
+
+<h2 id="for-developers-and-agents">For developers and agents</h2>
+<ul class="prose">
+<li><a href="/llms.txt">llms.txt</a> — agent-facing integration guide (point your LLM at it)</li>
+<li><a href="/openapi.json">OpenAPI</a> — the full API contract</li>
+<li><a href="/dashboard">Usage dashboard</a> — your key's stats, key sent via header only</li>
+<li><a href="https://github.com/corbinallison/paysafe">Source</a> — source-available under BUSL 1.1</li>
+<li><a href="/.well-known/paysafe-verdict-key">Verdict signing key</a> — pin it and verify everything</li>
+</ul>
+<footer>Operated by <strong>PaySafe, LLC</strong> (Colorado, USA) · <a href="/terms">Terms of Use</a> · <a href="/privacy">Privacy Policy</a> · <a href="https://github.com/corbinallison/paysafe">Source</a> · contact@paysafe-agent.com</footer>
+</main>`;
+}
+
 /**
- * Browser homepage. Pricing placeholders are filled from config (llms.txt
- * policy) and cached with the render; the {{stats_panel}} placeholder
- * survives the markdown render (emitted raw, unwrapped) and is filled per
- * request from the TTL-cached public snapshot (pubstats.ts) — see
- * statsPanelHtml for why the result is CSP-safe static markup.
+ * Browser homepage. Rendered per request from config (pricing — llms.txt
+ * policy) and the TTL-cached public snapshot (pubstats.ts, five-minute
+ * refresh). Static markup only — no script, zero external resources — so it
+ * serves under the same locked-down CSP as the dashboards
+ * (style-src 'unsafe-inline' covers the inline width percentages on the
+ * verdict bar).
  */
 export function homePageHtml(cfg: PaySafeConfig, stats?: PublicStats | null): string | null {
-  if (homeTemplateCache === undefined) {
-    const md = loadDoc("HOME.md");
-    homeTemplateCache =
-      md === null
-        ? null
-        : markdownPageHtml(
-            "PaySafe — payment security firewall for AI agents",
-            md
-              .replace(/\{\{price_scan\}\}/g, cfg.priceScan)
-              .replace(/\{\{price_reputation\}\}/g, cfg.priceReputation)
-              .replace(/\{\{free_calls\}\}/g, String(cfg.freeCalls)),
-          );
-  }
-  if (homeTemplateCache === null) return null;
-  return homeTemplateCache.replace(/\{\{stats_panel\}\}/g, statsPanelHtml(stats));
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PaySafe — payment security firewall for AI agents</title>
+<style>
+${HOME_CSS}
+</style>
+</head>
+<body>
+${homeBodyHtml(cfg, stats)}
+</body>
+</html>`;
 }
 
 export function termsPageHtml(): string | null {
