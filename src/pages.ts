@@ -239,7 +239,7 @@ ${BASE_CSS}
   .legend { display:flex; gap:16px; flex-wrap:wrap; color:var(--muted); font-size:13px; }
   .legend div::before { content:""; display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
   .lg-allow::before { background:var(--allow); } .lg-flag::before { background:var(--flag); } .lg-block::before { background:var(--block); }
-  .statgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin:20px 0 0; }
+  .statgrid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin:20px 0 0; }
   .stat { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
   .stat .n { font-size:26px; font-weight:700; line-height:1.2; }
   .stat .n.ok { color:var(--allow); } .stat .n.warn { color:var(--flag); } .stat .n.bad { color:var(--block); }
@@ -323,6 +323,28 @@ const DETECTORS: Detector[] = [
   },
 ];
 
+/**
+ * Scan cost is a BENCHMARK, not a live measurement, so it lives in the prose
+ * with its provenance attached rather than as a tile in the live grid. Every
+ * tile in the grid reads from the snapshot and falls to an honest zero (or
+ * "n/a") without one; a hardcoded figure sitting among them would read as
+ * live and would still be asserted on a page that has no data at all.
+ * Figure and method must stay in sync with the Performance section of README.md.
+ */
+const PERF_META = `Scan cost is measured offline, not live: 2,000 sequential scans against the zero-dependency dev server (same handlers as production) ran <strong>1.20 s total — 0.60 ms per scan</strong> round-trip, including HTTP, JSON parsing, the full check suite and Ed25519 signing. Deployed latency is dominated by network RTT.`;
+
+/**
+ * The live panel: headline, verdict bar, and stat tiles. Every number here
+ * comes from the TTL-cached public snapshot and is formatted server-side, so
+ * the markup stays static divs with inline width percentages only. The tiles
+ * are the breakdown behind the bar and must reconcile with it —
+ * screened = allowed + flagged + blocked.
+ *
+ * Headline figures are THIRD-PARTY only. Blended totals would count the
+ * operator's own agents (chiefly the ecosystem scout) as usage, and the scout
+ * is public, so anyone could do the subtraction themselves. Better that the
+ * panel does it first and says so.
+ */
 function heroStatsHtml(stats?: PublicStats | null): string {
   const total = stats?.third_party.scans ?? 0;
   const blocked = stats?.third_party.blocked ?? 0;
@@ -351,14 +373,16 @@ function heroStatsHtml(stats?: PublicStats | null): string {
 <div class="bar">${bar}</div>
 <div class="legend"><div class="lg-allow">allow</div><div class="lg-flag">flag</div><div class="lg-block">block</div></div>
 <div class="statgrid">
+<div class="stat"><div class="n">${fmtInt(total)}</div><div class="l">Payments screened</div></div>
 <div class="stat"><div class="n ok">${fmtInt(allowed)}</div><div class="l">Allowed</div></div>
 <div class="stat"><div class="n warn">${fmtInt(flagged)}</div><div class="l">Flagged</div></div>
+<div class="stat"><div class="n bad">${fmtInt(blocked)}</div><div class="l">Blocked</div></div>
 <div class="stat"><div class="n">${fmtInt(stats?.third_party.distinct_agents ?? 0)}</div><div class="l">Distinct agents</div></div>
-<div class="stat"><div class="n${u ? " ok" : ""}">${u ? `${u.pct.toFixed(2)}%` : "–"}</div><div class="l">Uptime · 90 days</div></div>
-<div class="stat"><div class="n">0.60 ms</div><div class="l">Per scan</div></div>
+<div class="stat"><div class="n${u ? " ok" : ""}">${u ? `${u.pct.toFixed(2)}%` : "n/a"}</div><div class="l">Uptime · 90 days</div></div>
 </div>
 <p class="statmeta">${partyMeta}</p>
-<p class="statmeta">${uptimeMeta}</p>`;
+<p class="statmeta">${uptimeMeta}</p>
+<p class="statmeta">${PERF_META}</p>`;
 }
 
 function homeBodyHtml(cfg: PaySafeConfig, stats?: PublicStats | null): string {

@@ -2367,7 +2367,15 @@ console.log("\n— markdown pages (/, /terms, /privacy) —");
   check("markdown headings get GitHub-style anchor ids", (terms ?? "").includes('id="6a-intellectual-property"') && (privacy ?? "").includes('id="5-the-reputation-registry"'));
   check("repo-relative doc links are rewritten to site routes", (privacy ?? "").includes('href="/terms"') && !(privacy ?? "").includes("TERMS.md"));
   check("privacy retention table renders as a table", (privacy ?? "").includes("<table") && (privacy ?? "").includes("<th>Retention</th>"));
-  check("markdown is HTML-escaped before inline markup", !/<(?!\/?(?:html|head|meta|title|style|body|div|footer|h[1-3]|p|ul|li|a|code|pre|hr|strong|em|table|thead|tbody|tr|th|td)\b)[a-z]/i.test(pages.join("")));
+  // Scoped to the pages the mini markdown renderer actually produces. The
+  // homepage is a hand-written template now, so folding it in here would mean
+  // widening this whitelist with the template's own tags (span/main/nav) and
+  // thereby licensing those same tags to escape the renderer via TERMS.md or
+  // PRIVACY.md. The homepage gets its own tag-set check below instead.
+  const rendered = [terms ?? "", privacy ?? ""];
+  check("markdown is HTML-escaped before inline markup", !/<(?!\/?(?:html|head|meta|title|style|body|div|footer|h[1-3]|p|ul|li|a|code|pre|hr|strong|em|table|thead|tbody|tr|th|td)\b)[a-z]/i.test(rendered.join("")));
+  check("homepage markup stays inside the static template's tag set",
+    !/<(?!\/?(?:html|head|meta|title|style|body|div|main|nav|footer|span|h[1-3]|p|ul|li|a|code|pre|hr|strong|em|table|thead|tbody|tr|th|td)\b)[a-z]/i.test(home ?? ""));
 }
 
 console.log("\n— public stats + self-measured uptime (/, /v1/stats) —");
