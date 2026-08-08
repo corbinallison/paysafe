@@ -1,7 +1,7 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
- * @tollwarden/client — official client SDK for Tollwarden, the payment security
+ * @tollwarden/client — official client SDK for TollWarden, the payment security
  * firewall for x402 micropayments (https://tollwarden.com).
  *
  * Zero runtime dependencies. Node 18+ (global fetch; node:crypto for Ed25519).
@@ -9,7 +9,7 @@
  * What it adds over raw HTTP:
  *  - Provenance auto-tagging: call `observe()` whenever your agent reads
  *    external content (tool results, fetched pages); scans are automatically
- *    tagged with `context.origin` + the content, which powers Tollwarden's
+ *    tagged with `context.origin` + the content, which powers TollWarden's
  *    prompt-injection-triggered-payment detection.
  *  - API key management: mints a key on first use, tracks the free-call quota.
  *  - Plans: subscribe/renew autonomously when constructed with an x402
@@ -19,17 +19,17 @@
  *    locally, and expiry is enforced — so a tampered or replayed verdict fails.
  *
  * Quick start:
- *   import { TollwardenClient } from "@tollwarden/client";
- *   const tollwarden = new TollwardenClient();
+ *   import { TollWardenClient } from "@tollwarden/client";
+ *   const tollwarden = new TollWardenClient();
  *   tollwarden.observe(toolResultText, { sourceUrl: "https://api.example.com" });
  *   const scan = await tollwarden.guardOutgoing(payment, { expectedPriceUsd: 0.01 });
- *   // throws TollwardenBlockedError on a block verdict; otherwise safe to settle
+ *   // throws TollWardenBlockedError on a block verdict; otherwise safe to settle
  */
 import { createHash, createPublicKey, verify as edVerify } from "node:crypto";
 
-// Wallet-side enforcement kit: TollwardenEnforcer, guardSigner, paymentFromTypedData.
+// Wallet-side enforcement kit: TollWardenEnforcer, guardSigner, paymentFromTypedData.
 export * from "./enforce.ts";
-// Default-payment-path wrapper: wrapFetchWithTollwarden (scan before every x402 payment).
+// Default-payment-path wrapper: wrapFetchWithTollWarden (scan before every x402 payment).
 export * from "./wrap.ts";
 
 // ---------------------------------------------------------------------------
@@ -169,7 +169,7 @@ export interface ClientOptions {
   apiKey?: string;
   /** Mint an API key automatically on first use (100 free calls). Default: true. */
   autoKey?: boolean;
-  /** Stable agent identifier — scopes Tollwarden's velocity limits to your agent. */
+  /** Stable agent identifier — scopes TollWarden's velocity limits to your agent. */
   agentId?: string;
   /**
    * fetch implementation. Pass an x402 payment-capable fetch (e.g.
@@ -196,34 +196,34 @@ export interface ClientOptions {
 // ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
-export class TollwardenError extends Error {
+export class TollWardenError extends Error {
   readonly status?: number;
   readonly body?: unknown;
   constructor(message: string, status?: number, body?: unknown) {
     super(message);
-    this.name = "TollwardenError";
+    this.name = "TollWardenError";
     this.status = status;
     this.body = body;
   }
 }
 
 /** Thrown by guardOutgoing/guardIncoming when the verdict is block (or flag in strict mode). */
-export class TollwardenBlockedError extends TollwardenError {
+export class TollWardenBlockedError extends TollWardenError {
   readonly scan: ScanResponse;
   constructor(scan: ScanResponse) {
     super(
-      `Tollwarden verdict: ${scan.verdict} (risk ${scan.risk_score}). ` +
+      `TollWarden verdict: ${scan.verdict} (risk ${scan.risk_score}). ` +
         scan.checks
           .filter((c) => c.verdict !== "allow")
           .map((c) => `${c.id}: ${c.reason}`)
           .join("; "),
     );
-    this.name = "TollwardenBlockedError";
+    this.name = "TollWardenBlockedError";
     this.scan = scan;
   }
 }
 
-export class AttestationError extends TollwardenError {
+export class AttestationError extends TollWardenError {
   constructor(message: string) {
     super(message);
     this.name = "AttestationError";
@@ -379,7 +379,7 @@ interface Observation {
   at: number;
 }
 
-export class TollwardenClient {
+export class TollWardenClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly autoKey: boolean;
@@ -481,13 +481,13 @@ export class TollwardenClient {
     if (!res.ok) {
       const msg = (parsed as { error?: string } | null)?.error ?? `HTTP ${res.status}`;
       if (res.status === 402) {
-        throw new TollwardenError(
-          "Payment required and this client's fetch cannot pay. Construct TollwardenClient with an x402 payment-capable fetch (e.g. wrapFetchWithPayment from @x402/fetch), supply an API key with free calls remaining, or subscribe to a plan.",
+        throw new TollWardenError(
+          "Payment required and this client's fetch cannot pay. Construct TollWardenClient with an x402 payment-capable fetch (e.g. wrapFetchWithPayment from @x402/fetch), supply an API key with free calls remaining, or subscribe to a plan.",
           402,
           parsed,
         );
       }
-      throw new TollwardenError(msg, res.status, parsed);
+      throw new TollWardenError(msg, res.status, parsed);
     }
     return parsed as T;
   }
@@ -495,7 +495,7 @@ export class TollwardenClient {
   /** Mint an API key if none is set (autoKey). Returns the active key. */
   async ensureApiKey(): Promise<string> {
     if (this.apiKey) return this.apiKey;
-    if (!this.autoKey) throw new TollwardenError("no API key set and autoKey is disabled");
+    if (!this.autoKey) throw new TollWardenError("no API key set and autoKey is disabled");
     const r = await this.requestJson<{ api_key: string; free_calls_remaining?: number }>(
       "POST",
       "/v1/keys",
@@ -548,17 +548,17 @@ export class TollwardenClient {
     return this.scan("incoming", payment, opts);
   }
 
-  /** Scan and THROW TollwardenBlockedError on block (and on flag when opts.strict). */
+  /** Scan and THROW TollWardenBlockedError on block (and on flag when opts.strict). */
   async guardOutgoing(payment: PaymentDetails, opts: ScanOptions = {}): Promise<ScanResponse> {
     const scan = await this.scan("outgoing", payment, opts);
-    if (scan.verdict === "block" || (opts.strict && scan.verdict === "flag")) throw new TollwardenBlockedError(scan);
+    if (scan.verdict === "block" || (opts.strict && scan.verdict === "flag")) throw new TollWardenBlockedError(scan);
     return scan;
   }
 
   /** Scan an incoming offer and THROW on block (and on flag when opts.strict). */
   async guardIncoming(payment: PaymentDetails, opts: ScanOptions = {}): Promise<ScanResponse> {
     const scan = await this.scan("incoming", payment, opts);
-    if (scan.verdict === "block" || (opts.strict && scan.verdict === "flag")) throw new TollwardenBlockedError(scan);
+    if (scan.verdict === "block" || (opts.strict && scan.verdict === "flag")) throw new TollWardenBlockedError(scan);
     return scan;
   }
 
@@ -576,7 +576,7 @@ export class TollwardenClient {
    *   }
    *
    * Returns the override scan-shaped object (verdict "override:allow", signed
-   * attestation bound to the payment commitment). Throws TollwardenError on deny/
+   * attestation bound to the payment commitment). Throws TollWardenError on deny/
    * expiry/timeout. When opts.payment is supplied (recommended) and this client
    * verifies attestations, the override is verified against the pinned key and
    * that exact payment before being returned.
@@ -587,7 +587,7 @@ export class TollwardenClient {
   ): Promise<ScanResponse> {
     const approvalId = typeof scanOrId === "string" ? scanOrId : scanOrId.approval?.approval_id;
     if (!approvalId) {
-      throw new TollwardenError(
+      throw new TollWardenError(
         "no approval to wait for: the scan carries no `approval` (either the verdict was not flag, or the key has no approvals config — POST /v1/approvals/config first)",
       );
     }
@@ -603,9 +603,9 @@ export class TollwardenClient {
         }
         return state.override;
       }
-      if (state.status === "denied") throw new TollwardenError(`approval ${approvalId} was DENIED by the operator`, 403, state);
-      if (state.status === "expired") throw new TollwardenError(`approval ${approvalId} expired before a decision`, 410, state);
-      if (Date.now() + intervalMs > deadline) throw new TollwardenError(`timed out waiting for approval ${approvalId}`, 408, state);
+      if (state.status === "denied") throw new TollWardenError(`approval ${approvalId} was DENIED by the operator`, 403, state);
+      if (state.status === "expired") throw new TollWardenError(`approval ${approvalId} expired before a decision`, 410, state);
+      if (Date.now() + intervalMs > deadline) throw new TollWardenError(`timed out waiting for approval ${approvalId}`, 408, state);
       await new Promise((r) => setTimeout(r, intervalMs));
     }
   }
@@ -613,7 +613,7 @@ export class TollwardenClient {
   /**
    * Configure (or disable, with webhookUrl: null) human-in-the-loop approvals
    * for this key. Returns the webhook signing secret ONCE — store it; every
-   * delivery carries X-Tollwarden-Signature: sha256=HMAC-SHA256(secret, body).
+   * delivery carries X-TollWarden-Signature: sha256=HMAC-SHA256(secret, body).
    * SECURITY: the decide link each delivery carries is a bearer credential —
    * point the webhook somewhere the agent itself cannot read.
    */
@@ -628,7 +628,7 @@ export class TollwardenClient {
    * Record whether a scanned, settled payment actually DELIVERED. The report
    * is bound to the scan (scan_id + payment_commitment), so delivery history
    * can't be fabricated without real, scanned payments. One outcome per scan.
-   * The payment-path wrapper (wrapFetchWithTollwarden) calls this automatically;
+   * The payment-path wrapper (wrapFetchWithTollWarden) calls this automatically;
    * call it yourself when you settle payments some other way.
    */
   async reportOutcome(
@@ -650,7 +650,7 @@ export class TollwardenClient {
   ): Promise<unknown> {
     const commitment = scan.attestation?.payment_commitment;
     if (!commitment) {
-      throw new TollwardenError("cannot report an outcome: the scan carries no attestation/payment_commitment (verdict signing disabled?)");
+      throw new TollWardenError("cannot report an outcome: the scan carries no attestation/payment_commitment (verdict signing disabled?)");
     }
     return this.requestJson("POST", "/v1/outcomes", {
       scan_id: scan.scan_id,

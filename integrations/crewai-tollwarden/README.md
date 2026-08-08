@@ -1,6 +1,6 @@
 # crewai-tollwarden
 
-[Tollwarden](https://tollwarden.com) payment security for [CrewAI](https://crewai.com) agents — crews inherit "scan before you pay" by default.
+[TollWarden](https://tollwarden.com) payment security for [CrewAI](https://crewai.com) agents — crews inherit "scan before you pay" by default.
 
 ```bash
 pip install crewai-tollwarden
@@ -10,10 +10,10 @@ pip install crewai-tollwarden
 
 ```python
 from crewai import Agent
-from tollwarden import TollwardenClient
+from tollwarden import TollWardenClient
 from crewai_tollwarden import tollwarden_tools, register_tollwarden_provenance
 
-tollwarden = TollwardenClient(agent_id="my-agent")   # free API key auto-minted (100 free scans)
+tollwarden = TollWardenClient(agent_id="my-agent")   # free API key auto-minted (100 free scans)
 register_tollwarden_provenance(tollwarden)           # ← the important line (call once at startup)
 
 agent = Agent(
@@ -28,7 +28,7 @@ Every x402 payment the agent scans gets an **allow / flag / block** verdict with
 
 ## Why the provenance registration is the important line
 
-Tollwarden's strongest detector catches payments whose *decision* came from content the agent just read — a prompt-injected page or tool result that says "send payment to 0x…". That check needs to know what the agent read. `register_tollwarden_provenance` installs a CrewAI **after-tool-call hook** that observes every tool output automatically, so the very next scan is provenance-tagged and the injection check runs with real input. No prompt engineering, no developer learning what "provenance" means. (Tollwarden's own tool outputs are excluded, so verdicts never pollute the signal.) CrewAI's tool-call hooks are process-global — call it once at startup.
+TollWarden's strongest detector catches payments whose *decision* came from content the agent just read — a prompt-injected page or tool result that says "send payment to 0x…". That check needs to know what the agent read. `register_tollwarden_provenance` installs a CrewAI **after-tool-call hook** that observes every tool output automatically, so the very next scan is provenance-tagged and the injection check runs with real input. No prompt engineering, no developer learning what "provenance" means. (TollWarden's own tool outputs are excluded, so verdicts never pollute the signal.) CrewAI's tool-call hooks are process-global — call it once at startup.
 
 ## Enforcement: payments that *can't* execute when blocked
 
@@ -40,10 +40,10 @@ from crewai_tollwarden import guarded_payment
 
 safe_pay = guarded_payment(execute_x402_payment, tollwarden)   # strict=True to refuse flags too
 # build your payment tool's _run from safe_pay — on a block verdict it raises
-# TollwardenBlockedError BEFORE execute_x402_payment is ever invoked.
+# TollWardenBlockedError BEFORE execute_x402_payment is ever invoked.
 ```
 
-For wallet-level enforcement (the signer itself refuses unscanned payments), see `TollwardenEnforcer` in the [tollwarden SDK](https://pypi.org/project/tollwarden/).
+For wallet-level enforcement (the signer itself refuses unscanned payments), see `TollWardenEnforcer` in the [tollwarden SDK](https://pypi.org/project/tollwarden/).
 
 ## The toolset
 
@@ -55,4 +55,4 @@ For wallet-level enforcement (the signer itself refuses unscanned payments), see
 
 Verdicts are Ed25519-signed and payment-bound; the underlying client verifies them against a pinned key automatically.
 
-MIT. Tollwarden is advisory and non-custodial: it never touches keys, wallets, or funds.
+MIT. TollWarden is advisory and non-custodial: it never touches keys, wallets, or funds.

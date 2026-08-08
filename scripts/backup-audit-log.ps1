@@ -1,4 +1,4 @@
-# Tollwarden audit-log offsite backup.
+# TollWarden audit-log offsite backup.
 #
 # Downloads the full tamper-evident audit log via the ADMIN_TOKEN-gated
 # /v1/audit/export endpoint and writes a timestamped copy into a backup

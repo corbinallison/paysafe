@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.tollwarden/tollwarden",
-  "title": "Tollwarden",
+  "title": "TollWarden",
   "description": "Screens x402 payments before settlement for injected payee addresses and sellers who never deliver.",
   "version": "1.5.0",
   "websiteUrl": "https://tollwarden.com",

@@ -1,10 +1,10 @@
-# Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+# Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 # SPDX-License-Identifier: BUSL-1.1
 """
 Wallet-side enforcement kit (Python parity with the TypeScript SDK's enforce.ts).
 
-Turns Tollwarden from advisory into ENFORCED: a wrapped signer refuses to sign an
-x402 payment authorization unless a fresh, Ed25519-verified Tollwarden
+Turns TollWarden from advisory into ENFORCED: a wrapped signer refuses to sign an
+x402 payment authorization unless a fresh, Ed25519-verified TollWarden
 allow-verdict exists for exactly that payment. The verdict's payment
 commitment — sha256(network|pay_to|asset|amount|nonce) — is recomputed from
 the EIP-712 typed data the wallet is being asked to sign, so a compromised
@@ -12,11 +12,11 @@ agent cannot scan one payment and settle another: any change to recipient,
 amount, asset, chain, or nonce changes the commitment and the signature is
 refused.
 
-    from tollwarden import TollwardenClient, TollwardenEnforcer
+    from tollwarden import TollWardenClient, TollWardenEnforcer
     from eth_account import Account
 
-    tollwarden  = TollwardenClient(agent_id="my-agent")
-    enforcer = TollwardenEnforcer(trusted_key_hex=tollwarden.verdict_key())
+    tollwarden  = TollWardenClient(agent_id="my-agent")
+    enforcer = TollWardenEnforcer(trusted_key_hex=tollwarden.verdict_key())
     account  = enforcer.guard_signer(Account.from_key(PRIVATE_KEY))
 
     scan = tollwarden.guard_outgoing(payment)      # raises on block
@@ -36,7 +36,7 @@ Design notes (identical guarantees to the TS kit):
   - Approvals are SINGLE-USE by default and expire with the attestation (plus
     an optional tighter ``max_age_s``), so a verdict can't be hoarded.
   - Enforcement never phones home: approval happens locally against the
-    pinned key. If Tollwarden is unreachable, nothing new can be approved —
+    pinned key. If TollWarden is unreachable, nothing new can be approved —
     fail-closed, which is the point.
   - LOCAL POLICY (optional): ``allowed_recipients`` plus ``max_amount_atomic``
     / ``max_total_atomic`` spend caps, checked against the typed data at sign
@@ -52,15 +52,15 @@ import time
 from typing import Any, Dict, Optional
 
 from . import (
-    TollwardenError,
+    TollWardenError,
     _parse_iso_ms,
     compute_payment_commitment,
     verify_attestation,
 )
 
 __all__ = [
-    "TollwardenEnforcer",
-    "TollwardenEnforcementError",
+    "TollWardenEnforcer",
+    "TollWardenEnforcementError",
     "payment_from_typed_data",
 ]
 
@@ -68,7 +68,7 @@ __all__ = [
 _PAYMENT_TYPES = ("TransferWithAuthorization", "ReceiveWithAuthorization", "Permit")
 
 
-class TollwardenEnforcementError(TollwardenError):
+class TollWardenEnforcementError(TollWardenError):
     """Raised when a signature is refused (no/stale/used approval, strict mode)."""
 
     def __init__(self, message: str, commitment: Optional[str] = None, primary_type: Optional[str] = None):
@@ -103,7 +103,7 @@ def _to_atomic(v: Any, name: str) -> Optional[int]:
         return v
     if isinstance(v, str) and _ASCII_DIGITS.match(v.strip()):
         return int(v.strip())
-    raise TollwardenEnforcementError(f"{name} must be a non-negative integer amount in atomic units (got {v!r})")
+    raise TollWardenEnforcementError(f"{name} must be a non-negative integer amount in atomic units (got {v!r})")
 
 
 def _parse_atomic_amount(amount: Any) -> Optional[int]:
@@ -215,7 +215,7 @@ class _Approval:
 class _GuardedSigner:
     """Proxy around a signer: gates sign_typed_data, passes everything else through."""
 
-    def __init__(self, signer: Any, enforcer: "TollwardenEnforcer"):
+    def __init__(self, signer: Any, enforcer: "TollWardenEnforcer"):
         object.__setattr__(self, "_tollwarden_signer", signer)
         object.__setattr__(self, "_tollwarden_enforcer", enforcer)
 
@@ -224,13 +224,13 @@ class _GuardedSigner:
 
     def sign_typed_data(self, *args: Any, **kwargs: Any) -> Any:
         signer = object.__getattribute__(self, "_tollwarden_signer")
-        enforcer: TollwardenEnforcer = object.__getattribute__(self, "_tollwarden_enforcer")
+        enforcer: TollWardenEnforcer = object.__getattribute__(self, "_tollwarden_enforcer")
         td = _typed_data_from_call(args, kwargs)
         payment = payment_from_typed_data(td) if td is not None else None
         if payment is None:
             if enforcer.strict_types:
                 primary = (td or {}).get("primaryType") if isinstance(td, dict) else None
-                raise TollwardenEnforcementError(
+                raise TollWardenEnforcementError(
                     f"strict_types: refusing to sign unrecognized typed data (primaryType {primary or 'unknown'})",
                     primary_type=primary,
                 )
@@ -245,8 +245,8 @@ class _GuardedSigner:
         return signer.sign_typed_data(*args, **kwargs)
 
 
-class TollwardenEnforcer:
-    """Local, fail-closed signing authority backed by Tollwarden allow-verdicts."""
+class TollWardenEnforcer:
+    """Local, fail-closed signing authority backed by TollWarden allow-verdicts."""
 
     def __init__(
         self,
@@ -262,8 +262,8 @@ class TollwardenEnforcer:
         max_total_atomic: Optional[Any] = None,
     ):
         if not trusted_key_hex:
-            raise TollwardenEnforcementError(
-                "trusted_key_hex is required: pin the Tollwarden verdict key "
+            raise TollWardenEnforcementError(
+                "trusted_key_hex is required: pin the TollWarden verdict key "
                 "(GET /.well-known/tollwarden-verdict-key) — enforcement must never "
                 "trust a key embedded in a response."
             )
@@ -294,7 +294,7 @@ class TollwardenEnforcer:
         # when the approval webhook receiver is out of the agent's reach.
         self.override_admits_recipient = override_admits_recipient
         if self.override_admits_recipient and not self.accept_overrides:
-            raise TollwardenEnforcementError(
+            raise TollWardenEnforcementError(
                 "override_admits_recipient requires accept_overrides: an enforcer that refuses override "
                 "verdicts could never admit one, so this combination is a dead setting, not a policy."
             )
@@ -321,7 +321,7 @@ class TollwardenEnforcer:
                     if self.override_admits_recipient
                     else ""
                 )
-                raise TollwardenEnforcementError(
+                raise TollWardenEnforcementError(
                     f"recipient {payment.get('pay_to') or '(empty)'} is not on the local recipient allowlist "
                     f"({len(self.allowed_recipients)} allowed{hint}); refusing to sign",
                     primary_type=primary_type,
@@ -332,19 +332,19 @@ class TollwardenEnforcer:
         if amount is None:
             # Caps configured but the value isn't a plain non-negative integer:
             # fail closed — an unparseable amount must not slip past a spend cap.
-            raise TollwardenEnforcementError(
+            raise TollWardenEnforcementError(
                 f"spend caps are configured but this authorization's value ({payment.get('amount') or 'missing'}) "
                 "is not a plain integer in atomic units; refusing to sign",
                 primary_type=primary_type,
             )
         if self.max_amount_atomic is not None and amount > self.max_amount_atomic:
-            raise TollwardenEnforcementError(
+            raise TollWardenEnforcementError(
                 f"authorization value {amount} exceeds the local per-payment cap of "
                 f"{self.max_amount_atomic} atomic units; refusing to sign",
                 primary_type=primary_type,
             )
         if self.max_total_atomic is not None and self.total_authorized_atomic + amount > self.max_total_atomic:
-            raise TollwardenEnforcementError(
+            raise TollWardenEnforcementError(
                 f"authorization value {amount} would take this enforcer's authorized total to "
                 f"{self.total_authorized_atomic + amount}, past the local cumulative cap of "
                 f"{self.max_total_atomic} atomic units ({self.total_authorized_atomic} already authorized); "
@@ -393,7 +393,7 @@ class TollwardenEnforcer:
                 hint = " (human-approved overrides require the accept_overrides opt-in - see its security note)"
             else:
                 hint = ""
-            raise TollwardenEnforcementError(f'refusing to approve a "{verdict}" verdict for signing{hint}')
+            raise TollWardenEnforcementError(f'refusing to approve a "{verdict}" verdict for signing{hint}')
         commitment = compute_payment_commitment(payment)
         self._approvals[commitment] = _Approval(
             attestation=scan["attestation"], scan_id=scan.get("scan_id", ""), verdict=str(verdict)
@@ -409,13 +409,13 @@ class TollwardenEnforcer:
         self._approvals.clear()
 
     def assert_approved(self, commitment: str, primary_type: Optional[str] = None) -> None:
-        """The sign-time gate. Raises TollwardenEnforcementError unless a live,
+        """The sign-time gate. Raises TollWardenEnforcementError unless a live,
         unexpired (and unused, unless reusable) approval exists for this
         commitment; consumes it on success."""
         approval = self._approvals.get(commitment)
         if approval is None:
-            raise TollwardenEnforcementError(
-                f"no Tollwarden allow-verdict for this payment authorization (commitment {commitment[:16]}…). "
+            raise TollWardenEnforcementError(
+                f"no TollWarden allow-verdict for this payment authorization (commitment {commitment[:16]}…). "
                 "Scan the payment and call enforcer.approve(scan, payment) first. If the payment was scanned, "
                 "its recipient/amount/asset/chain/nonce differs from what is now being signed — which is "
                 "exactly what this gate exists to catch.",
@@ -423,7 +423,7 @@ class TollwardenEnforcer:
                 primary_type=primary_type,
             )
         if approval.used and not self.reusable:
-            raise TollwardenEnforcementError(
+            raise TollWardenEnforcementError(
                 f"this allow-verdict was already used to sign once (scan {approval.scan_id}); "
                 "approvals are single-use. Re-scan to sign again.",
                 commitment=commitment,
@@ -434,7 +434,7 @@ class TollwardenEnforcer:
         deadline_ms = min(expires_ms, stale_ms)
         if time.time() * 1000 >= deadline_ms:
             del self._approvals[commitment]
-            raise TollwardenEnforcementError(
+            raise TollWardenEnforcementError(
                 f"the allow-verdict for this payment is stale (scan {approval.scan_id}). "
                 "Re-scan to obtain a fresh verdict.",
                 commitment=commitment,

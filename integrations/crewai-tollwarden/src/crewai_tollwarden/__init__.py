@@ -1,22 +1,22 @@
 """
-crewai-tollwarden — Tollwarden payment security for CrewAI agents.
+crewai-tollwarden — TollWarden payment security for CrewAI agents.
 
 Give a CrewAI crew "scan before you pay" with two additions:
 
-    from tollwarden import TollwardenClient
+    from tollwarden import TollWardenClient
     from crewai_tollwarden import tollwarden_tools, register_tollwarden_provenance
 
-    tollwarden = TollwardenClient(agent_id="my-agent")        # free key auto-minted
+    tollwarden = TollWardenClient(agent_id="my-agent")        # free key auto-minted
     register_tollwarden_provenance(tollwarden)                # <- the important one
     agent = Agent(role="buyer", tools=tollwarden_tools(tollwarden), ...)
 
-Why the provenance registration matters more than the tools: Tollwarden's
+Why the provenance registration matters more than the tools: TollWarden's
 strongest detector catches payments whose DECISION came from content the agent
 just read (a prompt-injected page or tool result). That needs to know what the
 agent read. `register_tollwarden_provenance` installs a CrewAI after-tool-call
 hook that observes every tool output automatically, so the next scan is
 tagged with it and the injection check actually runs — no developer has to
-learn what "provenance" means. Tollwarden's own tool outputs are skipped so
+learn what "provenance" means. TollWarden's own tool outputs are skipped so
 verdicts never pollute the signal.
 
 To make a payment tool that REFUSES unsafe payments (rather than trusting the
@@ -24,10 +24,10 @@ model to consult a scan tool first), wrap its executor:
 
     from crewai_tollwarden import guarded_payment
     safe_pay = guarded_payment(execute_x402_payment, tollwarden)
-    # raises TollwardenBlockedError on a block verdict — the executor is never called
+    # raises TollWardenBlockedError on a block verdict — the executor is never called
 
 Requires: crewai >= 0.100, tollwarden >= 0.3.0. MIT.
-Tollwarden is advisory and non-custodial — never touches keys, wallets, or funds.
+TollWarden is advisory and non-custodial — never touches keys, wallets, or funds.
 """
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ except ImportError as e:  # pragma: no cover
         "For plain-Python integrations use the tollwarden package directly."
     ) from e
 
-from tollwarden import TollwardenBlockedError, TollwardenClient
+from tollwarden import TollWardenBlockedError, TollWardenClient
 
 __all__ = [
     "tollwarden_tools",
@@ -135,8 +135,8 @@ class _ReportTool(BaseTool):
         return json.dumps(self.client.report(address, category, reason), default=str)
 
 
-def tollwarden_tools(client: TollwardenClient) -> List[Any]:
-    """The Tollwarden CrewAI toolset (scan / check reputation / report), imperatively
+def tollwarden_tools(client: TollWardenClient) -> List[Any]:
+    """The TollWarden CrewAI toolset (scan / check reputation / report), imperatively
     described so agents call them at the right moments."""
     return [_ScanTool(client=client), _ReputationTool(client=client), _ReportTool(client=client)]
 
@@ -144,9 +144,9 @@ def tollwarden_tools(client: TollwardenClient) -> List[Any]:
 # ---------------------------------------------------------------------------
 # Provenance auto-observe (CrewAI after-tool-call hook)
 # ---------------------------------------------------------------------------
-def register_tollwarden_provenance(client: TollwardenClient, max_chars: int = 8192) -> Callable[[Any], None]:
+def register_tollwarden_provenance(client: TollWardenClient, max_chars: int = 8192) -> Callable[[Any], None]:
     """Install a global CrewAI after-tool-call hook that observes every tool
-    output (except Tollwarden's own) so the next scan is provenance-tagged — this
+    output (except TollWarden's own) so the next scan is provenance-tagged — this
     is what powers prompt-injection-triggered-payment detection. Returns the
     registered hook function.
 
@@ -176,13 +176,13 @@ def register_tollwarden_provenance(client: TollwardenClient, max_chars: int = 81
 # ---------------------------------------------------------------------------
 def guarded_payment(
     pay_fn: Callable[[Dict[str, Any]], Any],
-    client: TollwardenClient,
+    client: TollWardenClient,
     strict: bool = False,
 ) -> Callable[..., str]:
     """Wrap a payment executor so it scans BEFORE paying and refuses blocks.
 
     Returns a callable (payment, expected_price_usd=None) -> JSON string. On a
-    block verdict (or flag with strict=True) it raises TollwardenBlockedError and
+    block verdict (or flag with strict=True) it raises TollWardenBlockedError and
     pay_fn is NEVER invoked — enforcement by construction, not by prompt.
     Build your CrewAI payment tool's _run from this.
     """

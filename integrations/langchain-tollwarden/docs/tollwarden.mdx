@@ -1,9 +1,9 @@
 ---
-title: Tollwarden
+title: TollWarden
 description: Scan x402 payments for safety before your agent settles them, with automatic provenance tagging for prompt-injection detection.
 ---
 
-[Tollwarden](https://tollwarden.com) is a payment security firewall for [x402](https://x402.org) micropayments. Agents that pay for APIs and data over x402 get drained in predictable ways: payments triggered by prompt-injected content, replayed payment authorizations, inflated prices, secrets leaking through payment metadata, lookalike tokens, and address poisoning. `langchain-tollwarden` gives a LangChain/LangGraph agent an allow / flag / block verdict on every payment before it settles — plus a callback that makes Tollwarden's strongest detector work automatically.
+[TollWarden](https://tollwarden.com) is a payment security firewall for [x402](https://x402.org) micropayments. Agents that pay for APIs and data over x402 get drained in predictable ways: payments triggered by prompt-injected content, replayed payment authorizations, inflated prices, secrets leaking through payment metadata, lookalike tokens, and address poisoning. `langchain-tollwarden` gives a LangChain/LangGraph agent an allow / flag / block verdict on every payment before it settles — plus a callback that makes TollWarden's strongest detector work automatically.
 
 ## Overview
 
@@ -39,19 +39,19 @@ os.environ["TOLLWARDEN_API_KEY"] = "psk_..."  # optional; from POST https://toll
 
 ## Instantiation
 
-Create one `TollwardenClient` and share it between the tools and the callback:
+Create one `TollWardenClient` and share it between the tools and the callback:
 
 ```python
-from tollwarden import TollwardenClient
-from langchain_tollwarden import TollwardenProvenanceCallback, tollwarden_tools
+from tollwarden import TollWardenClient
+from langchain_tollwarden import TollWardenProvenanceCallback, tollwarden_tools
 
-tollwarden = TollwardenClient(agent_id="my-agent", api_key=os.environ.get("TOLLWARDEN_API_KEY"))
+tollwarden = TollWardenClient(agent_id="my-agent", api_key=os.environ.get("TOLLWARDEN_API_KEY"))
 
 tools = tollwarden_tools(tollwarden)                 # scan / check reputation / report
-callbacks = [TollwardenProvenanceCallback(tollwarden)]
+callbacks = [TollWardenProvenanceCallback(tollwarden)]
 ```
 
-The callback is the important part: Tollwarden's strongest check catches payments whose *decision* came from content the agent just read (a prompt-injected page or tool result). The callback observes every tool output and retrieval automatically, so the next scan is provenance-tagged and that check runs with real input — no prompt engineering required.
+The callback is the important part: TollWarden's strongest check catches payments whose *decision* came from content the agent just read (a prompt-injected page or tool result). The callback observes every tool output and retrieval automatically, so the next scan is provenance-tagged and that check runs with real input — no prompt engineering required.
 
 ## Invocation
 
@@ -97,11 +97,11 @@ To make payments that *cannot* execute when blocked (instead of trusting the mod
 from langchain_tollwarden import guarded_payment
 
 safe_pay = guarded_payment(execute_x402_payment, tollwarden)
-# raises TollwardenBlockedError on a block verdict — the executor is never called
+# raises TollWardenBlockedError on a block verdict — the executor is never called
 ```
 
 ## API reference
 
 - Package: [langchain-tollwarden on PyPI](https://pypi.org/project/langchain-tollwarden/) · [source](https://github.com/tollwarden/tollwarden/tree/main/integrations/langchain-tollwarden)
-- Service: [Tollwarden API](https://tollwarden.com/llms.txt) · [OpenAPI](https://tollwarden.com/openapi.json)
-- Verdicts are Ed25519-signed and payment-bound; the underlying [tollwarden](https://pypi.org/project/tollwarden/) client verifies them against a pinned key automatically. Tollwarden is advisory and non-custodial — it never touches keys, wallets, or funds.
+- Service: [TollWarden API](https://tollwarden.com/llms.txt) · [OpenAPI](https://tollwarden.com/openapi.json)
+- Verdicts are Ed25519-signed and payment-bound; the underlying [tollwarden](https://pypi.org/project/tollwarden/) client verifies them against a pinned key automatically. TollWarden is advisory and non-custodial — it never touches keys, wallets, or funds.

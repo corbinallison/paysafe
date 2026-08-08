@@ -1,7 +1,7 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
- * The one-line diff: Tollwarden in the default x402 payment path.
+ * The one-line diff: TollWarden in the default x402 payment path.
  *
  * The official x402 buyer quickstart is:
  *
@@ -9,7 +9,7 @@
  *
  * Change it to:
  *
- *     const fetchWithPay = wrapFetchWithTollwarden(wrapFetchWithPayment(fetch, x402Client), tollwarden);
+ *     const fetchWithPay = wrapFetchWithTollWarden(wrapFetchWithPayment(fetch, x402Client), tollwarden);
  *
  * and every x402 payment the agent makes is scanned before it settles:
  *
@@ -24,11 +24,11 @@
  *  4. Only on passing verdicts is the request re-sent through the
  *     payment-capable fetch, which performs the actual x402 pay-and-retry.
  *
- * A block verdict throws TollwardenBlockedError BEFORE any payment is signed —
+ * A block verdict throws TollWardenBlockedError BEFORE any payment is signed —
  * the paying fetch is never invoked. Unparseable 402 offers fail CLOSED.
  * Non-402 responses pass through untouched with zero added latency.
  */
-import { TollwardenBlockedError, TollwardenError, type TollwardenClient, type PaymentDetails, type ScanResponse } from "./index.ts";
+import { TollWardenBlockedError, TollWardenError, type TollWardenClient, type PaymentDetails, type ScanResponse } from "./index.ts";
 
 export interface WrapFetchOptions {
   /** Non-paying fetch used for the initial probe. Default: globalThis.fetch. */
@@ -71,12 +71,12 @@ export function paymentFromOffer(entry: Record<string, unknown>, requestUrl: str
  *
  * @param paymentFetch  the paying fetch (e.g. the return value of
  *                      wrapFetchWithPayment from @x402/fetch)
- * @param tollwarden       a TollwardenClient (its observe()/notePlanning() state
+ * @param tollwarden       a TollWardenClient (its observe()/notePlanning() state
  *                      feeds provenance into the outgoing scan)
  */
-export function wrapFetchWithTollwarden(
+export function wrapFetchWithTollWarden(
   paymentFetch: typeof fetch,
-  tollwarden: TollwardenClient,
+  tollwarden: TollWardenClient,
   opts: WrapFetchOptions = {},
 ): typeof fetch {
   const baseFetch = opts.baseFetch ?? fetch;
@@ -96,7 +96,7 @@ export function wrapFetchWithTollwarden(
       if (!entry || typeof entry !== "object") throw new Error("no accepts[] in 402 body");
       offer = paymentFromOffer(entry, url);
     } catch (e) {
-      throw new TollwardenError(
+      throw new TollWardenError(
         `refusing to auto-pay an unparseable 402 offer from ${url} (${(e as Error).message}). ` +
           "Fail-closed: pass the request to your payment client manually if this endpoint is trusted.",
         402,
@@ -113,7 +113,7 @@ export function wrapFetchWithTollwarden(
     const outgoing = await tollwarden.scanOutgoing(offer, { expectedPriceUsd: expected });
     opts.onScan?.("outgoing", outgoing);
     if (outgoing.verdict === "block" || (opts.strict && outgoing.verdict === "flag")) {
-      throw new TollwardenBlockedError(outgoing);
+      throw new TollWardenBlockedError(outgoing);
     }
 
     // 2) The 402 offer itself, as an INCOMING payment request (URL risk,
@@ -122,7 +122,7 @@ export function wrapFetchWithTollwarden(
       const incoming = await tollwarden.scanIncoming(offer, { expectedPriceUsd: expected });
       opts.onScan?.("incoming", incoming);
       if (incoming.verdict === "block" || (opts.strict && incoming.verdict === "flag")) {
-        throw new TollwardenBlockedError(incoming);
+        throw new TollWardenBlockedError(incoming);
       }
     }
 

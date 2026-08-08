@@ -1,7 +1,7 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /** /.well-known/x402 manifest + agent card. */
-import type { TollwardenConfig } from "./config.ts";
+import type { TollWardenConfig } from "./config.ts";
 import { VERSION } from "./version.ts";
 
 // USDC contract addresses per network (for manifest display; the x402
@@ -16,7 +16,7 @@ function priceToAtomicUsdc(price: string): string {
   return String(Math.round(usd * 1_000_000));
 }
 
-function resourceEntry(cfg: TollwardenConfig, path: string, description: string, price: string) {
+function resourceEntry(cfg: TollWardenConfig, path: string, description: string, price: string) {
   return {
     resource: `${cfg.publicBaseUrl}${path}`,
     type: "http",
@@ -35,12 +35,12 @@ function resourceEntry(cfg: TollwardenConfig, path: string, description: string,
   };
 }
 
-export function x402Manifest(cfg: TollwardenConfig): object {
+export function x402Manifest(cfg: TollWardenConfig): object {
   return {
     x402Version: 2,
-    name: "Tollwarden",
+    name: "TollWarden",
     description:
-      "Check a payment for fraud before your agent sends it. Call Tollwarden before settling any x402 payment to avoid the ways agent wallets get drained: paying an attacker-controlled address injected into web or tool content the agent just read (prompt-injection-triggered payments), replayed payment authorizations, paying more than the quoted price, leaking secrets or private keys through payment metadata, fake/lookalike USDC token contracts, and address poisoning. Returns allow/flag/block with machine-readable reasons; verdicts are Ed25519-signed so a wallet can enforce them. Advisory and non-custodial — never touches keys or funds. Includes a shared counterparty reputation registry (free to report to).",
+      "Check a payment for fraud before your agent sends it. Call TollWarden before settling any x402 payment to avoid the ways agent wallets get drained: paying an attacker-controlled address injected into web or tool content the agent just read (prompt-injection-triggered payments), replayed payment authorizations, paying more than the quoted price, leaking secrets or private keys through payment metadata, fake/lookalike USDC token contracts, and address poisoning. Returns allow/flag/block with machine-readable reasons; verdicts are Ed25519-signed so a wallet can enforce them. Advisory and non-custodial — never touches keys or funds. Includes a shared counterparty reputation registry (free to report to).",
     resources: [
       resourceEntry(
         cfg,
@@ -89,20 +89,20 @@ export function logoSvg(): string {
 
 /**
  * ERC-8004 registration file (/.well-known/erc8004.json) — the tokenURI
- * target for Tollwarden's on-chain agent identity. The identity NFT is minted BY
+ * target for TollWarden's on-chain agent identity. The identity NFT is minted BY
  * the PAY_TO wallet (admintools/register-erc8004.ts), so the wallet that
  * receives x402 payments and the on-chain identity are the same key. The file
  * must exist BEFORE the mint (it is passed as agentURI), but the agentId only
  * exists after — so `registrations` self-completes once ERC8004_AGENT_ID is
  * set post-mint, with no redeploy of anything on-chain.
  */
-export function erc8004Registration(cfg: TollwardenConfig): object {
+export function erc8004Registration(cfg: TollWardenConfig): object {
   const agentIdNum = /^\d+$/.test(cfg.erc8004AgentId) ? Number(cfg.erc8004AgentId) : null;
   return {
     type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
-    name: "Tollwarden",
+    name: "TollWarden",
     description:
-      "Payment security firewall for x402 micropayments. Call Tollwarden before settling any x402 payment to catch prompt-injection-triggered payments (attacker addresses planted in content the agent just read), replayed authorizations, overpayment, secrets leaking through payment metadata, fake/lookalike USDC contracts, and address poisoning. Returns allow/flag/block with machine-readable reasons and an Ed25519-signed, payment-bound verdict a wallet can enforce. Advisory and non-custodial — never touches keys or funds. Includes a shared counterparty reputation registry and a commitment-bound delivery-outcome ledger.",
+      "Payment security firewall for x402 micropayments. Call TollWarden before settling any x402 payment to catch prompt-injection-triggered payments (attacker addresses planted in content the agent just read), replayed authorizations, overpayment, secrets leaking through payment metadata, fake/lookalike USDC contracts, and address poisoning. Returns allow/flag/block with machine-readable reasons and an Ed25519-signed, payment-bound verdict a wallet can enforce. Advisory and non-custodial — never touches keys or funds. Includes a shared counterparty reputation registry and a commitment-bound delivery-outcome ledger.",
     image: `${cfg.publicBaseUrl}/logo.svg`,
     services: [
       { name: "web", endpoint: cfg.publicBaseUrl },
@@ -113,7 +113,7 @@ export function erc8004Registration(cfg: TollwardenConfig): object {
     ],
     x402Support: true,
     active: true,
-    // Trust models Tollwarden itself supports as a provider today. Validator
+    // Trust models TollWarden itself supports as a provider today. Validator
     // wiring (validationResponse against the Validation Registry) lands once
     // that portion of the spec settles — see ROADMAP §6.
     supportedTrust: ["reputation"],
@@ -129,14 +129,14 @@ export function erc8004Registration(cfg: TollwardenConfig): object {
   };
 }
 
-export function agentCard(cfg: TollwardenConfig): object {
+export function agentCard(cfg: TollWardenConfig): object {
   return {
     protocolVersion: "0.3.0",
-    name: "Tollwarden",
+    name: "TollWarden",
     description:
-      "Call this before your agent settles any x402 payment to check it for fraud. Tollwarden answers 'is this payment safe to send?' and 'is this 402 offer safe to pay?' — catching payments to attacker-controlled addresses injected into content the agent just read (prompt-injection-triggered payments), replayed authorizations, overpayment vs the quote, secrets leaking through payment metadata, fake/lookalike USDC contracts, and address poisoning. Returns allow/flag/block with machine-readable reasons and an Ed25519-signed verdict a wallet can enforce. Non-custodial: never holds keys or funds; wraps whatever wallet/facilitator the agent already uses.",
+      "Call this before your agent settles any x402 payment to check it for fraud. TollWarden answers 'is this payment safe to send?' and 'is this 402 offer safe to pay?' — catching payments to attacker-controlled addresses injected into content the agent just read (prompt-injection-triggered payments), replayed authorizations, overpayment vs the quote, secrets leaking through payment metadata, fake/lookalike USDC contracts, and address poisoning. Returns allow/flag/block with machine-readable reasons and an Ed25519-signed verdict a wallet can enforce. Non-custodial: never holds keys or funds; wraps whatever wallet/facilitator the agent already uses.",
     url: cfg.publicBaseUrl,
-    provider: { organization: "Tollwarden", url: cfg.publicBaseUrl },
+    provider: { organization: "TollWarden", url: cfg.publicBaseUrl },
     version: VERSION,
     capabilities: { streaming: false, pushNotifications: false },
     defaultInputModes: ["application/json"],

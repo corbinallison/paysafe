@@ -1,10 +1,10 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Human-in-the-loop step-up approvals (ROADMAP §6).
  *
  * Fills the gap between flag and block: when a scan for a configured key
- * returns "flag", Tollwarden notifies the operator's webhook with the payment
+ * returns "flag", TollWarden notifies the operator's webhook with the payment
  * facts and a one-time decide link. A human reviews the FULL pay_to (the
  * address-poisoning lesson) and one click mints a short-lived Ed25519-signed
  * OVERRIDE verdict — tag "override:allow", never plain "allow" — bound to
@@ -35,7 +35,7 @@ import { lookup as dnsLookup } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
 import { request as httpRequest } from "node:http";
 import { isIP } from "node:net";
-import type { TollwardenConfig } from "./config.ts";
+import type { TollWardenConfig } from "./config.ts";
 import { APPROVAL_RING_MAX, approvalStatsOf, hashApiKey, type ApprovalFacts, type ApprovalRecord, type KeyRecord, type Store } from "./store.ts";
 import type { VerdictSigner } from "./verdictsign.ts";
 import type { ApiResult } from "./api.ts";
@@ -161,7 +161,7 @@ async function deliverWebhook(url: URL, body: string, secret: string, mode: "liv
  * caller in api.ts via requireLiveKey — this function receives the live hash). */
 export function setApprovalConfig(
   store: Store,
-  cfg: TollwardenConfig,
+  cfg: TollWardenConfig,
   keyHash: string,
   body: unknown,
 ): ApiResult {
@@ -216,7 +216,7 @@ export function setApprovalConfig(
       format,
       webhook_secret: secret,
       note:
-        "Store the secret now — it is shown once. Every delivery carries header X-Tollwarden-Signature: sha256=<HMAC-SHA256(secret, raw body)>; verify it before trusting a payload. " +
+        "Store the secret now — it is shown once. Every delivery carries header X-TollWarden-Signature: sha256=<HMAC-SHA256(secret, raw body)>; verify it before trusting a payload. " +
         "SECURITY: the decide link in each delivery is a bearer credential — anyone who can read your webhook destination can approve payments. Point it somewhere the agent itself cannot read, or overrides are self-approvable." +
         (format === "slack" ? " Slack format puts the decide link in channel history — anyone in the channel can decide. Prefer a private channel or the json format." : ""),
     },
@@ -244,7 +244,7 @@ export interface ApprovalAttachment {
  */
 export function maybeCreateApproval(
   store: Store,
-  cfg: TollwardenConfig,
+  cfg: TollWardenConfig,
   keyHash: string,
   scan: ScanResponse,
   req: ScanRequest,
@@ -300,7 +300,7 @@ export function maybeCreateApproval(
     config.format === "slack"
       ? JSON.stringify({
           text:
-            `:warning: Tollwarden flagged a payment and is waiting for your decision.\n` +
+            `:warning: TollWarden flagged a payment and is waiting for your decision.\n` +
             `*Pay to:* \`${facts.pay_to}\` (verify the FULL address)\n` +
             `*Amount:* ${facts.amount_usd !== undefined ? `$${facts.amount_usd}` : facts.amount ?? "?"} on ${facts.network ?? "?"}\n` +
             `*Resource:* ${facts.resource_url ?? "-"}\n` +
@@ -389,7 +389,7 @@ export function handleApprovalInspect(store: Store, body: unknown): ApiResult {
  */
 export function handleApprovalDecide(
   store: Store,
-  cfg: TollwardenConfig,
+  cfg: TollWardenConfig,
   signer: VerdictSigner | null,
   body: unknown,
 ): ApiResult {

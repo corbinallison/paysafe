@@ -1,11 +1,11 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
- * /llms.txt — agent- and LLM-facing description of Tollwarden.
+ * /llms.txt — agent- and LLM-facing description of TollWarden.
  *
  * This is the discovery surface written FOR machines: a plain-text page an
  * agent (or an LLM helping a developer wire one up) can read to learn what
- * Tollwarden is, exactly when to call it, and the minimal integration. It is
+ * TollWarden is, exactly when to call it, and the minimal integration. It is
  * phrased around the agent's INTENT ("before you settle a payment, check it")
  * rather than a feature list, so semantic search over it matches the questions
  * agents actually have.
@@ -13,15 +13,15 @@
  * Served at GET /llms.txt and GET /.well-known/llms.txt. Generated from config
  * so pricing/free-tier stay accurate.
  */
-import type { TollwardenConfig } from "./config.ts";
+import type { TollWardenConfig } from "./config.ts";
 
-export function llmsTxt(cfg: TollwardenConfig): string {
+export function llmsTxt(cfg: TollWardenConfig): string {
   const base = cfg.publicBaseUrl;
-  return `# Tollwarden
+  return `# TollWarden
 
 > A payment security firewall for x402 agents. Make ONE request before your
 > agent settles any x402 payment, and get back allow / flag / block with
-> machine-readable reasons. Advisory and non-custodial: Tollwarden never touches
+> machine-readable reasons. Advisory and non-custodial: TollWarden never touches
 > your keys, wallet, or funds — it inspects the payment and returns a verdict.
 
 If you are an AI agent that pays for things over x402 (HTTP 402 + USDC on Base),
@@ -55,7 +55,7 @@ address-poisoning. Reads are free for your first 100 calls per key.
 
 ## The most important input: provenance
 
-Tollwarden's strongest check needs to know where your decision to pay came from.
+TollWarden's strongest check needs to know where your decision to pay came from.
 When you POST a scan, include a "context" object:
   { "origin": "planning" | "user_instruction" | "tool_result" | "fetched_content",
     "content": "<the tool result or page text you just read, if any>" }
@@ -80,8 +80,8 @@ you automatically (same three tools + a framework-native hook):
   Vercel AI SDK:       npm install @tollwarden/ai-sdk
 
 Minimal (TS):
-  import { TollwardenClient } from "@tollwarden/client";
-  const tollwarden = new TollwardenClient({ agentId: "my-agent" }); // free key auto-minted
+  import { TollWardenClient } from "@tollwarden/client";
+  const tollwarden = new TollWardenClient({ agentId: "my-agent" }); // free key auto-minted
   tollwarden.observe(pageOrToolText, { sourceUrl });              // tag what you read
   await tollwarden.guardOutgoing(payment);                        // throws on block
 
@@ -92,7 +92,7 @@ Every scan response is Ed25519-signed and bound to the exact payment
 against the pinned key at ${base}/.well-known/tollwarden-verdict-key before
 trusting an "allow". The SDKs verify automatically. A wallet policy can require
 a fresh signed allow-verdict before signing — turning the firewall from
-advisory into enforceable without Tollwarden ever holding funds.
+advisory into enforceable without TollWarden ever holding funds.
 
 The attestation also carries a second signed evidence record
 (evidence-v1|scan_id|payment_commitment|pin_domain|pin_age_seconds|pin_corroboration):
@@ -143,10 +143,10 @@ address-poisoning (including vanity-bait addresses planted in just-read
 content), known-bad lists, TOFU
 merchant pinning, velocity and spend caps, external trust signals, a shared
 counterparty report registry, automatic injection-incident history (a wallet
-Tollwarden caught being planted via prompt injection is flagged on every agent's
+TollWarden caught being planted via prompt injection is flagged on every agent's
 future scans of it, even with no content in context), and measured
 delivery-outcome history (does this seller actually ship?) bound to scans
-Tollwarden performed.
+TollWarden performed.
 
 ## Pricing
 

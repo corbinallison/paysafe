@@ -1,19 +1,19 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Wallet-side enforcement kit.
  *
- * Turns Tollwarden from advisory into ENFORCED: a wrapped signer physically
+ * Turns TollWarden from advisory into ENFORCED: a wrapped signer physically
  * refuses to sign an x402 payment authorization unless a fresh, Ed25519-
- * verified Tollwarden allow-verdict exists for exactly that payment. Because the
+ * verified TollWarden allow-verdict exists for exactly that payment. Because the
  * verdict's payment commitment — sha256(network|pay_to|asset|amount|nonce) —
  * is recomputed from the typed data the wallet is being asked to sign, a
  * compromised agent cannot scan one payment and settle another: any change to
  * the recipient, amount, asset, chain, or nonce changes the commitment and
  * the signature is refused.
  *
- *   const tollwarden  = new TollwardenClient({ agentId: "my-agent" });
- *   const enforcer = new TollwardenEnforcer({ trustedKeyHex: PINNED_KEY });
+ *   const tollwarden  = new TollWardenClient({ agentId: "my-agent" });
+ *   const enforcer = new TollWardenEnforcer({ trustedKeyHex: PINNED_KEY });
  *   const account  = enforcer.guardSigner(privateKeyToAccount(PRIVATE_KEY));
  *
  *   const scan = await tollwarden.guardOutgoing(payment);  // throws on block
@@ -32,7 +32,7 @@
  *  - Approvals are SINGLE-USE by default and expire with the attestation
  *    (plus an optional tighter `maxAgeMs`), so a verdict can't be hoarded.
  *  - Enforcement never phones home: approval happens locally against the
- *    pinned key. If Tollwarden is unreachable, nothing new can be approved —
+ *    pinned key. If TollWarden is unreachable, nothing new can be approved —
  *    fail-closed, which is the point.
  *  - LOCAL POLICY (optional): `allowedRecipients` plus `maxAmountAtomic` /
  *    `maxTotalAtomic` spend caps, checked against the typed data at sign time
@@ -72,7 +72,7 @@ export interface TypedDataSigner {
 }
 
 export interface EnforcerOptions {
-  /** PINNED Tollwarden verdict key (hex SPKI DER, from /.well-known/tollwarden-verdict-key).
+  /** PINNED TollWarden verdict key (hex SPKI DER, from /.well-known/tollwarden-verdict-key).
    * Required — enforcement without a pinned key would trust whatever key a
    * forged response embeds. */
   trustedKeyHex: string;
@@ -121,12 +121,12 @@ export interface EnforcerOptions {
   maxTotalAtomic?: bigint | number | string;
 }
 
-export class TollwardenEnforcementError extends Error {
+export class TollWardenEnforcementError extends Error {
   readonly commitment?: string;
   readonly primaryType?: string;
   constructor(message: string, info: { commitment?: string; primaryType?: string } = {}) {
     super(message);
-    this.name = "TollwardenEnforcementError";
+    this.name = "TollWardenEnforcementError";
     this.commitment = info.commitment;
     this.primaryType = info.primaryType;
   }
@@ -165,7 +165,7 @@ export function paymentFromTypedData(td: TypedDataLike): PaymentDetails | null {
   return null;
 }
 
-export class TollwardenEnforcer {
+export class TollWardenEnforcer {
   private readonly trustedKeyHex: string;
   private readonly allowFlagged: boolean;
   private readonly acceptOverrides: boolean;
@@ -181,8 +181,8 @@ export class TollwardenEnforcer {
 
   constructor(opts: EnforcerOptions) {
     if (!opts.trustedKeyHex) {
-      throw new TollwardenEnforcementError(
-        "trustedKeyHex is required: pin the Tollwarden verdict key (GET /.well-known/tollwarden-verdict-key) — enforcement must never trust a key embedded in a response.",
+      throw new TollWardenEnforcementError(
+        "trustedKeyHex is required: pin the TollWarden verdict key (GET /.well-known/tollwarden-verdict-key) — enforcement must never trust a key embedded in a response.",
       );
     }
     this.trustedKeyHex = opts.trustedKeyHex;
@@ -196,7 +196,7 @@ export class TollwardenEnforcer {
       : null;
     this.overrideAdmitsRecipient = opts.overrideAdmitsRecipient ?? false;
     if (this.overrideAdmitsRecipient && !this.acceptOverrides) {
-      throw new TollwardenEnforcementError(
+      throw new TollWardenEnforcementError(
         "overrideAdmitsRecipient requires acceptOverrides: an enforcer that refuses override verdicts could never admit one, so this combination is a dead setting, not a policy.",
       );
     }
@@ -216,7 +216,7 @@ export class TollwardenEnforcer {
     if (this.allowedRecipients) {
       const payTo = (payment.pay_to ?? "").trim().toLowerCase();
       if (!this.allowedRecipients.has(payTo) && !this.overrideAdmits(payment)) {
-        throw new TollwardenEnforcementError(
+        throw new TollWardenEnforcementError(
           `recipient ${payment.pay_to || "(empty)"} is not on the local recipient allowlist (${this.allowedRecipients.size} allowed${
             this.overrideAdmitsRecipient ? "; a human-approved override:allow for this exact payment would admit it" : ""
           }); refusing to sign`,
@@ -229,19 +229,19 @@ export class TollwardenEnforcer {
     if (amount === null) {
       // Caps configured but the value isn't a plain non-negative integer:
       // fail closed — an unparseable amount must not slip past a spend cap.
-      throw new TollwardenEnforcementError(
+      throw new TollWardenEnforcementError(
         `spend caps are configured but this authorization's value (${payment.amount ?? "missing"}) is not a plain integer in atomic units; refusing to sign`,
         { primaryType },
       );
     }
     if (this.maxAmountAtomic !== null && amount > this.maxAmountAtomic) {
-      throw new TollwardenEnforcementError(
+      throw new TollWardenEnforcementError(
         `authorization value ${amount} exceeds the local per-payment cap of ${this.maxAmountAtomic} atomic units; refusing to sign`,
         { primaryType },
       );
     }
     if (this.maxTotalAtomic !== null && this.authorizedTotal + amount > this.maxTotalAtomic) {
-      throw new TollwardenEnforcementError(
+      throw new TollWardenEnforcementError(
         `authorization value ${amount} would take this enforcer's authorized total to ${this.authorizedTotal + amount}, past the local cumulative cap of ${this.maxTotalAtomic} atomic units (${this.authorizedTotal} already authorized); refusing to sign`,
         { primaryType },
       );
@@ -285,7 +285,7 @@ export class TollwardenEnforcer {
       (scan.verdict === "flag" && this.allowFlagged) ||
       (scan.verdict === "override:allow" && this.acceptOverrides);
     if (!acceptable) {
-      throw new TollwardenEnforcementError(
+      throw new TollWardenEnforcementError(
         `refusing to approve a "${scan.verdict}" verdict for signing${
           scan.verdict === "flag"
             ? " (set allowFlagged to accept flags)"
@@ -317,22 +317,22 @@ export class TollwardenEnforcer {
   }
 
   /**
-   * The sign-time gate. Throws TollwardenEnforcementError unless a live,
+   * The sign-time gate. Throws TollWardenEnforcementError unless a live,
    * unexpired (and unused, unless reusable) approval exists for this
    * commitment; consumes it on success.
    */
   assertApproved(commitment: string, primaryType?: string): void {
     const a = this.approvals.get(commitment);
     if (!a) {
-      throw new TollwardenEnforcementError(
-        `no Tollwarden allow-verdict for this payment authorization (commitment ${commitment.slice(0, 16)}…). ` +
+      throw new TollWardenEnforcementError(
+        `no TollWarden allow-verdict for this payment authorization (commitment ${commitment.slice(0, 16)}…). ` +
           `Scan the payment and call enforcer.approve(scan, payment) first. If the payment was scanned, its ` +
           `recipient/amount/asset/chain/nonce differs from what is now being signed — which is exactly what this gate exists to catch.`,
         { commitment, primaryType },
       );
     }
     if (a.used && !this.reusable) {
-      throw new TollwardenEnforcementError(
+      throw new TollWardenEnforcementError(
         `this allow-verdict was already used to sign once (scan ${a.scanId}); approvals are single-use. Re-scan to sign again.`,
         { commitment, primaryType },
       );
@@ -342,7 +342,7 @@ export class TollwardenEnforcer {
     const deadline = Math.min(expiresAt, staleAt);
     if (Date.now() >= deadline) {
       this.approvals.delete(commitment);
-      throw new TollwardenEnforcementError(
+      throw new TollWardenEnforcementError(
         `the allow-verdict for this payment is stale (scan ${a.scanId}, deadline ${new Date(deadline).toISOString()}). Re-scan to obtain a fresh verdict.`,
         { commitment, primaryType },
       );
@@ -372,7 +372,7 @@ export class TollwardenEnforcer {
       const payment = paymentFromTypedData(td);
       if (payment === null) {
         if (enforcer.strictTypes) {
-          throw new TollwardenEnforcementError(
+          throw new TollWardenEnforcementError(
             `strictTypes: refusing to sign unrecognized typed data (primaryType ${td.primaryType ?? "unknown"})`,
             { primaryType: td.primaryType },
           );
@@ -407,7 +407,7 @@ function toAtomic(v: bigint | number | string | undefined, name: string): bigint
     if (b < 0n) throw new Error("negative");
     return b;
   } catch {
-    throw new TollwardenEnforcementError(`${name} must be a non-negative integer amount in atomic units (got ${String(v)})`);
+    throw new TollWardenEnforcementError(`${name} must be a non-negative integer amount in atomic units (got ${String(v)})`);
   }
 }
 

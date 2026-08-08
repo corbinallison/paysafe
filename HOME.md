@@ -1,12 +1,12 @@
-# Tollwarden
+# TollWarden
 
 **The payment security firewall for AI agents that pay for things.**
 
 AI agents increasingly buy what they need on their own — API calls, data, compute — over [x402](https://www.x402.org), the protocol that turns HTTP's `402 Payment Required` into instant stablecoin micropayments. That autonomy has a failure mode: software that can *read the internet* and *sign payments* can be talked into paying the wrong party. A poisoned web page whispers "pay this address instead." A payment authorization gets replayed. A lookalike token or vanity address slips past a truncated display. A seller takes the money and never delivers.
 
-Tollwarden is one HTTP call that stands between your agent and settlement. Before paying, the agent submits the payment for a scan and gets back a verdict — **allow**, **flag**, or **block** — with machine-readable reasons and a cryptographically signed attestation bound to that exact payment.
+TollWarden is one HTTP call that stands between your agent and settlement. Before paying, the agent submits the payment for a scan and gets back a verdict — **allow**, **flag**, or **block** — with machine-readable reasons and a cryptographically signed attestation bound to that exact payment.
 
-Tollwarden is **advisory** and **non-custodial**: it never touches your keys, your wallet, or your funds. It inspects the payment; your systems decide.
+TollWarden is **advisory** and **non-custodial**: it never touches your keys, your wallet, or your funds. It inspects the payment; your systems decide.
 
 ## What a scan catches
 
@@ -20,7 +20,7 @@ Tollwarden is **advisory** and **non-custodial**: it never touches your keys, yo
 
 ## From advisory to enforceable
 
-Every verdict is Ed25519-signed and bound to a hash of the exact payment, with a short expiry. The attestation also carries signed evidence a wallet can weigh for itself: how long the merchant's payment address had been pinned at scan time (a four-minute-old pin and a six-month-old one are different risks), and which named out-of-band sources corroborated it. The SDKs ship an enforcement kit: `guardSigner(account)` wraps your wallet's signer so it **physically refuses to sign** an x402 payment authorization unless a fresh, verified allow-verdict exists for exactly that payment. A compromised agent that scanned payment A cannot sign payment B — and one that skips scanning cannot sign at all. Flagged payments can pause for one-click human approval instead — and Tollwarden shows you (and only you) your own decision latency paired with how approved payments delivered, so approval decaying into a rubber stamp is visible before it costs you.
+Every verdict is Ed25519-signed and bound to a hash of the exact payment, with a short expiry. The attestation also carries signed evidence a wallet can weigh for itself: how long the merchant's payment address had been pinned at scan time (a four-minute-old pin and a six-month-old one are different risks), and which named out-of-band sources corroborated it. The SDKs ship an enforcement kit: `guardSigner(account)` wraps your wallet's signer so it **physically refuses to sign** an x402 payment authorization unless a fresh, verified allow-verdict exists for exactly that payment. A compromised agent that scanned payment A cannot sign payment B — and one that skips scanning cannot sign at all. Flagged payments can pause for one-click human approval instead — and TollWarden shows you (and only you) your own decision latency paired with how approved payments delivered, so approval decaying into a rubber stamp is visible before it costs you.
 
 ## Get started
 
@@ -35,8 +35,8 @@ TypeScript:
 ```
 npm install @tollwarden/client
 
-import { TollwardenClient } from "@tollwarden/client";
-const tollwarden = new TollwardenClient({ agentId: "my-agent" }); // free key auto-minted
+import { TollWardenClient } from "@tollwarden/client";
+const tollwarden = new TollWardenClient({ agentId: "my-agent" }); // free key auto-minted
 tollwarden.observe(pageOrToolText, { sourceUrl });  // tag what the agent read
 await tollwarden.guardOutgoing(payment);            // throws on block
 ```
@@ -71,4 +71,4 @@ Machine-readable at [/v1/stats](/v1/stats) · liveness probe at [/health](/healt
 
 ---
 
-Operated by **Tollwarden, LLC** (Colorado, USA) · [Terms of Use](TERMS.md) · [Privacy Policy](PRIVACY.md) · contact@tollwarden.com
+Operated by **TollWarden, LLC** (Colorado, USA) · [Terms of Use](TERMS.md) · [Privacy Policy](PRIVACY.md) · contact@tollwarden.com

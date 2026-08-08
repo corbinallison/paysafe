@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Counterparty reputation v2: shared post-hoc reporting + lookup, with
@@ -156,7 +156,7 @@ export function summarize(store: Store, addressRaw: string): ReputationSummary {
     first_reported: times[0],
     last_reported: times[times.length - 1],
     ...(disputes?.length ? { disputes } : {}),
-    // System-observed: scans Tollwarden itself blocked with this address
+    // System-observed: scans TollWarden itself blocked with this address
     // structurally implicated. Distinct from (and stronger than) the
     // self-asserted reports above, but still input-spoofable — flag-only.
     injection_history: injectionHistorySummary(store, address),
@@ -357,7 +357,7 @@ export function injectionHistorySummary(
 /**
  * Scan-time cross-check: was this counterparty previously implicated in a
  * blocked injection scan? Flag-only — see the threat model above. Ladder:
- * one fresh anonymous observer (0.5) already reads medium, because "Tollwarden
+ * one fresh anonymous observer (0.5) already reads medium, because "TollWarden
  * itself blocked a payment where this wallet was planted via injection" is a
  * stronger statement than one self-asserted report; ≥1.0 (two observers, or
  * one with payment history) reads high.
@@ -376,7 +376,7 @@ export function checkInjectionHistory(store: Store, payTo: string | undefined): 
       `Counterparty ${payTo} was structurally implicated in ${h.incident_count} previously BLOCKED scan(s) ` +
       `observed by ${h.distinct_observers} distinct agent(s) (weighted score ${h.weighted_score}, last ${h.last_at}): ` +
       `${Object.entries(h.check_ids).map(([k, v]) => `${k}×${v}`).join(", ")}. ` +
-      `This history comes from Tollwarden's own blocking verdicts, but scan inputs are client-supplied — treat it as a strong caution and verify the counterparty out-of-band.`,
+      `This history comes from TollWarden's own blocking verdicts, but scan inputs are client-supplied — treat it as a strong caution and verify the counterparty out-of-band.`,
     details: { ...h, address: payTo.trim().toLowerCase() },
   };
 }

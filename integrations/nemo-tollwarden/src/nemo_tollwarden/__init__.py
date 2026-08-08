@@ -1,11 +1,11 @@
 """
-nemo-tollwarden — Tollwarden payment security for the NVIDIA NeMo Agent Toolkit.
+nemo-tollwarden — TollWarden payment security for the NVIDIA NeMo Agent Toolkit.
 
 Registers three NeMo functions (tollwarden_scan_payment, tollwarden_check_reputation,
 tollwarden_report_counterparty) via the `nat.components` entry point. Importing this
 package runs the registrations in `register.py`.
 
-Tollwarden is advisory and non-custodial — it never touches keys, wallets, or funds.
+TollWarden is advisory and non-custodial — it never touches keys, wallets, or funds.
 """
 from __future__ import annotations
 

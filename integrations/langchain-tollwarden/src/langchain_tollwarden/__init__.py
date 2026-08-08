@@ -1,17 +1,17 @@
 """
-langchain-tollwarden — Tollwarden payment security for LangChain / LangGraph agents.
+langchain-tollwarden — TollWarden payment security for LangChain / LangGraph agents.
 
 Two lines make an agent's x402 payments scanned by default:
 
-    from tollwarden import TollwardenClient
-    from langchain_tollwarden import TollwardenProvenanceCallback, tollwarden_tools
+    from tollwarden import TollWardenClient
+    from langchain_tollwarden import TollWardenProvenanceCallback, tollwarden_tools
 
-    tollwarden = TollwardenClient(agent_id="my-agent")           # free key auto-minted
+    tollwarden = TollWardenClient(agent_id="my-agent")           # free key auto-minted
     tools = [*tollwarden_tools(tollwarden), *your_other_tools]
-    callbacks = [TollwardenProvenanceCallback(tollwarden)]       # <- the important one
+    callbacks = [TollWardenProvenanceCallback(tollwarden)]       # <- the important one
     # pass tools= and callbacks= to your agent as usual
 
-Why the callback matters more than the tools: Tollwarden's strongest detector
+Why the callback matters more than the tools: TollWarden's strongest detector
 catches payments whose DECISION came from content the agent just read (a
 prompt-injected page or tool result). That requires knowing what the agent
 read — its provenance. The callback observes every tool output automatically,
@@ -23,11 +23,11 @@ the model to consult a scan tool first), wrap its function:
 
     from langchain_tollwarden import guarded_payment
     safe_pay = guarded_payment(execute_x402_payment, tollwarden)
-    # safe_pay raises TollwardenBlockedError on a block verdict — the payment
+    # safe_pay raises TollWardenBlockedError on a block verdict — the payment
     # function is never called. Build your payment tool from safe_pay.
 
 Requires: langchain-core >= 0.3, tollwarden >= 0.3.0. MIT.
-Tollwarden is advisory and non-custodial — never touches keys, wallets, or funds.
+TollWarden is advisory and non-custodial — never touches keys, wallets, or funds.
 """
 from __future__ import annotations
 
@@ -43,10 +43,10 @@ except ImportError as e:  # pragma: no cover
         "For plain-Python integrations use the tollwarden package directly."
     ) from e
 
-from tollwarden import TollwardenBlockedError, TollwardenClient
+from tollwarden import TollWardenBlockedError, TollWardenClient
 
 __all__ = [
-    "TollwardenProvenanceCallback",
+    "TollWardenProvenanceCallback",
     "tollwarden_tools",
     "guarded_payment",
     "TOLLWARDEN_TOOL_NAMES",
@@ -59,16 +59,16 @@ TOLLWARDEN_TOOL_NAMES = frozenset(
 )
 
 
-class TollwardenProvenanceCallback(BaseCallbackHandler):
+class TollWardenProvenanceCallback(BaseCallbackHandler):
     """Auto-tags payment provenance: observes every tool output so the next
     scan knows what the agent just read (powers injection-triggered-payment
     detection).
 
-    Tollwarden's own tool outputs are skipped — a verdict echoed back as
+    TollWarden's own tool outputs are skipped — a verdict echoed back as
     "content the agent read" would poison the provenance signal.
     """
 
-    def __init__(self, client: TollwardenClient, max_chars: int = 8192):
+    def __init__(self, client: TollWardenClient, max_chars: int = 8192):
         self._client = client
         self._max_chars = max_chars
 
@@ -95,14 +95,14 @@ class TollwardenProvenanceCallback(BaseCallbackHandler):
 
 def guarded_payment(
     pay_fn: Callable[[Dict[str, Any]], Any],
-    client: TollwardenClient,
+    client: TollWardenClient,
     strict: bool = False,
 ) -> Callable[..., str]:
     """Wrap a payment executor so it scans BEFORE paying and refuses blocks.
 
     Returns a callable (payment, expected_price_usd=None) -> JSON string.
     On a block verdict (or flag with strict=True) it raises
-    TollwardenBlockedError and pay_fn is NEVER invoked — enforcement by
+    TollWardenBlockedError and pay_fn is NEVER invoked — enforcement by
     construction, not by prompt.
     """
 
@@ -118,9 +118,9 @@ def guarded_payment(
     return _guarded
 
 
-def tollwarden_tools(client: TollwardenClient) -> List[Any]:
-    """The Tollwarden toolset, imperatively described so agents call them at the
-    right moments (mirrors the Tollwarden MCP server's tool framing)."""
+def tollwarden_tools(client: TollWardenClient) -> List[Any]:
+    """The TollWarden toolset, imperatively described so agents call them at the
+    right moments (mirrors the TollWarden MCP server's tool framing)."""
 
     def scan_payment(
         payment: dict,

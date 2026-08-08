@@ -1,28 +1,28 @@
-# Tollwarden — Terms of Use
+# TollWarden — Terms of Use
 
 **Last updated: 2026-07-21**
 
-## 1. What Tollwarden is
+## 1. What TollWarden is
 
-Tollwarden ("the Service," "we," "us") is an **advisory** payment-security scanning service for the x402 protocol, operated by **Tollwarden, LLC**, a Colorado limited liability company. You submit metadata about a payment your software is considering (or a payment request it has received) and the Service returns a machine-readable risk verdict — `allow`, `flag`, or `block` — together with the reasons behind it.
+TollWarden ("the Service," "we," "us") is an **advisory** payment-security scanning service for the x402 protocol, operated by **TollWarden, LLC**, a Colorado limited liability company. You submit metadata about a payment your software is considering (or a payment request it has received) and the Service returns a machine-readable risk verdict — `allow`, `flag`, or `block` — together with the reasons behind it.
 
-By calling any Tollwarden endpoint, or by paying for a scan, you ("you," "the user") agree to these Terms. If you do not agree, do not use the Service.
+By calling any TollWarden endpoint, or by paying for a scan, you ("you," "the user") agree to these Terms. If you do not agree, do not use the Service.
 
 ## 2. Advisory only — no guarantee
 
-**Tollwarden verdicts are risk signals, not guarantees, instructions, or financial, legal, or investment advice.** They are produced by automated heuristics and shared data that are inherently incomplete and can produce both false positives (flagging safe payments) and false negatives (failing to flag harmful ones).
+**TollWarden verdicts are risk signals, not guarantees, instructions, or financial, legal, or investment advice.** They are produced by automated heuristics and shared data that are inherently incomplete and can produce both false positives (flagging safe payments) and false negatives (failing to flag harmful ones).
 
 - An `allow` verdict does **not** certify that a payment is safe, legitimate, or free of fraud.
 - A `block` or `flag` verdict does **not** certify that a counterparty is malicious.
-- **You remain solely responsible** for every payment your systems make or accept. You must independently decide whether to proceed with any transaction. Tollwarden does not make that decision for you and cannot be substituted for your own controls, wallet policies, and human judgment.
+- **You remain solely responsible** for every payment your systems make or accept. You must independently decide whether to proceed with any transaction. TollWarden does not make that decision for you and cannot be substituted for your own controls, wallet policies, and human judgment.
 
 ## 3. Non-custodial
 
-Tollwarden is **non-custodial**. We never take possession of, hold, control, sign for, move, or have access to your private keys, wallets, funds, tokens, or any other financial asset. All settlement of value occurs entirely through your own wallet and your chosen payment facilitator, outside the Service. We are not a money transmitter, custodian, exchange, broker, or payment processor, and we do not act as an escrow or intermediary for any transaction you scan.
+TollWarden is **non-custodial**. We never take possession of, hold, control, sign for, move, or have access to your private keys, wallets, funds, tokens, or any other financial asset. All settlement of value occurs entirely through your own wallet and your chosen payment facilitator, outside the Service. We are not a money transmitter, custodian, exchange, broker, or payment processor, and we do not act as an escrow or intermediary for any transaction you scan.
 
 ## 4. Signed verdicts
 
-Where enabled, the Service returns a cryptographic attestation over a verdict, bound to a hash of the specific payment and to an expiry time. Any downstream enforcement — for example a wallet policy that requires a valid Tollwarden `allow` attestation before signing — is **configured and operated by you at your own discretion and risk**. We do not warrant that an attestation will be honored, verified correctly, or acted upon by any third-party system, and we are not responsible for the behavior of any wallet, agent, facilitator, or other software that consumes our output.
+Where enabled, the Service returns a cryptographic attestation over a verdict, bound to a hash of the specific payment and to an expiry time. Any downstream enforcement — for example a wallet policy that requires a valid TollWarden `allow` attestation before signing — is **configured and operated by you at your own discretion and risk**. We do not warrant that an attestation will be honored, verified correctly, or acted upon by any third-party system, and we are not responsible for the behavior of any wallet, agent, facilitator, or other software that consumes our output.
 
 ## 5. The counterparty reputation registry
 
@@ -44,13 +44,13 @@ You agree not to:
 - **scrape, crawl, bulk-query, or systematically export** the counterparty reputation registry, the outcome ledger, or any other Service dataset, whether directly or by aggregating individual lookups;
 - **resell, sublicense, redistribute, or syndicate** verdicts, attestations, reputation data, or outcome data to third parties as a standalone product or data feed, or use any Service output to **build, train, seed, or improve a competing payment-security, risk-scoring, or reputation service or dataset**;
 - resell or redistribute the Service in a way that misrepresents its advisory nature; or
-- remove, obscure, or falsify attribution or signatures on verdicts or attestations, or present a modified verdict as issued by Tollwarden.
+- remove, obscure, or falsify attribution or signatures on verdicts or attestations, or present a modified verdict as issued by TollWarden.
 
 Verdicts and attestations are licensed to you for one purpose: informing and enforcing **your own** systems' payment decisions (including passing them to your own wallets, agents, and policy tooling). We may suspend or terminate access, and remove or quarantine submitted data, for violations. Automated or third-party clients that call the Service on your behalf act as you, and you are responsible for their compliance.
 
 ## 6a. Intellectual property
 
-The Service, including its software, detection heuristics, models, documentation, and the **selection, arrangement, and compilation** of the reputation registry and outcome ledger, is the property of Tollwarden, LLC and its licensors and is protected by copyright and other intellectual-property laws. The Tollwarden source code is licensed separately under the **Business Source License 1.1** (see the LICENSE file in the source repository); these Terms govern use of the hosted Service and do not grant you any license to the source code, and nothing in the source-code license grants you rights to the hosted Service, its data, or its signing keys. Individual reputation reports remain the responsibility of their submitters (§5); by submitting a report, dispute, or outcome you grant Tollwarden, LLC a perpetual, irrevocable, worldwide, royalty-free license to store, process, display, and distribute it as part of the Service. "Tollwarden" and the Service's logos may not be used to imply endorsement, affiliation, or that output not signed by our verdict key originated from us.
+The Service, including its software, detection heuristics, models, documentation, and the **selection, arrangement, and compilation** of the reputation registry and outcome ledger, is the property of TollWarden, LLC and its licensors and is protected by copyright and other intellectual-property laws. The TollWarden source code is licensed separately under the **Business Source License 1.1** (see the LICENSE file in the source repository); these Terms govern use of the hosted Service and do not grant you any license to the source code, and nothing in the source-code license grants you rights to the hosted Service, its data, or its signing keys. Individual reputation reports remain the responsibility of their submitters (§5); by submitting a report, dispute, or outcome you grant TollWarden, LLC a perpetual, irrevocable, worldwide, royalty-free license to store, process, display, and distribute it as part of the Service. "TollWarden" and the Service's logos may not be used to imply endorsement, affiliation, or that output not signed by our verdict key originated from us.
 
 ## 7. Data handling
 
@@ -74,5 +74,5 @@ We may modify these Terms or the Service at any time; material changes take effe
 
 ## 11. Contact
 
-**Tollwarden, LLC** (Colorado) — **contact@tollwarden.com**
+**TollWarden, LLC** (Colorado) — **contact@tollwarden.com**
 Service: **https://tollwarden.com**

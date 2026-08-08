@@ -1,8 +1,8 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
-/** Tollwarden configuration, driven by environment variables. */
+/** TollWarden configuration, driven by environment variables. */
 
-export interface TollwardenConfig {
+export interface TollWardenConfig {
   port: number;
   /** "live" = x402 payments enforced; "dev" = everything free (local testing) */
   mode: "live" | "dev";
@@ -43,7 +43,7 @@ export interface TollwardenConfig {
   scoutScore: boolean;
   /** ScoutScore API base URL (tests point this at a mock) */
   scoutScoreUrl: string;
-  /** Ed25519-sign verdicts so wallets can require a Tollwarden allow-verdict */
+  /** Ed25519-sign verdicts so wallets can require a TollWarden allow-verdict */
   verdictSigning: boolean;
   /** Path to a JSON array of known-bad addresses (default: <dataDir>/badlist.json) */
   badlistPath: string | null;
@@ -114,7 +114,7 @@ function num(v: string | undefined, d: number): number {
   return Number.isFinite(n) ? n : d;
 }
 
-export function loadConfig(env: Record<string, string | undefined> = process.env): TollwardenConfig {
+export function loadConfig(env: Record<string, string | undefined> = process.env): TollWardenConfig {
   // PAYSAFE_MODE is the pre-rename name — existing deployments still set it.
   const mode = (env.TOLLWARDEN_MODE ?? env.PAYSAFE_MODE) === "dev" ? "dev" : "live";
   const dataDir = env.DATA_DIR ?? "./data";

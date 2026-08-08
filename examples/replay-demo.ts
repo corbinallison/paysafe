@@ -1,8 +1,8 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Demo: a client agent attempts an x402 payment with a REUSED NONCE and
- * Tollwarden blocks the second attempt with a clear reason.
+ * TollWarden blocks the second attempt with a clear reason.
  *
  * Run against a local instance:
  *   npm run dev            # terminal 1 (dev server, payments off)
@@ -59,7 +59,7 @@ const scanBody = {
   context: { origin: "planning" },
 };
 
-console.log(`Tollwarden replay demo → ${BASE}`);
+console.log(`TollWarden replay demo → ${BASE}`);
 console.log(`Payment nonce: ${nonce}`);
 
 // Attempt 1: fresh nonce — should be ALLOWED.

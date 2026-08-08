@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * ScoutScore trust signal (external, advisory).
@@ -6,7 +6,7 @@
  * ScoutScore (scoutscore.ai) publishes behavioral trust scores for x402
  * services, keyed by domain: contract clarity, availability, response
  * fidelity, identity/safety, spam-farm clustering. That is identity-level
- * reputation — exactly the thing Tollwarden deliberately is not — so it enters
+ * reputation — exactly the thing TollWarden deliberately is not — so it enters
  * the scan as ONE labeled external signal with hard limits:
  *
  *  - It can only ever FLAG, never block (same policy as our own reputation
@@ -19,7 +19,7 @@
  *    amounts, keys, or payload contents. Off by default (SCOUTSCORE=on).
  *  - Free-tier only: ScoutScore's launch API is unauthenticated; if it starts
  *    answering 402/4xx (paid-only), we cache "unavailable" and stay silent.
- *    Tollwarden never pays for lookups — it holds no wallet by design.
+ *    TollWarden never pays for lookups — it holds no wallet by design.
  */
 import type { CheckResult, PaymentDetails } from "../types.ts";
 import type { Store, ScoutScoreRecord } from "../store.ts";

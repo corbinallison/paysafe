@@ -1,13 +1,13 @@
 /**
- * @tollwarden/ai-sdk — Tollwarden payment security for the Vercel AI SDK.
+ * @tollwarden/ai-sdk — TollWarden payment security for the Vercel AI SDK.
  *
  * Two additions give an AI SDK agent "scan before you pay" by default:
  *
  *   import { generateText } from "ai";
- *   import { TollwardenClient } from "@tollwarden/client";
+ *   import { TollWardenClient } from "@tollwarden/client";
  *   import { tollwardenTools, tollwardenProvenance } from "@tollwarden/ai-sdk";
  *
- *   const tollwarden = new TollwardenClient({ agentId: "my-agent" }); // free key auto-minted
+ *   const tollwarden = new TollWardenClient({ agentId: "my-agent" }); // free key auto-minted
  *
  *   await generateText({
  *     model,
@@ -16,25 +16,25 @@
  *     prompt: "...",
  *   });
  *
- * Why tollwardenProvenance is the important line: Tollwarden's strongest detector
+ * Why tollwardenProvenance is the important line: TollWarden's strongest detector
  * catches payments whose DECISION came from content the agent just read (a
  * prompt-injected page or tool result). It needs to know what the agent read.
  * tollwardenProvenance is an onStepFinish handler that observes every tool result
  * automatically — so the next scan is provenance-tagged and the injection
- * check runs. Tollwarden's own tool results are skipped so verdicts don't pollute
+ * check runs. TollWarden's own tool results are skipped so verdicts don't pollute
  * the signal.
  *
  * To make payments that CANNOT execute when blocked, wrap the executor with
  * guardedPayment(). For fetch/transport-level enforcement, see
- * wrapFetchWithTollwarden and TollwardenEnforcer in @tollwarden/client.
+ * wrapFetchWithTollWarden and TollWardenEnforcer in @tollwarden/client.
  *
- * Tollwarden is advisory and non-custodial — it never touches keys, wallets, or funds.
+ * TollWarden is advisory and non-custodial — it never touches keys, wallets, or funds.
  */
 import { tool } from "ai";
 import { z } from "zod";
 import {
-  TollwardenBlockedError,
-  type TollwardenClient,
+  TollWardenBlockedError,
+  type TollWardenClient,
   type PaymentDetails,
   type ScanResponse,
 } from "@tollwarden/client";
@@ -56,10 +56,10 @@ const SCAN_DESCRIPTION =
   "poisoning. Advisory and non-custodial.";
 
 /**
- * The Tollwarden toolset for the AI SDK: scan / check reputation / report,
+ * The TollWarden toolset for the AI SDK: scan / check reputation / report,
  * imperatively described so the model calls them at the right moments.
  */
-export function tollwardenTools(client: TollwardenClient) {
+export function tollwardenTools(client: TollWardenClient) {
   return {
     tollwarden_scan_payment: tool({
       description: SCAN_DESCRIPTION,
@@ -130,11 +130,11 @@ interface StepLike {
 
 /**
  * An onStepFinish (or onStepEnd) handler that auto-tags provenance: it observes
- * every tool result the agent produced — except Tollwarden's own — so the next
+ * every tool result the agent produced — except TollWarden's own — so the next
  * scan knows what the agent read. This is what powers
  * prompt-injection-triggered-payment detection.
  */
-export function tollwardenProvenance(client: TollwardenClient, opts: { maxChars?: number } = {}) {
+export function tollwardenProvenance(client: TollWardenClient, opts: { maxChars?: number } = {}) {
   const maxChars = opts.maxChars ?? 8192;
   return (step: StepLike): void => {
     for (const tr of step?.toolResults ?? []) {
@@ -149,12 +149,12 @@ export function tollwardenProvenance(client: TollwardenClient, opts: { maxChars?
 
 /**
  * Wrap a payment executor so it scans BEFORE paying and refuses blocks. On a
- * block verdict (or flag when strict) it throws TollwardenBlockedError and the
+ * block verdict (or flag when strict) it throws TollWardenBlockedError and the
  * executor is NEVER called — enforcement by construction, not by prompt.
  */
 export function guardedPayment<T>(
   payFn: (payment: PaymentDetails) => Promise<T> | T,
-  client: TollwardenClient,
+  client: TollWardenClient,
   opts: { strict?: boolean } = {},
 ) {
   const strict = opts.strict ?? false;
@@ -168,4 +168,4 @@ export function guardedPayment<T>(
   };
 }
 
-export { TollwardenBlockedError };
+export { TollWardenBlockedError };

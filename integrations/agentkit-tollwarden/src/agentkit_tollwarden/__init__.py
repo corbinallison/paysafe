@@ -1,7 +1,7 @@
 """
-agentkit-tollwarden — Tollwarden payment security for Coinbase AgentKit.
+agentkit-tollwarden — TollWarden payment security for Coinbase AgentKit.
 
-Adds a Tollwarden action provider so an AgentKit agent screens every x402 payment
+Adds a TollWarden action provider so an AgentKit agent screens every x402 payment
 before settling it:
 
     from coinbase_agentkit import AgentKit, AgentKitConfig
@@ -20,14 +20,14 @@ Actions:
 The scan action auto-fills the `payer` from the agent's own AgentKit wallet
 when you don't supply one (scopes velocity limits), and takes an optional
 `content` argument — the page/tool text the agent just read — which lights up
-Tollwarden's strongest check: prompt-injection-triggered-payment detection.
+TollWarden's strongest check: prompt-injection-triggered-payment detection.
 
-Tollwarden is advisory and non-custodial — it never touches keys, wallets, or funds.
+TollWarden is advisory and non-custodial — it never touches keys, wallets, or funds.
 """
 from __future__ import annotations
 
-from .provider import TollwardenActionProvider, tollwarden_action_provider
+from .provider import TollWardenActionProvider, tollwarden_action_provider
 
-__all__ = ["TollwardenActionProvider", "tollwarden_action_provider", "__version__"]
+__all__ = ["TollWardenActionProvider", "tollwarden_action_provider", "__version__"]
 
 __version__ = "0.1.0"

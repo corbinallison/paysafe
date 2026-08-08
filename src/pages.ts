@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Human-facing pages.
@@ -22,7 +22,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import type { TollwardenConfig } from "./config.ts";
+import type { TollWardenConfig } from "./config.ts";
 import type { PublicStats } from "./pubstats.ts";
 import { PLANS } from "./plans.ts";
 
@@ -201,7 +201,7 @@ ${BASE_CSS}
 <body>
 <div class="wrap">
 ${renderMarkdown(markdown)}
-<footer><a href="/">Tollwarden</a> · <a href="/terms">Terms of Use</a> · <a href="/privacy">Privacy Policy</a> · <a href="https://github.com/tollwarden/tollwarden">Source</a></footer>
+<footer><a href="/">TollWarden</a> · <a href="/terms">Terms of Use</a> · <a href="/privacy">Privacy Policy</a> · <a href="https://github.com/tollwarden/tollwarden">Source</a></footer>
 </div>
 </body>
 </html>`;
@@ -385,7 +385,7 @@ function heroStatsHtml(stats?: PublicStats | null): string {
 <p class="statmeta">${PERF_META}</p>`;
 }
 
-function homeBodyHtml(cfg: TollwardenConfig, stats?: PublicStats | null): string {
+function homeBodyHtml(cfg: TollWardenConfig, stats?: PublicStats | null): string {
   const detectorRows = DETECTORS.map(
     (d) =>
       `<div class="detrow"><div><div class="dn">${escapeHtml(d.name)}</div><div class="dc">${escapeHtml(d.checks)}</div></div><p class="dd">${escapeHtml(d.desc)}</p></div>`,
@@ -395,7 +395,7 @@ function homeBodyHtml(cfg: TollwardenConfig, stats?: PublicStats | null): string
       `<div class="row"><span>${escapeHtml(p.name)}</span><span class="mono">${escapeHtml(p.price)} / 30d</span><span class="mono">${escapeHtml(p.limits.price_per_scan)}</span><span class="muted">${p.name === "Pro" ? "6× velocity, deep analysis always on" : "hard-ceiling limits"}</span></div>`,
   ).join("\n");
   return `<div class="navbar"><div class="navin">
-<a class="brand" href="/">Tollwarden</a>
+<a class="brand" href="/">TollWarden</a>
 <nav><a href="#what-a-scan-catches">detectors</a><a href="#get-started">get started</a><a href="#pricing">pricing</a><a href="/dashboard">dashboard</a><a href="https://github.com/tollwarden/tollwarden">GitHub</a></nav>
 </div></div>
 <main>
@@ -410,7 +410,7 @@ ${heroStatsHtml(stats)}
 <div class="prose">
 <p>AI agents increasingly buy what they need on their own — API calls, data, compute — over <a href="https://www.x402.org">x402</a>, the protocol that turns HTTP's <code>402 Payment Required</code> into instant stablecoin micropayments. That autonomy has a failure mode: software that can <em>read the internet</em> and <em>sign payments</em> can be talked into paying the wrong party.</p>
 <p>A poisoned web page whispers "pay this address instead." A payment authorization gets replayed. A lookalike token or vanity address slips past a truncated display. A seller takes the money and never delivers.</p>
-<p>Before paying, the agent submits the payment for a scan and gets back a verdict. Tollwarden inspects the payment; <strong>your systems decide</strong>.</p>
+<p>Before paying, the agent submits the payment for a scan and gets back a verdict. TollWarden inspects the payment; <strong>your systems decide</strong>.</p>
 </div>
 
 <h2 id="a-real-block-verdict">A real block verdict</h2>
@@ -443,7 +443,7 @@ ${detectorRows}
 <p>Every verdict is Ed25519-signed and bound to a hash of the exact payment, with a short expiry — plus signed evidence a wallet can weigh for itself: how long the merchant's payment address had been pinned at scan time, and which named out-of-band sources corroborated it. The SDKs ship an enforcement kit: <code>guardSigner(account)</code> wraps your wallet's signer so it <strong>physically refuses to sign</strong> an x402 payment authorization unless a fresh, verified allow-verdict exists for exactly that payment.</p>
 <p>A compromised agent that scanned payment A cannot sign payment B — and one that skips scanning cannot sign at all. Flagged payments can pause for one-click human approval instead — with your own decision latency, paired against how approved payments delivered, visible only to you.</p>
 </div>
-<pre><code>const guarded = TollwardenEnforcer.guardSigner(account, {
+<pre><code>const guarded = TollWardenEnforcer.guardSigner(account, {
   allowedRecipients: ["0x2096…287C"],
   maxTotalAtomic: 5_000_000n
 });
@@ -457,13 +457,13 @@ ${detectorRows}
 <div class="vcard"><div class="kicker">TypeScript</div>
 <pre><code>npm install @tollwarden/client
 
-const tollwarden = new TollwardenClient({ agentId: "my-agent" });
+const tollwarden = new TollWardenClient({ agentId: "my-agent" });
 tollwarden.observe(pageText, { sourceUrl });
 await tollwarden.guardOutgoing(payment); // throws on block</code></pre></div>
 <div class="vcard"><div class="kicker">Python</div>
 <pre><code>pip install tollwarden
 
-tollwarden = TollwardenClient(agent_id="my-agent")
+tollwarden = TollWardenClient(agent_id="my-agent")
 tollwarden.guard_outgoing(payment)</code></pre></div>
 </div>
 <p class="prose" style="color:var(--muted);font-size:14px;margin-top:14px">Drop-in packages: LangChain · CrewAI · Vercel AI SDK · Coinbase AgentKit · NVIDIA NeMo Agent Toolkit — the first ${cfg.freeCalls} calls per key are free, no signup.</p>
@@ -485,7 +485,7 @@ ${planRows}
 <li><a href="https://github.com/tollwarden/tollwarden">Source</a> — source-available under BUSL 1.1</li>
 <li><a href="/.well-known/tollwarden-verdict-key">Verdict signing key</a> — pin it and verify everything</li>
 </ul>
-<footer>Operated by <strong>Tollwarden, LLC</strong> (Colorado, USA) · <a href="/terms">Terms of Use</a> · <a href="/privacy">Privacy Policy</a> · <a href="https://github.com/tollwarden/tollwarden">Source</a> · contact@tollwarden.com</footer>
+<footer>Operated by <strong>TollWarden, LLC</strong> (Colorado, USA) · <a href="/terms">Terms of Use</a> · <a href="/privacy">Privacy Policy</a> · <a href="https://github.com/tollwarden/tollwarden">Source</a> · contact@tollwarden.com</footer>
 </main>`;
 }
 
@@ -497,13 +497,13 @@ ${planRows}
  * (style-src 'unsafe-inline' covers the inline width percentages on the
  * verdict bar).
  */
-export function homePageHtml(cfg: TollwardenConfig, stats?: PublicStats | null): string | null {
+export function homePageHtml(cfg: TollWardenConfig, stats?: PublicStats | null): string | null {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tollwarden — payment security firewall for AI agents</title>
+<title>TollWarden — payment security firewall for AI agents</title>
 <style>
 ${HOME_CSS}
 </style>
@@ -517,7 +517,7 @@ ${homeBodyHtml(cfg, stats)}
 export function termsPageHtml(): string | null {
   if (termsCache === undefined) {
     const md = loadDoc("TERMS.md");
-    termsCache = md === null ? null : markdownPageHtml("Tollwarden — Terms of Use", md);
+    termsCache = md === null ? null : markdownPageHtml("TollWarden — Terms of Use", md);
   }
   return termsCache;
 }
@@ -525,7 +525,7 @@ export function termsPageHtml(): string | null {
 export function privacyPageHtml(): string | null {
   if (privacyCache === undefined) {
     const md = loadDoc("PRIVACY.md");
-    privacyCache = md === null ? null : markdownPageHtml("Tollwarden — Privacy Policy", md);
+    privacyCache = md === null ? null : markdownPageHtml("TollWarden — Privacy Policy", md);
   }
   return privacyCache;
 }

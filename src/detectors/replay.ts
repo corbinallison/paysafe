@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Replay detection: tracks payment nonces and blocks reuse.
@@ -26,7 +26,7 @@ export function checkReplay(
         verdict: "allow",
         severity: "info",
         reason:
-          "Pre-signature scan: the payment nonce is generated at signing time, so replay checking is deferred. Reused-authorization replay is still rejected on-chain by EIP-3009 nonce uniqueness; re-scan with the nonce post-sign for Tollwarden-side coverage.",
+          "Pre-signature scan: the payment nonce is generated at signing time, so replay checking is deferred. Reused-authorization replay is still rejected on-chain by EIP-3009 nonce uniqueness; re-scan with the nonce post-sign for TollWarden-side coverage.",
       };
     }
     return {

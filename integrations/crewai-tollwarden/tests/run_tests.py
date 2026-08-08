@@ -62,7 +62,7 @@ except ImportError:
     sys.modules["crewai.tools"] = tools_mod
     sys.modules["crewai.hooks"] = hooks_mod
 
-from tollwarden import TollwardenBlockedError  # noqa: E402
+from tollwarden import TollWardenBlockedError  # noqa: E402
 from crewai_tollwarden import (  # noqa: E402
     TOLLWARDEN_TOOL_NAMES,
     guarded_payment,
@@ -108,7 +108,7 @@ class FakeClient:
     def guard_outgoing(self, payment, strict=False, expected_price_usd=None, **kw):
         scan = self._scan("outgoing", payment, expected_price_usd)
         if scan["verdict"] == "block" or (strict and scan["verdict"] == "flag"):
-            raise TollwardenBlockedError(scan)
+            raise TollWardenBlockedError(scan)
         return scan
 
     def reputation(self, address):
@@ -195,9 +195,9 @@ blocked_pay = guarded_payment(pay_fn, blocked_client)
 before = len(paid)
 try:
     blocked_pay(payment)
-    check("block verdict raises TollwardenBlockedError", False)
-except TollwardenBlockedError:
-    check("block verdict raises TollwardenBlockedError", True)
+    check("block verdict raises TollWardenBlockedError", False)
+except TollWardenBlockedError:
+    check("block verdict raises TollWardenBlockedError", True)
 check("payment executor NEVER called on block", len(paid) == before)
 
 flag_client = FakeClient(verdict="flag")
@@ -208,7 +208,7 @@ strict_pay = guarded_payment(pay_fn, flag_client, strict=True)
 try:
     strict_pay(payment)
     check("strict refuses flags", False)
-except TollwardenBlockedError:
+except TollWardenBlockedError:
     check("strict refuses flags", True)
 
 print(f"\n{passed} passed, {failed} failed")

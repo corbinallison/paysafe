@@ -89,9 +89,9 @@ except ImportError:
 import nemo_tollwarden  # noqa: E402,F401
 from nemo_tollwarden import register as reg  # noqa: E402
 from nemo_tollwarden.register import (  # noqa: E402
-    TollwardenReportConfig,
-    TollwardenReputationConfig,
-    TollwardenScanConfig,
+    TollWardenReportConfig,
+    TollWardenReputationConfig,
+    TollWardenScanConfig,
     tollwarden_check_reputation,
     tollwarden_report_counterparty,
     tollwarden_scan_payment,
@@ -117,7 +117,7 @@ def check(name: str, cond: bool, extra=None) -> None:
 # ---------------------------------------------------------------------------
 print(f"— import + registration ({'stubbed' if USING_STUB else 'REAL'} nat) —")
 check("package imports and @register_function decorators run", True)
-_configs = (TollwardenScanConfig, TollwardenReputationConfig, TollwardenReportConfig)
+_configs = (TollWardenScanConfig, TollWardenReputationConfig, TollWardenReportConfig)
 check("config classes are FunctionBaseConfig subclasses", all(issubclass(c, FunctionBaseConfig) for c in _configs))
 _builders = (tollwarden_scan_payment, tollwarden_check_reputation, tollwarden_report_counterparty)
 check("three builder functions are present and callable", all(callable(f) for f in _builders))
@@ -159,7 +159,7 @@ class FakeClient:
 
 
 reg._CLIENTS.clear()
-reg.TollwardenClient = FakeClient
+reg.TollWardenClient = FakeClient
 FakeClient.instances = 0
 
 payment = {"network": "eip155:8453", "pay_to": "0xMerchant", "amount": "10000", "nonce": "0x1"}

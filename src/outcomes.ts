@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Delivery-outcome ledger — the feedback loop the scan layer can't provide.
@@ -14,7 +14,7 @@
  *    the resource arrives in the paid response — so the SDK payment-path
  *    wrappers capture this automatically, the same way they auto-tag
  *    provenance.
- *  - Every outcome is BOUND to a scan Tollwarden actually performed: the report
+ *  - Every outcome is BOUND to a scan TollWarden actually performed: the report
  *    must present the (scan_id, payment_commitment) pair from a real scan,
  *    verified against the rolling scan index, one outcome per scan, and (for
  *    keyed scans) only from the account that made the scan. Fabricating
@@ -39,7 +39,7 @@
  * it was good — quality judgments stay with POST /v1/reputation/report. And
  * it covers digital, synchronous x402 delivery, not physical shipment.
  */
-import type { TollwardenConfig } from "./config.ts";
+import type { TollWardenConfig } from "./config.ts";
 import type { CounterpartyOutcomes, DomainOutcomes, Store } from "./store.ts";
 import type { ApiResult } from "./api.ts";
 import type { CheckResult, PaymentDetails } from "./types.ts";
@@ -59,7 +59,7 @@ export const DELIVERY_PRIOR_STRENGTH = 10;
  * starts at the prior mean p0 and needs real evidence to move — 3 failures on
  * 3 outcomes is jumpy noise, 300 on 300 is a verdict. The raw rate is always
  * reported alongside; only the FLAG DECISION uses the smoothed value. */
-function smoothedRate(delivered: number, total: number, cfg?: TollwardenConfig): number {
+function smoothedRate(delivered: number, total: number, cfg?: TollWardenConfig): number {
   const m = cfg?.deliveryPriorStrength ?? DELIVERY_PRIOR_STRENGTH;
   const p0 = cfg?.deliveryPriorRate ?? DELIVERY_PRIOR_RATE;
   return (delivered + p0 * m) / (total + m);
@@ -74,7 +74,7 @@ const NOT_FOUND: ApiResult = { status: 404, body: { error: "Unknown scan or comm
  * POST /v1/outcomes — record the delivery outcome of a scanned payment.
  * Free (rate-limited per IP at the route layer).
  */
-export function handleOutcomeReport(store: Store, cfg: TollwardenConfig, apiKey: string | undefined, body: unknown): ApiResult {
+export function handleOutcomeReport(store: Store, cfg: TollWardenConfig, apiKey: string | undefined, body: unknown): ApiResult {
   const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
   const scanId = typeof b.scan_id === "string" ? b.scan_id : "";
   const commitment = typeof b.payment_commitment === "string" ? b.payment_commitment.toLowerCase() : "";
@@ -220,7 +220,7 @@ interface DeliveryStats {
   last_at: string;
 }
 
-function statsOf(agg: CounterpartyOutcomes, cfg?: TollwardenConfig): DeliveryStats | null {
+function statsOf(agg: CounterpartyOutcomes, cfg?: TollWardenConfig): DeliveryStats | null {
   const total = agg.delivered + agg.not_delivered + agg.partial + agg.wrong_content;
   if (!total) return null;
   return {
@@ -239,7 +239,7 @@ function statsOf(agg: CounterpartyOutcomes, cfg?: TollwardenConfig): DeliverySta
 }
 
 /** The outcome ledger's DENOMINATOR, surfaced. `scans_seen` is how many
- * non-blocked scans Tollwarden has performed against this counterparty since
+ * non-blocked scans TollWarden has performed against this counterparty since
  * counting began; `report_coverage` is outcomes_total over that. Publishing
  * the denominator makes selective reporting legible — a curated slice of
  * outcomes reads as low coverage instead of passing as a complete record.
@@ -267,7 +267,7 @@ function coverageOf(store: Store, address: string, outcomesTotal: number): Deliv
 
 /** Delivery stats + coverage for one counterparty, for the reputation summary.
  * Null when there is no outcome history (absence of history is not a signal). */
-export function deliverySummary(store: Store, addressRaw: string, cfg?: TollwardenConfig): (DeliveryStats & DeliveryCoverage) | null {
+export function deliverySummary(store: Store, addressRaw: string, cfg?: TollWardenConfig): (DeliveryStats & DeliveryCoverage) | null {
   const address = addressRaw.trim().toLowerCase();
   const agg = store.outcomes.get(address);
   const stats = agg ? statsOf(agg, cfg) : null;
@@ -285,7 +285,7 @@ export function coverageOnlySummary(store: Store, addressRaw: string): ({ outcom
 
 /** The two failure tests, shared by the pay_to and the domain-joined ledgers.
  * Returns null when the history doesn't trip either. */
-function failureVerdict(d: DeliveryStats, cfg: TollwardenConfig): { kind: "no_confirmed" | "low_rate"; severity: "high" | "medium" } | null {
+function failureVerdict(d: DeliveryStats, cfg: TollWardenConfig): { kind: "no_confirmed" | "low_rate"; severity: "high" | "medium" } | null {
   const failures = d.not_delivered + d.wrong_content;
   // Repeated failures with zero confirmed deliveries — flags even below the
   // volume threshold, because there is no success to weigh against. Severity
@@ -322,7 +322,7 @@ function domainOf(resourceUrl: string | undefined): string | null {
  *     the new wallet would otherwise start with a clean, empty ledger. The
  *     domain ledger carries the record across the rotation.
  */
-export function checkDelivery(store: Store, payment: PaymentDetails, cfg: TollwardenConfig): CheckResult[] {
+export function checkDelivery(store: Store, payment: PaymentDetails, cfg: TollWardenConfig): CheckResult[] {
   const payTo = (payment.pay_to ?? "").trim().toLowerCase();
   if (!payTo) return [];
   const checks: CheckResult[] = [];
@@ -349,7 +349,7 @@ export function checkDelivery(store: Store, payment: PaymentDetails, cfg: Tollwa
         name: "Delivery outcomes",
         verdict: "flag",
         severity: bad.severity,
-        reason: `Counterparty ${payment.pay_to} delivered on ${(d.delivery_rate * 100).toFixed(1)}% of ${d.outcomes_total} commitment-bound settlements (${(d.smoothed_delivery_rate * 100).toFixed(1)}% prior-smoothed, threshold ${(cfg.deliveryFlagRate * 100).toFixed(0)}%), per ${d.distinct_reporters} distinct reporter(s). Outcomes are bound to scans Tollwarden performed — this is measured history, not accusation.`,
+        reason: `Counterparty ${payment.pay_to} delivered on ${(d.delivery_rate * 100).toFixed(1)}% of ${d.outcomes_total} commitment-bound settlements (${(d.smoothed_delivery_rate * 100).toFixed(1)}% prior-smoothed, threshold ${(cfg.deliveryFlagRate * 100).toFixed(0)}%), per ${d.distinct_reporters} distinct reporter(s). Outcomes are bound to scans TollWarden performed — this is measured history, not accusation.`,
         details: { ...d },
       });
     } else {

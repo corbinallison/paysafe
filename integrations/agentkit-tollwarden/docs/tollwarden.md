@@ -1,6 +1,6 @@
-# Tollwarden
+# TollWarden
 
-[Tollwarden](https://tollwarden.com) is a payment security firewall for [x402](https://x402.org) micropayments. `agentkit-tollwarden` adds a scan-before-you-pay action provider to [Coinbase AgentKit](https://github.com/coinbase/agentkit).
+[TollWarden](https://tollwarden.com) is a payment security firewall for [x402](https://x402.org) micropayments. `agentkit-tollwarden` adds a scan-before-you-pay action provider to [Coinbase AgentKit](https://github.com/coinbase/agentkit).
 
 ## Install
 
@@ -28,9 +28,9 @@ agent_kit = AgentKit(AgentKitConfig(
 
 ## Non-custodial
 
-Tollwarden reads only payment metadata to produce a signed verdict; it never touches the AgentKit wallet's keys or funds.
+TollWarden reads only payment metadata to produce a signed verdict; it never touches the AgentKit wallet's keys or funds.
 
 ## Reference
 
 - Package: [agentkit-tollwarden on PyPI](https://pypi.org/project/agentkit-tollwarden/) · [source](https://github.com/tollwarden/tollwarden/tree/main/integrations/agentkit-tollwarden)
-- Service: [Tollwarden API](https://tollwarden.com/llms.txt) · [OpenAPI](https://tollwarden.com/openapi.json)
+- Service: [TollWarden API](https://tollwarden.com/llms.txt) · [OpenAPI](https://tollwarden.com/openapi.json)

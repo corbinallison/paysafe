@@ -1,7 +1,7 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
- * Tollwarden OWNER dashboard — served at GET /admin. Same interface and security
+ * TollWarden OWNER dashboard — served at GET /admin. Same interface and security
  * posture as the user dashboard (src/dashboard.ts):
  *  - Zero external resources; strict CSP (default-src 'none') applies.
  *  - The admin key is entered by the owner, held in page memory (optionally
@@ -17,7 +17,7 @@ export function adminDashboardHtml(): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tollwarden — Owner Dashboard</title>
+<title>TollWarden — Owner Dashboard</title>
 <style>
   :root { color-scheme: dark; --bg:#0b0e14; --card:#141a24; --line:#232c3b; --fg:#e6edf3; --muted:#8b98a9; --accent:#4c8dff; --allow:#3fb950; --flag:#d29922; --block:#f85149; }
   * { box-sizing: border-box; }
@@ -58,7 +58,7 @@ export function adminDashboardHtml(): string {
 </head>
 <body>
 <div class="wrap">
-  <h1>Tollwarden Owner Dashboard</h1>
+  <h1>TollWarden Owner Dashboard</h1>
   <p class="sub">All-time scan activity across every key, sourced from the tamper-evident audit log. Read-only.</p>
 
   <div class="card">

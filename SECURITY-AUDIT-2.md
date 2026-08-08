@@ -1,4 +1,4 @@
-# Tollwarden Security Audit #2
+# TollWarden Security Audit #2
 
 _2026-07-15. Auditor: Claude (Anthropic) — AI adversarial review commissioned by the operator, not an independent third-party firm; published for transparency. Scope: everything added since SECURITY-AUDIT.md — the release/publishing pipeline (npm, PyPI trusted publishing, MCP registry), plan tiers, the audit-log export endpoint + offsite backup, both client SDKs, and the new MCP tools. Method: line-level review of the new code, adversarial reasoning per component, verification against live behavior where possible._
 
@@ -27,7 +27,7 @@ The trusted-publishing (OIDC) approach is the **strongest available option**, an
 |---|---|---|---|
 | G-1 | — | ✓ | **No payment bypass found.** Unknown plan id → no x402 quote is issued and the handler 400s (nothing to steal). Malformed/missing JSON body → same. Path variants (`/V1/…`, trailing slash) → the C-1 normalization demands payment or the strict router 404s; there is no unpaid path to activation. Subscriptions are deliberately excluded from the free-call quota. |
 | G-2 | — | ✓ | Quote/activation consistency: the gate's price quote and the handler's activation read the same parsed body, so paying the pro price can only ever activate pro. |
-| G-3 | Low | 📋 | If a subscription payment settles but the HTTP response is lost (network drop in the window), money is spent and the plan isn't activated; a retry would double-charge. This is an x402-ecosystem-wide gap, not Tollwarden-specific. Future: idempotency via the payment nonce (activate-once per settled nonce) or a receipt-lookup endpoint. |
+| G-3 | Low | 📋 | If a subscription payment settles but the HTTP response is lost (network drop in the window), money is spent and the plan isn't activated; a retry would double-charge. This is an x402-ecosystem-wide gap, not TollWarden-specific. Future: idempotency via the payment nonce (activate-once per settled nonce) or a receipt-lookup endpoint. |
 | G-4 | — | ✓ | Security invariants hold and are **test-enforced** (87/87): plan overrides are clamped to `HARD_CEILINGS` at resolution time; replay, pinning, asset verification, PII detection, and overpay thresholds are not plan-readable or -writable; the catalog itself is checked against ceilings so a future editing mistake fails CI. |
 | G-5 | Info | ✓ | `subscribe` can mint a key without the `/v1/keys` IP rate limit — but each mint costs the plan price in live mode, so it is economically rate-limited. |
 

@@ -1,11 +1,11 @@
 ---
-title: Tollwarden
+title: TollWarden
 description: Scan x402 payments for safety before your Vercel AI SDK agent settles them, with automatic provenance tagging for prompt-injection detection.
 ---
 
 # `@tollwarden/ai-sdk`
 
-[Tollwarden](https://tollwarden.com) is a payment security firewall for [x402](https://x402.org) micropayments. Agents that pay for APIs and data over x402 get drained in predictable ways: payments triggered by prompt-injected content, replayed authorizations, inflated prices, secrets leaking through payment metadata, lookalike tokens, and address poisoning. `@tollwarden/ai-sdk` gives a Vercel AI SDK agent an allow / flag / block verdict on every payment before it settles — plus an `onStepFinish` handler that makes Tollwarden's strongest detector work automatically.
+[TollWarden](https://tollwarden.com) is a payment security firewall for [x402](https://x402.org) micropayments. Agents that pay for APIs and data over x402 get drained in predictable ways: payments triggered by prompt-injected content, replayed authorizations, inflated prices, secrets leaking through payment metadata, lookalike tokens, and address poisoning. `@tollwarden/ai-sdk` gives a Vercel AI SDK agent an allow / flag / block verdict on every payment before it settles — plus an `onStepFinish` handler that makes TollWarden's strongest detector work automatically.
 
 ## Installation
 
@@ -17,10 +17,10 @@ npm install @tollwarden/ai-sdk
 
 ```ts
 import { generateText } from "ai";
-import { TollwardenClient } from "@tollwarden/client";
+import { TollWardenClient } from "@tollwarden/client";
 import { tollwardenTools, tollwardenProvenance } from "@tollwarden/ai-sdk";
 
-const tollwarden = new TollwardenClient({ agentId: "my-agent" }); // free API key auto-minted (100 free scans)
+const tollwarden = new TollWardenClient({ agentId: "my-agent" }); // free API key auto-minted (100 free scans)
 
 await generateText({
   model,
@@ -32,7 +32,7 @@ await generateText({
 
 ## Why the provenance handler matters
 
-Tollwarden's strongest check catches payments whose *decision* came from content the agent just read (a prompt-injected page or tool result). `tollwardenProvenance` returns an `onStepFinish` handler that observes every tool result the step produced automatically, so the next scan is provenance-tagged and that check runs with real input — no prompt engineering required. Tollwarden's own tool results are excluded so verdicts never pollute the signal. It reads both the current `toolResults[].output` shape and the older `.result` shape, and works the same under `streamText`.
+TollWarden's strongest check catches payments whose *decision* came from content the agent just read (a prompt-injected page or tool result). `tollwardenProvenance` returns an `onStepFinish` handler that observes every tool result the step produced automatically, so the next scan is provenance-tagged and that check runs with real input — no prompt engineering required. TollWarden's own tool results are excluded so verdicts never pollute the signal. It reads both the current `toolResults[].output` shape and the older `.result` shape, and works the same under `streamText`.
 
 ## The toolset
 
@@ -47,13 +47,13 @@ import { guardedPayment } from "@tollwarden/ai-sdk";
 
 const safePay = guardedPayment(executeX402Payment, tollwarden);
 const { result } = await safePay(payment, expectedPriceUsd);
-// throws TollwardenBlockedError on a block verdict — the executor is never called
+// throws TollWardenBlockedError on a block verdict — the executor is never called
 ```
 
-For wallet-level enforcement (the signer itself refuses unscanned payments), see `wrapFetchWithTollwarden` and `TollwardenEnforcer` in the [@tollwarden/client SDK](https://www.npmjs.com/package/@tollwarden/client).
+For wallet-level enforcement (the signer itself refuses unscanned payments), see `wrapFetchWithTollWarden` and `TollWardenEnforcer` in the [@tollwarden/client SDK](https://www.npmjs.com/package/@tollwarden/client).
 
 ## Reference
 
 - Package: [@tollwarden/ai-sdk on npm](https://www.npmjs.com/package/@tollwarden/ai-sdk) · [source](https://github.com/tollwarden/tollwarden/tree/main/integrations/ai-sdk)
-- Service: [Tollwarden API](https://tollwarden.com/llms.txt) · [OpenAPI](https://tollwarden.com/openapi.json)
-- Tollwarden is advisory and non-custodial — it never touches keys, wallets, or funds.
+- Service: [TollWarden API](https://tollwarden.com/llms.txt) · [OpenAPI](https://tollwarden.com/openapi.json)
+- TollWarden is advisory and non-custodial — it never touches keys, wallets, or funds.

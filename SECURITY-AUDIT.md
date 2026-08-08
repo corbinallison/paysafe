@@ -1,6 +1,6 @@
-# Tollwarden — Security Audit
+# TollWarden — Security Audit
 
-**Service:** Tollwarden — non-custodial payment security firewall for x402 micropayments
+**Service:** TollWarden — non-custodial payment security firewall for x402 micropayments
 **Repository:** github.com/tollwarden/tollwarden
 **Audit date:** 2026-07-14
 **Auditor:** Claude (Anthropic) — AI adversarial code review commissioned by the operator. This is not an independent third-party audit firm; treat it as a rigorous internal review, published for transparency.
@@ -9,7 +9,7 @@
 
 > **Status update (2026-07-21).** This document is preserved as the point-in-time pre-go-live record. Since then: the §4 go-live actions were completed and the service is live at tollwarden.com on a persistent paid instance; the §3 retention recommendations are partially implemented (offsite append-only audit backup with daily head-hash anchoring — see [SECURITY-AUDIT-2.md](SECURITY-AUDIT-2.md) §C; WORM object-lock storage remains a planned upgrade); the residual "reputation reporter identity unverified" item has been substantially addressed by reputation v2 (reports remain capped at flag per H-2, now with 90-day time decay, reporter credibility weighting, wallet-signed disputes, and a commitment-bound delivery-outcome ledger whose coverage denominator is public); M-3 stands (single-instance by design, revisit before scale-out); and the test suite has grown from 66 to 380+ server tests plus ~100 per SDK, with a CI-gated detection eval corpus. New surface added after this audit (publishing pipeline, plans, SDKs, MCP tools) is covered by [SECURITY-AUDIT-2.md](SECURITY-AUDIT-2.md).
 
-> **Custody statement (read first).** Tollwarden is advisory and **non-custodial**. It never holds private keys or funds, never signs or broadcasts a blockchain transaction, and never moves money. The USDC transactions it advises on settle entirely through the calling agent's own wallet and the x402 facilitator, outside Tollwarden. Consequently there are **no money-movement events of the operator's to log** for money-transmission/AML purposes. What Tollwarden produces — and what this audit ensures is retained defensibly — is a record of its **scan decisions**.
+> **Custody statement (read first).** TollWarden is advisory and **non-custodial**. It never holds private keys or funds, never signs or broadcasts a blockchain transaction, and never moves money. The USDC transactions it advises on settle entirely through the calling agent's own wallet and the x402 facilitator, outside TollWarden. Consequently there are **no money-movement events of the operator's to log** for money-transmission/AML purposes. What TollWarden produces — and what this audit ensures is retained defensibly — is a record of its **scan decisions**.
 
 ---
 
@@ -17,7 +17,7 @@
 
 The review found **one critical**, **four high**, and several medium/low issues. All critical and high findings, and the material mediums, have been **remediated in this pass**; each is listed below with its fix and the test that now covers it. The detection core was already sound (no catastrophic-backtracking regexes, redaction of detected secrets, CSPRNG API keys, no `eval`/dynamic execution, request-body caps, stack-trace suppression).
 
-The single most important outcome: Tollwarden now writes a **tamper-evident, hash-chained audit log of every scan decision** that records a cryptographic fingerprint of each payment **without storing the PII/secrets it exists to catch** — closing the retention gap directly and answering the "can we prove what happened if audited?" question.
+The single most important outcome: TollWarden now writes a **tamper-evident, hash-chained audit log of every scan decision** that records a cryptographic fingerprint of each payment **without storing the PII/secrets it exists to catch** — closing the retention gap directly and answering the "can we prove what happened if audited?" question.
 
 | Severity | Found | Remediated | Deferred (with mitigation) |
 |---|---|---|---|
@@ -79,7 +79,7 @@ Free allowance is env-tunable (`KEYS_PER_IP_PER_DAY`, `FREE_CALLS`); with C-1 fi
 
 **What it records.** One append-only JSON line per scan decision (`<DATA_DIR>/audit.log`), containing: timestamp, `scan_id`, direction, verdict, risk score, caller `agent_id`, the transaction-level facts (`network`, `pay_to`, `amount_usd`), the ids of the checks that fired, the attestation signature, and the hash chain fields.
 
-**What it deliberately does NOT record.** The plaintext `description`, `reason`, `metadata`, or `content` — i.e. exactly the PII and secrets Tollwarden exists to detect. Each payment is represented only by `payment_sha256` (a SHA-256 over the full payment). This lets you later prove *what was scanned* (by re-hashing the original payment and matching) **without** the log itself becoming a PII/secret repository. Verified: a scan whose description contained an API-key-shaped secret produced an audit record containing only the hash and the check id `pii.openai_key`, never the secret.
+**What it deliberately does NOT record.** The plaintext `description`, `reason`, `metadata`, or `content` — i.e. exactly the PII and secrets TollWarden exists to detect. Each payment is represented only by `payment_sha256` (a SHA-256 over the full payment). This lets you later prove *what was scanned* (by re-hashing the original payment and matching) **without** the log itself becoming a PII/secret repository. Verified: a scan whose description contained an API-key-shaped secret produced an audit record containing only the hash and the check id `pii.openai_key`, never the secret.
 
 **Tamper evidence.** Each record embeds the previous record's hash (`prev_hash`) and its own `entry_hash = sha256(record)`; the chain starts at a fixed genesis. Any edit, deletion, or reordering breaks the chain and is detected by `GET /v1/audit/verify` (which returns `ok`, `count`, and the first `brokenAt` sequence number). `GET /v1/audit/head` exposes the current sequence + head hash for external monitoring. Neither endpoint exposes record contents.
 **Verified:** tests "fresh chain verifies", "head reports seq + hash", "altered record breaks the chain".

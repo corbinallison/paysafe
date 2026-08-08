@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Zero-dependency dev server (node:http only). Same API surface as index.ts
@@ -224,5 +224,5 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(cfg.port, () => {
-  console.log(`Tollwarden DEV server (no payments) listening on :${cfg.port}`);
+  console.log(`TollWarden DEV server (no payments) listening on :${cfg.port}`);
 });

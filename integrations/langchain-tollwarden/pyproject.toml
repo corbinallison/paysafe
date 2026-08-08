@@ -5,11 +5,11 @@ build-backend = "hatchling.build"
 [project]
 name = "langchain-tollwarden"
 version = "0.1.0"
-description = "Tollwarden payment security for LangChain/LangGraph agents: scan x402 payments before settling, auto-tag provenance for prompt-injection detection, guard payment tools so blocked payments can never execute."
+description = "TollWarden payment security for LangChain/LangGraph agents: scan x402 payments before settling, auto-tag provenance for prompt-injection detection, guard payment tools so blocked payments can never execute."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
-authors = [{ name = "Tollwarden", email = "contact@tollwarden.com" }]
+authors = [{ name = "TollWarden", email = "contact@tollwarden.com" }]
 keywords = ["langchain", "langgraph", "x402", "payments", "security", "ai-agents", "prompt-injection", "usdc"]
 classifiers = [
   "Development Status :: 4 - Beta",

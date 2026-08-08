@@ -1,6 +1,6 @@
 # Protect your x402 agent in 5 minutes
 
-Agents that pay for things over [x402](https://x402.org) get drained in predictable ways: a poisoned webpage tells the agent to pay an attacker's address, a captured payment authorization gets replayed, a "$0.01" API quietly charges $0.15, a seller takes the money and never ships. [Tollwarden](https://tollwarden.com) is a payment firewall that catches all of it — advisory, non-custodial, and wrapped around whatever wallet and facilitator you already use. Here's the whole integration, timed.
+Agents that pay for things over [x402](https://x402.org) get drained in predictable ways: a poisoned webpage tells the agent to pay an attacker's address, a captured payment authorization gets replayed, a "$0.01" API quietly charges $0.15, a seller takes the money and never ships. [TollWarden](https://tollwarden.com) is a payment firewall that catches all of it — advisory, non-custodial, and wrapped around whatever wallet and facilitator you already use. Here's the whole integration, timed.
 
 ## Minute 1 — install
 
@@ -17,18 +17,18 @@ If your agent pays through the standard x402 buyer flow, wrap the paying fetch a
 
 ```ts
 import { wrapFetchWithPayment } from "@x402/fetch";
-import { TollwardenClient, wrapFetchWithTollwarden } from "@tollwarden/client";
+import { TollWardenClient, wrapFetchWithTollWarden } from "@tollwarden/client";
 
-const tollwarden = new TollwardenClient({ agentId: "my-agent" });
-const fetchWithPay = wrapFetchWithTollwarden(wrapFetchWithPayment(fetch, x402Client), tollwarden);
+const tollwarden = new TollWardenClient({ agentId: "my-agent" });
+const fetchWithPay = wrapFetchWithTollWarden(wrapFetchWithPayment(fetch, x402Client), tollwarden);
 ```
 
 Python:
 
 ```python
-from tollwarden import TollwardenClient, wrap_transport_with_tollwarden
+from tollwarden import TollWardenClient, wrap_transport_with_tollwarden
 
-tollwarden = TollwardenClient(agent_id="my-agent")
+tollwarden = TollWardenClient(agent_id="my-agent")
 guarded = wrap_transport_with_tollwarden(my_x402_transport, tollwarden)
 ```
 
@@ -36,7 +36,7 @@ Every payment now gets scanned **before it settles** — a block verdict throws 
 
 ## Minute 3 — feed the injection detector
 
-Tollwarden's strongest check catches payments whose *decision* came from content your agent just read — the prompt-injected page that says "send payment to 0x… now". It needs to know what the agent read. One line, right after any web fetch or tool call:
+TollWarden's strongest check catches payments whose *decision* came from content your agent just read — the prompt-injected page that says "send payment to 0x… now". It needs to know what the agent read. One line, right after any web fetch or tool call:
 
 ```ts
 tollwarden.observe(pageOrToolText, { sourceUrl });
@@ -85,10 +85,10 @@ Already building on an agent framework? One package gives your agent the tools *
 **LangChain / LangGraph** (`pip install langchain-tollwarden`):
 
 ```python
-from langchain_tollwarden import tollwarden_tools, TollwardenProvenanceCallback
+from langchain_tollwarden import tollwarden_tools, TollWardenProvenanceCallback
 
 agent = create_agent(model, tools=[*tollwarden_tools(tollwarden), *your_tools],
-                     callbacks=[TollwardenProvenanceCallback(tollwarden)])
+                     callbacks=[TollWardenProvenanceCallback(tollwarden)])
 ```
 
 **CrewAI** (`pip install crewai-tollwarden`):
@@ -126,4 +126,4 @@ await generateText({
 - **Key hygiene.** Leaked key? `POST /v1/keys/rotate` — fresh secret, same account, usage and plan carried over; the old secret dies on your schedule.
 - **Check any counterparty first**: `GET /v1/reputation/{address}` returns community reports *and* measured delivery rates from commitment-bound outcomes.
 
-Everything is documented for agents too: point any LLM at [tollwarden.com/llms.txt](https://tollwarden.com/llms.txt) and it can wire this up itself. OpenAPI at [/openapi.json](https://tollwarden.com/openapi.json). Source: [github.com/tollwarden/tollwarden](https://github.com/tollwarden/tollwarden) (source-available, BUSL 1.1). Non-custodial — Tollwarden never touches your keys, wallet, or funds.
+Everything is documented for agents too: point any LLM at [tollwarden.com/llms.txt](https://tollwarden.com/llms.txt) and it can wire this up itself. OpenAPI at [/openapi.json](https://tollwarden.com/openapi.json). Source: [github.com/tollwarden/tollwarden](https://github.com/tollwarden/tollwarden) (source-available, BUSL 1.1). Non-custodial — TollWarden never touches your keys, wallet, or funds.

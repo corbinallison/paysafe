@@ -1,17 +1,17 @@
-# Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+# Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 # SPDX-License-Identifier: BUSL-1.1
 """
-The one-line diff: Tollwarden in the default x402 payment path (Python parity
+The one-line diff: TollWarden in the default x402 payment path (Python parity
 with the TypeScript SDK's wrap.ts).
 
 Wrap your x402 payment-capable transport so every payment is scanned before
 it settles:
 
-    from tollwarden import TollwardenClient, wrap_transport_with_tollwarden
+    from tollwarden import TollWardenClient, wrap_transport_with_tollwarden
 
-    tollwarden = TollwardenClient(agent_id="my-agent")
+    tollwarden = TollWardenClient(agent_id="my-agent")
     guarded = wrap_transport_with_tollwarden(my_x402_transport, tollwarden)
-    # use `guarded` anywhere a transport goes — e.g. TollwardenClient itself,
+    # use `guarded` anywhere a transport goes — e.g. TollWardenClient itself,
     # or your own HTTP layer. Non-402 responses pass through untouched.
 
 Flow on a 402:
@@ -24,7 +24,7 @@ Flow on a 402:
   4. Only on passing verdicts is the request re-sent through the paying
      transport, which performs the actual x402 pay-and-retry.
 
-A block verdict raises TollwardenBlockedError BEFORE any payment is signed — the
+A block verdict raises TollWardenBlockedError BEFORE any payment is signed — the
 paying transport is never invoked. Unparseable 402 offers fail CLOSED.
 """
 from __future__ import annotations
@@ -33,9 +33,9 @@ import json
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from . import (
-    TollwardenBlockedError,
-    TollwardenClient,
-    TollwardenError,
+    TollWardenBlockedError,
+    TollWardenClient,
+    TollWardenError,
     Transport,
     _urllib_transport,
 )
@@ -70,7 +70,7 @@ def payment_from_offer(entry: Dict[str, Any], request_url: str) -> Dict[str, Any
 
 def wrap_transport_with_tollwarden(
     payment_transport: Transport,
-    tollwarden: TollwardenClient,
+    tollwarden: TollWardenClient,
     base_transport: Optional[Transport] = None,
     strict: bool = False,
     scan_offer: bool = True,
@@ -81,7 +81,7 @@ def wrap_transport_with_tollwarden(
     """Wrap an x402 payment-capable transport so every payment is scanned first.
 
     payment_transport: the paying transport (settles x402 challenges).
-    tollwarden:           a TollwardenClient; its observe()/note_planning() state
+    tollwarden:           a TollWardenClient; its observe()/note_planning() state
                        feeds provenance into the outgoing scan.
     base_transport:    non-paying transport for the probe (default: stdlib urllib).
     strict:            also refuse "flag" verdicts (default: only "block").
@@ -112,7 +112,7 @@ def wrap_transport_with_tollwarden(
                 raise ValueError("no accepts[] in 402 body")
             offer = payment_from_offer(entry, url)
         except Exception as e:
-            raise TollwardenError(
+            raise TollWardenError(
                 f"refusing to auto-pay an unparseable 402 offer from {url} ({e}). "
                 "Fail-closed: pass the request to your payment client manually if this endpoint is trusted.",
                 402,
@@ -125,7 +125,7 @@ def wrap_transport_with_tollwarden(
         if on_scan:
             on_scan("outgoing", outgoing)
         if outgoing["verdict"] == "block" or (strict and outgoing["verdict"] == "flag"):
-            raise TollwardenBlockedError(outgoing)
+            raise TollWardenBlockedError(outgoing)
 
         # 2) The offer itself, as an incoming payment request.
         if scan_offer:
@@ -133,7 +133,7 @@ def wrap_transport_with_tollwarden(
             if on_scan:
                 on_scan("incoming", incoming)
             if incoming["verdict"] == "block" or (strict and incoming["verdict"] == "flag"):
-                raise TollwardenBlockedError(incoming)
+                raise TollWardenBlockedError(incoming)
 
         # 3) Verdicts passed — let the paying transport do the x402 dance.
         import threading

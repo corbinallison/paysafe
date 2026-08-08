@@ -1,5 +1,5 @@
 """
-NeMo Agent Toolkit plugin: Tollwarden payment-security functions.
+NeMo Agent Toolkit plugin: TollWarden payment-security functions.
 
 Registers three config-driven NeMo functions so a workflow can screen x402
 payments before settling them:
@@ -19,12 +19,12 @@ Enable in your workflow YAML:
 
 The scan function takes an optional `content` argument — the page or tool
 result the agent just read before deciding to pay. Passing it lights up
-Tollwarden's strongest check, prompt-injection-triggered-payment detection: if the
+TollWarden's strongest check, prompt-injection-triggered-payment detection: if the
 pay_to address came from that content, the payment is blocked. (In LangChain /
 CrewAI this provenance is auto-tagged by a callback; NeMo has no global
 tool-output hook, so the scan function surfaces it as an explicit parameter.)
 
-Tollwarden is advisory and non-custodial — it never touches keys, wallets, or funds.
+TollWarden is advisory and non-custodial — it never touches keys, wallets, or funds.
 """
 from __future__ import annotations
 
@@ -44,37 +44,37 @@ except ImportError as e:  # pragma: no cover
         "For plain-Python integrations use the tollwarden package directly."
     ) from e
 
-from tollwarden import TollwardenClient
+from tollwarden import TollWardenClient
 
 # One client per (base_url, api_key, agent_id) so the three functions in a
 # workflow share a free-tier quota and key rather than minting several.
-_CLIENTS: dict[Tuple[str, str, str], TollwardenClient] = {}
+_CLIENTS: dict[Tuple[str, str, str], TollWardenClient] = {}
 
 
-def _client(base_url: str, api_key: str, agent_id: str) -> TollwardenClient:
+def _client(base_url: str, api_key: str, agent_id: str) -> TollWardenClient:
     key = (base_url, api_key, agent_id)
     client = _CLIENTS.get(key)
     if client is None:
-        client = TollwardenClient(base_url=base_url, api_key=api_key or None, agent_id=agent_id or None)
+        client = TollWardenClient(base_url=base_url, api_key=api_key or None, agent_id=agent_id or None)
         _CLIENTS[key] = client
     return client
 
 
-class TollwardenScanConfig(FunctionBaseConfig, name="tollwarden_scan_payment"):
-    base_url: str = Field("https://tollwarden.com", description="Tollwarden service base URL")
-    api_key: str = Field("", description="Optional Tollwarden API key; one is auto-minted (100 free scans) if empty")
+class TollWardenScanConfig(FunctionBaseConfig, name="tollwarden_scan_payment"):
+    base_url: str = Field("https://tollwarden.com", description="TollWarden service base URL")
+    api_key: str = Field("", description="Optional TollWarden API key; one is auto-minted (100 free scans) if empty")
     agent_id: str = Field("", description="Stable agent identifier — scopes velocity limits")
 
 
-class TollwardenReputationConfig(FunctionBaseConfig, name="tollwarden_check_reputation"):
-    base_url: str = Field("https://tollwarden.com", description="Tollwarden service base URL")
-    api_key: str = Field("", description="Optional Tollwarden API key")
+class TollWardenReputationConfig(FunctionBaseConfig, name="tollwarden_check_reputation"):
+    base_url: str = Field("https://tollwarden.com", description="TollWarden service base URL")
+    api_key: str = Field("", description="Optional TollWarden API key")
     agent_id: str = Field("", description="Stable agent identifier")
 
 
-class TollwardenReportConfig(FunctionBaseConfig, name="tollwarden_report_counterparty"):
-    base_url: str = Field("https://tollwarden.com", description="Tollwarden service base URL")
-    api_key: str = Field("", description="Optional Tollwarden API key")
+class TollWardenReportConfig(FunctionBaseConfig, name="tollwarden_report_counterparty"):
+    base_url: str = Field("https://tollwarden.com", description="TollWarden service base URL")
+    api_key: str = Field("", description="Optional TollWarden API key")
     agent_id: str = Field("", description="Stable agent identifier used as the default reporter id")
 
 
@@ -90,8 +90,8 @@ _SCAN_DESC = (
 )
 
 
-@register_function(config_type=TollwardenScanConfig)
-async def tollwarden_scan_payment(config: TollwardenScanConfig, builder: Builder):
+@register_function(config_type=TollWardenScanConfig)
+async def tollwarden_scan_payment(config: TollWardenScanConfig, builder: Builder):
     client = _client(config.base_url, config.api_key, config.agent_id)
 
     async def _scan(
@@ -110,8 +110,8 @@ async def tollwarden_scan_payment(config: TollwardenScanConfig, builder: Builder
     yield FunctionInfo.from_fn(_scan, description=_SCAN_DESC)
 
 
-@register_function(config_type=TollwardenReputationConfig)
-async def tollwarden_check_reputation(config: TollwardenReputationConfig, builder: Builder):
+@register_function(config_type=TollWardenReputationConfig)
+async def tollwarden_check_reputation(config: TollWardenReputationConfig, builder: Builder):
     client = _client(config.base_url, config.api_key, config.agent_id)
 
     async def _reputation(address: str) -> str:
@@ -129,8 +129,8 @@ async def tollwarden_check_reputation(config: TollwardenReputationConfig, builde
     )
 
 
-@register_function(config_type=TollwardenReportConfig)
-async def tollwarden_report_counterparty(config: TollwardenReportConfig, builder: Builder):
+@register_function(config_type=TollWardenReportConfig)
+async def tollwarden_report_counterparty(config: TollWardenReportConfig, builder: Builder):
     client = _client(config.base_url, config.api_key, config.agent_id)
 
     async def _report(address: str, category: str, reason: str) -> str:

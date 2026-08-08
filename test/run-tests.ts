@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Detector test-suite. Zero dependencies; runs with:
@@ -1848,7 +1848,7 @@ console.log("\n— x402 trust-provider interface (#2299) —");
   // Clean subject → PASS with the honest "not an endorsement" framing.
   const clean = handleTrustEvaluate(query("0xCleanPayer00000000000000000000000000001"), cfg, store) as { status: number; body: any };
   check("clean payer evaluates PASS", clean.status === 200 && clean.body.decision === "PASS");
-  check("evaluation carries the spec schema + provider fields", clean.body.schema === "x402-trust-evaluation-v0.1" && clean.body.provider === "Tollwarden" && typeof clean.body.provider_url === "string");
+  check("evaluation carries the spec schema + provider fields", clean.body.schema === "x402-trust-evaluation-v0.1" && clean.body.provider === "TollWarden" && typeof clean.body.provider_url === "string");
   check("clean PASS is moderate, not an endorsement", clean.body.score === 70 && clean.body.reason_code === "NO_ADVERSE_HISTORY");
   check("evidence_uri points at the public reputation lookup", String(clean.body.evidence_uri).includes("/v1/reputation/0xcleanpayer"));
 

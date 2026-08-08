@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Plan / tier structures — agent-readable subscription plans.
@@ -18,7 +18,7 @@
  *  - Every numeric override is clamped to HARD_CEILINGS: no tier, present or
  *    future, may exceed them. We never sell "scan less carefully."
  */
-import type { TollwardenConfig } from "./config.ts";
+import type { TollWardenConfig } from "./config.ts";
 import type { Store } from "./store.ts";
 
 export interface PlanLimits {
@@ -109,7 +109,7 @@ export function activePlan(store: Store, apiKey: string | undefined): { plan: Pl
  * plan, clamped to HARD_CEILINGS. Safety-critical fields (pinning, asset
  * verification, replay TTL, PII detection) are deliberately not touched.
  */
-export function resolveEffectiveConfig(cfg: TollwardenConfig, store: Store, apiKey: string | undefined): TollwardenConfig {
+export function resolveEffectiveConfig(cfg: TollWardenConfig, store: Store, apiKey: string | undefined): TollWardenConfig {
   const active = activePlan(store, apiKey);
   if (!active) return cfg;
   const l = active.plan.limits;
@@ -146,7 +146,7 @@ export function activatePlanOnKey(store: Store, apiKey: string, plan: Plan): { p
 }
 
 /** Machine-readable catalog for GET /v1/plans, the manifest, and the agent card. */
-export function plansCatalog(cfg: TollwardenConfig): object {
+export function plansCatalog(cfg: TollWardenConfig): object {
   return {
     plans: [
       {

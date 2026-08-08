@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Version-consistency gate. Zero dependencies.

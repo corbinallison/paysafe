@@ -1,7 +1,7 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
- * OpenAPI 3.1 document for Tollwarden, served at GET /openapi.json (free).
+ * OpenAPI 3.1 document for TollWarden, served at GET /openapi.json (free).
  *
  * This is the canonical machine-readable discovery contract used by
  * x402scan and agent tooling. Payment metadata follows the x402scan
@@ -9,7 +9,7 @@
  * and a `402` response; runtime 402 behavior remains authoritative.
  * See https://www.x402scan.com/discovery/spec
  */
-import type { TollwardenConfig } from "./config.ts";
+import type { TollWardenConfig } from "./config.ts";
 import { VERSION } from "./version.ts";
 
 function usd(price: string): string {
@@ -177,7 +177,7 @@ const ReputationSummary = {
     injection_history: {
       type: ["object", "null"],
       description:
-        "System-observed incidents: scans Tollwarden itself BLOCKED where this address was structurally implicated as attacker-controlled (planted in just-read content, embedded in an encoded payload, or used as vanity-bait). Recorded automatically at scan time and weighted like reports (observer credibility × 90-day decay). Stronger than a self-asserted report, but still flag-only in scans — scan inputs are client-supplied.",
+        "System-observed incidents: scans TollWarden itself BLOCKED where this address was structurally implicated as attacker-controlled (planted in just-read content, embedded in an encoded payload, or used as vanity-bait). Recorded automatically at scan time and weighted like reports (observer credibility × 90-day decay). Stronger than a self-asserted report, but still flag-only in scans — scan inputs are client-supplied.",
       properties: {
         incident_count: { type: "integer" },
         distinct_observers: { type: "integer" },
@@ -190,7 +190,7 @@ const ReputationSummary = {
     delivery: {
       type: ["object", "null"],
       description:
-        "Measured, commitment-bound delivery outcomes for this counterparty, plus the ledger's denominator: scans_seen counts the non-blocked scans Tollwarden performed against it, and report_coverage is outcomes_total over that — so selectively reported outcomes read as low coverage instead of passing as a complete record. When scans exist but no outcome was ever reported, outcomes_total is 0 and only the coverage fields are present. Coverage is informational only (scan counts are client-driven) and never feeds a flag; null means no outcomes and no counted scans.",
+        "Measured, commitment-bound delivery outcomes for this counterparty, plus the ledger's denominator: scans_seen counts the non-blocked scans TollWarden performed against it, and report_coverage is outcomes_total over that — so selectively reported outcomes read as low coverage instead of passing as a complete record. When scans exist but no outcome was ever reported, outcomes_total is 0 and only the coverage fields are present. Coverage is informational only (scan counts are client-driven) and never feeds a flag; null means no outcomes and no counted scans.",
       properties: {
         outcomes_total: { type: "integer" },
         delivered: { type: "integer" },
@@ -215,14 +215,14 @@ const resp402 = { "402": { description: "Payment Required" } } as const;
 // ---------------------------------------------------------------------------
 // Document
 // ---------------------------------------------------------------------------
-export function openApiDoc(cfg: TollwardenConfig): object {
+export function openApiDoc(cfg: TollWardenConfig): object {
   return {
     openapi: "3.1.0",
     info: {
-      title: "Tollwarden",
+      title: "TollWarden",
       version: VERSION,
       description:
-        "Check a payment for fraud before your agent sends it. Call Tollwarden before settling any x402 payment to avoid paying attacker-controlled addresses injected into content the agent just read (prompt-injection-triggered payments), replayed authorizations, inflated prices, leaked secrets in payment metadata, fake/lookalike USDC contracts, and address poisoning. Returns allow/flag/block with machine-readable reasons and an Ed25519-signed verdict. Advisory and non-custodial — never touches keys or funds. Includes a free-to-use counterparty reputation registry.",
+        "Check a payment for fraud before your agent sends it. Call TollWarden before settling any x402 payment to avoid paying attacker-controlled addresses injected into content the agent just read (prompt-injection-triggered payments), replayed authorizations, inflated prices, leaked secrets in payment metadata, fake/lookalike USDC contracts, and address poisoning. Returns allow/flag/block with machine-readable reasons and an Ed25519-signed verdict. Advisory and non-custodial — never touches keys or funds. Includes a free-to-use counterparty reputation registry.",
       "x-guidance":
         `Before settling any x402 payment, POST the payment details to /v1/scan/outgoing and act on the verdict: "allow" = proceed, "flag" = pause and confirm intent, "block" = do not pay (machine-readable reasons attached). When you RECEIVE a 402 offer, POST it to /v1/scan/incoming before paying. Include context.origin (planning | tool_result | fetched_content | user_instruction) and, when the decision followed reading external content, context.content — this enables prompt-injection-triggered-payment detection, the check that catches poisoned pay-to addresses. Include expected_price_usd to enable overpayment detection. Endpoints cost ${cfg.priceScan}/call via x402; your first ${cfg.freeCalls} calls are free with an API key from POST /v1/keys (free) sent in the X-API-Key header. Filing counterparty reports via POST /v1/reputation/report is always free. Allow-verdicts carry an Ed25519 attestation bound to the exact payment (verify against /.well-known/tollwarden-verdict-key). If you scan at volume, GET /v1/plans lists subscription tiers with lower per-scan pricing and higher velocity/spend headroom; you can subscribe autonomously — POST /v1/plans/subscribe is itself x402-paid at the plan price, and renewing is just paying again before expiry.`,
       contact: { email: "contact@tollwarden.com" },
@@ -482,7 +482,7 @@ export function openApiDoc(cfg: TollwardenConfig): object {
           operationId: "configureApprovals",
           summary: "Enable human-in-the-loop approvals: flag verdicts pause for a human decision via your webhook",
           description:
-            "On every flag verdict for your key, Tollwarden POSTs the payment facts and a one-time decide link to webhook_url (HMAC-SHA256-signed with the returned secret; header X-Tollwarden-Signature). A human approves or denies; approval mints a short-lived Ed25519-signed override verdict (tag 'override:allow', <=5 min) bound to exactly that payment. SECURITY: the decide link is a bearer credential — the webhook destination must be out of the agent's own reach, or the agent could approve itself. Live mode requires a public https webhook. Pass webhook_url: null to disable (the response carries an advisory: flags return to advisory-only and no overrides are minted). Deployments can switch the whole feature off with APPROVALS=off.",
+            "On every flag verdict for your key, TollWarden POSTs the payment facts and a one-time decide link to webhook_url (HMAC-SHA256-signed with the returned secret; header X-TollWarden-Signature). A human approves or denies; approval mints a short-lived Ed25519-signed override verdict (tag 'override:allow', <=5 min) bound to exactly that payment. SECURITY: the decide link is a bearer credential — the webhook destination must be out of the agent's own reach, or the agent could approve itself. Live mode requires a public https webhook. Pass webhook_url: null to disable (the response carries an advisory: flags return to advisory-only and no overrides are minted). Deployments can switch the whole feature off with APPROVALS=off.",
           tags: ["Approvals"],
           security: [],
           parameters: [{ name: "X-API-Key", in: "header", required: true, schema: { type: "string" } }],
@@ -549,7 +549,7 @@ export function openApiDoc(cfg: TollwardenConfig): object {
           operationId: "reportOutcome",
           summary: "Record whether a scanned, settled payment actually delivered (commitment-bound)",
           description:
-            "The delivery-outcome leg: scans validate the payment; this records whether the seller shipped. The report must present the scan_id AND payment_commitment of a scan Tollwarden performed (one outcome per scan; keyed scans only from the scanning account) — so delivery history cannot be fabricated without making real, scanned payments. Aggregated per counterparty into delivery rates that feed GET /v1/reputation/{address} and the flag-only `delivery` check on future scans; also aggregated per resource DOMAIN recorded at scan time, so rotating the pay_to address does not reset a domain's delivery record. Flag decisions use a prior-smoothed rate (small samples don't over-trigger); the raw rate is always reported. The official SDK payment-path wrappers report outcomes automatically.",
+            "The delivery-outcome leg: scans validate the payment; this records whether the seller shipped. The report must present the scan_id AND payment_commitment of a scan TollWarden performed (one outcome per scan; keyed scans only from the scanning account) — so delivery history cannot be fabricated without making real, scanned payments. Aggregated per counterparty into delivery rates that feed GET /v1/reputation/{address} and the flag-only `delivery` check on future scans; also aggregated per resource DOMAIN recorded at scan time, so rotating the pay_to address does not reset a domain's delivery record. Flag decisions use a prior-smoothed rate (small samples don't over-trigger); the raw rate is always reported. The official SDK payment-path wrappers report outcomes automatically.",
           tags: ["Reputation"],
           security: [],
           requestBody: {

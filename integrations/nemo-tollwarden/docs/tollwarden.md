@@ -1,6 +1,6 @@
-# Tollwarden
+# TollWarden
 
-[Tollwarden](https://tollwarden.com) is a payment security firewall for [x402](https://x402.org) micropayments. `nemo-tollwarden` registers three NeMo Agent Toolkit functions that let a workflow screen every x402 payment before it settles — with prompt-injection provenance detection and Ed25519-signed, payment-bound verdicts.
+[TollWarden](https://tollwarden.com) is a payment security firewall for [x402](https://x402.org) micropayments. `nemo-tollwarden` registers three NeMo Agent Toolkit functions that let a workflow screen every x402 payment before it settles — with prompt-injection provenance detection and Ed25519-signed, payment-bound verdicts.
 
 ## Install
 
@@ -31,10 +31,10 @@ A free API key (100 free scans) is auto-minted on first use; set `api_key:` to p
 - **`tollwarden_check_reputation`** — check community reports on a counterparty wallet before dealing with it.
 - **`tollwarden_report_counterparty`** — report a bad counterparty (always free).
 
-The three functions share one Tollwarden client per `(base_url, api_key, agent_id)`.
+The three functions share one TollWarden client per `(base_url, api_key, agent_id)`.
 
 ## Reference
 
 - Package: [nemo-tollwarden on PyPI](https://pypi.org/project/nemo-tollwarden/) · [source](https://github.com/tollwarden/tollwarden/tree/main/integrations/nemo-tollwarden)
-- Service: [Tollwarden API](https://tollwarden.com/llms.txt) · [OpenAPI](https://tollwarden.com/openapi.json)
-- Tollwarden is advisory and non-custodial — it never touches keys, wallets, or funds.
+- Service: [TollWarden API](https://tollwarden.com/llms.txt) · [OpenAPI](https://tollwarden.com/openapi.json)
+- TollWarden is advisory and non-custodial — it never touches keys, wallets, or funds.

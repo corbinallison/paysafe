@@ -77,7 +77,7 @@ except ImportError:
 
 # Importing the package builds the provider class (runs @create_action) — an
 # API break raises here, which is the core real-agentkit assertion.
-from agentkit_tollwarden import TollwardenActionProvider, tollwarden_action_provider  # noqa: E402
+from agentkit_tollwarden import TollWardenActionProvider, tollwarden_action_provider  # noqa: E402
 from agentkit_tollwarden.provider import (  # noqa: E402
     CheckReputationSchema,
     ReportCounterpartySchema,
@@ -134,7 +134,7 @@ payment = {"network": "eip155:8453", "pay_to": "0xMerchant", "amount": "10000", 
 # 1. Import + construction smoke check (real agentkit OR stub)
 # ---------------------------------------------------------------------------
 print(f"— import + construction ({'stubbed' if USING_STUB else 'REAL'} coinbase-agentkit) —")
-provider = TollwardenActionProvider(FakeClient())
+provider = TollWardenActionProvider(FakeClient())
 check("provider class builds (@create_action ran)", provider is not None)
 check("three action methods exist and are callable", all(callable(getattr(provider, m, None)) for m in ("scan_payment", "check_reputation", "report_counterparty")))
 check("supports_network is permissive", provider.supports_network(object()) is True)
@@ -150,7 +150,7 @@ if not USING_STUB:  # pragma: no cover — real-agentkit CI path
 # 2. Behavioral suite (structural stub only)
 # ---------------------------------------------------------------------------
 client = FakeClient()
-provider = TollwardenActionProvider(client)
+provider = TollWardenActionProvider(client)
 
 print("\n— action metadata —")
 check("provider name is 'tollwarden'", provider.name == "tollwarden")
@@ -198,9 +198,9 @@ check("report accepted + reaches client", res["accepted"] is True and client.rep
 print("\n— factory —")
 import agentkit_tollwarden.provider as prov  # noqa: E402
 
-prov.TollwardenClient = FakeClient
+prov.TollWardenClient = FakeClient
 p2 = tollwarden_action_provider(agent_id="my-agent")
-check("factory builds a provider with a client", isinstance(p2, TollwardenActionProvider) and p2._client is not None)
+check("factory builds a provider with a client", isinstance(p2, TollWardenActionProvider) and p2._client is not None)
 
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

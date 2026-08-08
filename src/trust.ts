@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * x402 trust-provider interface (seller-side trust signal).
@@ -7,7 +7,7 @@
  * in x402-foundation/x402#2299 (PR #2300): a resource server's onBeforeSettle
  * hook POSTs a TrustQuery about the PAYER, and providers answer with a
  * TrustEvaluation (PASS / FAIL / UNCERTAIN + score + evidence pointer). This
- * is the mirror image of Tollwarden's buyer-side scan: instead of protecting the
+ * is the mirror image of TollWarden's buyer-side scan: instead of protecting the
  * paying agent from a bad payee, it lets a seller gate settlement on the
  * paying agent's history.
  *
@@ -25,7 +25,7 @@
  * The endpoint is free and rate-limited; evidence_uri points at the public
  * reputation summary so consumers can audit the basis for any evaluation.
  */
-import type { TollwardenConfig } from "./config.ts";
+import type { TollWardenConfig } from "./config.ts";
 import type { Store } from "./store.ts";
 import type { ApiResult } from "./api.ts";
 import { summarize } from "./reputation.ts";
@@ -57,7 +57,7 @@ function parseSubject(body: unknown): TrustSubject | null {
  * Malformed queries get 400 with the expected schema named, so integrators
  * can self-serve. Unknown subjects are UNCERTAIN, never PASS.
  */
-export function handleTrustEvaluate(body: unknown, cfg: TollwardenConfig, store: Store): ApiResult {
+export function handleTrustEvaluate(body: unknown, cfg: TollWardenConfig, store: Store): ApiResult {
   const subject = parseSubject(body);
   const now = new Date().toISOString();
   const base = cfg.publicBaseUrl;
@@ -73,7 +73,7 @@ export function handleTrustEvaluate(body: unknown, cfg: TollwardenConfig, store:
     status: 200,
     body: {
       schema: EVALUATION_SCHEMA,
-      provider: "Tollwarden",
+      provider: "TollWarden",
       provider_url: base,
       decision,
       score,
@@ -108,7 +108,7 @@ export function handleTrustEvaluate(body: unknown, cfg: TollwardenConfig, store:
       "UNCERTAIN",
       50,
       "NO_WALLET_SUBJECT",
-      "Query carried only a self-asserted agent_id; Tollwarden keys payer history by wallet address. Include payer.wallet for a substantive evaluation.",
+      "Query carried only a self-asserted agent_id; TollWarden keys payer history by wallet address. Include payer.wallet for a substantive evaluation.",
       300,
     );
   }
@@ -122,7 +122,7 @@ export function handleTrustEvaluate(body: unknown, cfg: TollwardenConfig, store:
       "FAIL",
       0,
       "BADLISTED",
-      "Subject wallet is on Tollwarden's operator-curated known-bad list.",
+      "Subject wallet is on TollWarden's operator-curated known-bad list.",
       86_400,
       evidence,
     );

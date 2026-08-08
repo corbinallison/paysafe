@@ -1,11 +1,11 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Framework-agnostic API handlers. Both the production Express app (index.ts)
  * and the zero-dependency dev server (devserver.ts) route into these.
  */
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import type { TollwardenConfig } from "./config.ts";
+import type { TollWardenConfig } from "./config.ts";
 import { hashApiKey, type Store } from "./store.ts";
 import type { VerdictSigner } from "./verdictsign.ts";
 import { runScan } from "./scanner.ts";
@@ -53,7 +53,7 @@ function mintKey(store: Store, agentId?: string): string {
   return key;
 }
 
-export function createApiKey(store: Store, cfg: TollwardenConfig, agentId?: string): ApiResult {
+export function createApiKey(store: Store, cfg: TollWardenConfig, agentId?: string): ApiResult {
   const key = mintKey(store, agentId);
   return {
     status: 201,
@@ -69,7 +69,7 @@ export function createApiKey(store: Store, cfg: TollwardenConfig, agentId?: stri
  * Free-tier check. Returns true if this request should bypass x402 payment
  * (valid key with remaining free quota). Increments usage on success.
  */
-export function consumeFreeCall(store: Store, cfg: TollwardenConfig, apiKey: string | undefined): boolean {
+export function consumeFreeCall(store: Store, cfg: TollWardenConfig, apiKey: string | undefined): boolean {
   const { rec } = store.resolveKey(apiKey);
   if (!rec) return false;
   if (rec.calls_used >= cfg.freeCalls) return false;
@@ -78,7 +78,7 @@ export function consumeFreeCall(store: Store, cfg: TollwardenConfig, apiKey: str
   return true;
 }
 
-export function freeCallsRemaining(store: Store, cfg: TollwardenConfig, apiKey: string | undefined): number | null {
+export function freeCallsRemaining(store: Store, cfg: TollWardenConfig, apiKey: string | undefined): number | null {
   const { rec } = store.resolveKey(apiKey);
   if (!rec) return null;
   return Math.max(0, cfg.freeCalls - rec.calls_used);
@@ -87,7 +87,7 @@ export function freeCallsRemaining(store: Store, cfg: TollwardenConfig, apiKey: 
 export function handleScan(
   direction: "outgoing" | "incoming",
   body: unknown,
-  cfg: TollwardenConfig,
+  cfg: TollWardenConfig,
   store: Store,
   signer?: VerdictSigner | null,
   apiKey?: string,
@@ -233,7 +233,7 @@ export function handleReputationDispute(body: unknown, store: Store): ApiResult 
   return { status: 201, body: { accepted: true, dispute: res.dispute } };
 }
 
-export function handlePlansCatalog(cfg: TollwardenConfig): ApiResult {
+export function handlePlansCatalog(cfg: TollWardenConfig): ApiResult {
   return { status: 200, body: plansCatalog(cfg) };
 }
 
@@ -243,7 +243,7 @@ export function handlePlansCatalog(cfg: TollwardenConfig): ApiResult {
  * price); by the time this runs, the subscription fee has settled (or the
  * server is in dev mode). If no key is supplied, one is minted and returned.
  */
-export function handlePlanSubscribe(body: unknown, cfg: TollwardenConfig, store: Store, apiKey?: string): ApiResult {
+export function handlePlanSubscribe(body: unknown, cfg: TollWardenConfig, store: Store, apiKey?: string): ApiResult {
   const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
   const planId = typeof b.plan === "string" ? b.plan : "";
   const plan = getPlan(planId);
@@ -277,7 +277,7 @@ export function handlePlanSubscribe(body: unknown, cfg: TollwardenConfig, store:
  * there is no way to read another account's data, and no key is ever returned
  * or logged. Aggregates only; contains no payment data or PII.
  */
-export function handleUsage(cfg: TollwardenConfig, store: Store, apiKey: string | undefined): ApiResult {
+export function handleUsage(cfg: TollWardenConfig, store: Store, apiKey: string | undefined): ApiResult {
   if (!apiKey) {
     return { status: 401, body: { error: "Provide your API key in the X-API-Key header." } };
   }
@@ -363,7 +363,7 @@ const GRACE_MAX_SECONDS = 86_400; // 24 h hard cap — a leaked key must die
  * but NOT rotate/revoke (see requireLiveKey). Rotation never resets the free
  * tier, so it cannot be farmed.
  */
-export function handleKeyRotate(store: Store, cfg: TollwardenConfig, apiKey: string | undefined, body: unknown): ApiResult {
+export function handleKeyRotate(store: Store, cfg: TollWardenConfig, apiKey: string | undefined, body: unknown): ApiResult {
   const auth = requireLiveKey(store, apiKey);
   if ("err" in auth) return auth.err;
   const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
@@ -415,7 +415,7 @@ export function handleKeyRotate(store: Store, cfg: TollwardenConfig, apiKey: str
  * history, remaining free calls, and any active plan die with it. The secret's
  * tombstone persists, so the dead key keeps failing with an explanatory 401.
  */
-export function handleKeyRevoke(store: Store, cfg: TollwardenConfig, apiKey: string | undefined, body: unknown): ApiResult {
+export function handleKeyRevoke(store: Store, cfg: TollWardenConfig, apiKey: string | undefined, body: unknown): ApiResult {
   const auth = requireLiveKey(store, apiKey);
   if ("err" in auth) return auth.err;
   const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
@@ -451,7 +451,7 @@ export function handleKeyRevoke(store: Store, cfg: TollwardenConfig, apiKey: str
 /** POST /v1/approvals/config — authed by the caller's CURRENT key (in-grace
  * rotated secrets are refused: configuring the approval channel is a
  * security-sensitive operation, same policy as rotate/revoke). */
-export function handleApprovalConfig(store: Store, cfg: TollwardenConfig, apiKey: string | undefined, body: unknown): ApiResult {
+export function handleApprovalConfig(store: Store, cfg: TollWardenConfig, apiKey: string | undefined, body: unknown): ApiResult {
   const auth = requireLiveKey(store, apiKey);
   if ("err" in auth) return auth.err;
   return setApprovalConfig(store, cfg, auth.hash, body);
@@ -476,7 +476,7 @@ export function handleApprovalConfig(store: Store, cfg: TollwardenConfig, apiKey
  * admin access, which is the point of revocation. After rotating, update
  * ADMIN_KEY_SHA256 to the new hash (the rotate response includes it).
  */
-function requireOwner(cfg: TollwardenConfig, store: Store, apiKey: string | undefined): ApiResult | null {
+function requireOwner(cfg: TollWardenConfig, store: Store, apiKey: string | undefined): ApiResult | null {
   if (!cfg.adminKeyHash) return { status: 404, body: { error: "Not found" } };
   if (!apiKey) {
     return { status: 401, body: { error: "Provide your API key in the X-API-Key header." } };
@@ -510,7 +510,7 @@ function requireOwner(cfg: TollwardenConfig, store: Store, apiKey: string | unde
  * the past rather than retroactively rewritten.
  */
 export function handleAdminSetFirstParty(
-  cfg: TollwardenConfig,
+  cfg: TollWardenConfig,
   store: Store,
   apiKey: string | undefined,
   body: unknown,
@@ -545,7 +545,7 @@ export function handleAdminSetFirstParty(
   };
 }
 
-export function handleAdminStats(cfg: TollwardenConfig, store: Store, apiKey: string | undefined): ApiResult {
+export function handleAdminStats(cfg: TollWardenConfig, store: Store, apiKey: string | undefined): ApiResult {
   const denied = requireOwner(cfg, store, apiKey);
   if (denied) return denied;
 
@@ -579,11 +579,11 @@ export function handleAdminStats(cfg: TollwardenConfig, store: Store, apiKey: st
   };
 }
 
-export function serviceInfo(cfg: TollwardenConfig): ApiResult {
+export function serviceInfo(cfg: TollWardenConfig): ApiResult {
   return {
     status: 200,
     body: {
-      name: "Tollwarden",
+      name: "TollWarden",
       tagline: "Payment security firewall for x402 micropayments. Advisory, non-custodial.",
       version: VERSION,
       mode: cfg.mode,
@@ -659,7 +659,7 @@ export function serviceInfo(cfg: TollwardenConfig): ApiResult {
           skip_deep: "boolean — skip deep analysis regardless of value",
         },
       },
-      custody: "Tollwarden never touches private keys, wallets, or funds. Verdicts are advisory (and signed, for wallets that choose to enforce them).",
+      custody: "TollWarden never touches private keys, wallets, or funds. Verdicts are advisory (and signed, for wallets that choose to enforce them).",
     },
   };
 }

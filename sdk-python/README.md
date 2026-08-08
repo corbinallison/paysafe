@@ -1,6 +1,6 @@
 # tollwarden (Python)
 
-Official Python SDK for [Tollwarden](https://tollwarden.com) — the payment security firewall for [x402](https://x402.org) micropayments. One call before your agent settles a payment; allow/flag/block comes back with machine-readable reasons.
+Official Python SDK for [TollWarden](https://tollwarden.com) — the payment security firewall for [x402](https://x402.org) micropayments. One call before your agent settles a payment; allow/flag/block comes back with machine-readable reasons.
 
 Python 3.9+. Single dependency (`cryptography`, for Ed25519 attestation verification).
 
@@ -11,14 +11,14 @@ pip install tollwarden
 ## 30 seconds
 
 ```python
-from tollwarden import TollwardenClient, TollwardenBlockedError
+from tollwarden import TollWardenClient, TollWardenBlockedError
 
-tollwarden = TollwardenClient(agent_id="my-agent")  # mints a free API key on first use (100 free scans)
+tollwarden = TollWardenClient(agent_id="my-agent")  # mints a free API key on first use (100 free scans)
 
 try:
     tollwarden.guard_outgoing(payment, expected_price_usd=0.01)
     # verdict was allow (or flag) — safe to hand to your wallet
-except TollwardenBlockedError as e:
+except TollWardenBlockedError as e:
     print("Payment blocked:", e.scan["checks"])  # machine-readable reasons
 ```
 
@@ -27,18 +27,18 @@ except TollwardenBlockedError as e:
 Wrap your x402 payment-capable transport and every payment is scanned before it settles:
 
 ```python
-from tollwarden import TollwardenClient, wrap_transport_with_tollwarden
+from tollwarden import TollWardenClient, wrap_transport_with_tollwarden
 
-tollwarden = TollwardenClient(agent_id="my-agent")
+tollwarden = TollWardenClient(agent_id="my-agent")
 guarded = wrap_transport_with_tollwarden(my_x402_transport, tollwarden)
 # use `guarded` anywhere a transport goes
 ```
 
-Non-402 responses pass through untouched (zero overhead). On a 402, the payment is guarded as an outgoing payment (overpayment, address poisoning, velocity, injection provenance — anything you `observe()`d feeds the detector), the offer is scanned as an incoming request (URL risk, credential demands, asset verification, reputation), and only passing verdicts reach the paying transport. A block raises `TollwardenBlockedError` **before any payment is signed**; unparseable 402 offers fail closed. Options: `strict`, `scan_offer`, `expected_price_usd`, `on_scan` telemetry, `base_transport`.
+Non-402 responses pass through untouched (zero overhead). On a 402, the payment is guarded as an outgoing payment (overpayment, address poisoning, velocity, injection provenance — anything you `observe()`d feeds the detector), the offer is scanned as an incoming request (URL risk, credential demands, asset verification, reputation), and only passing verdicts reach the paying transport. A block raises `TollWardenBlockedError` **before any payment is signed**; unparseable 402 offers fail closed. Options: `strict`, `scan_offer`, `expected_price_usd`, `on_scan` telemetry, `base_transport`.
 
 ## The important part: provenance tagging
 
-Tollwarden's strongest detector catches **payments triggered by prompt-injected content** — but it needs to know where your agent's decision came from. Tell it:
+TollWarden's strongest detector catches **payments triggered by prompt-injected content** — but it needs to know where your agent's decision came from. Tell it:
 
 ```python
 # After EVERY tool result / fetched page your agent reads:
@@ -69,11 +69,11 @@ Wallet authors: `verify_attestation(scan, payment, trusted_key_hex)` and `comput
 Everything above is advisory — a compromised agent can skip the scan. The enforcement kit closes that gap at the signing layer:
 
 ```python
-from tollwarden import TollwardenClient, TollwardenEnforcer
+from tollwarden import TollWardenClient, TollWardenEnforcer
 from eth_account import Account
 
-tollwarden  = TollwardenClient(agent_id="my-agent")
-enforcer = TollwardenEnforcer(trusted_key_hex=tollwarden.verdict_key())
+tollwarden  = TollWardenClient(agent_id="my-agent")
+enforcer = TollWardenEnforcer(trusted_key_hex=tollwarden.verdict_key())
 account  = enforcer.guard_signer(Account.from_key(PRIVATE_KEY))
 # hand `account` to your x402 client exactly as before — it is a drop-in proxy
 
@@ -81,17 +81,17 @@ scan = tollwarden.guard_outgoing(payment)  # raises on block
 enforcer.approve(scan, payment)         # registers the allow-verdict locally
 # x402 pay-and-retry now succeeds. ANY other payment authorization the wallet
 # is asked to sign — different recipient, amount, asset, chain, or nonce —
-# raises TollwardenEnforcementError before the signature exists.
+# raises TollWardenEnforcementError before the signature exists.
 ```
 
 How the binding works: the wrapped signer intercepts EIP-712 payment authorizations (EIP-3009 `TransferWithAuthorization`/`ReceiveWithAuthorization` — the x402 "exact" scheme — plus ERC-2612 `Permit`; eth-account's positional, keyword, and `full_message=` call shapes are all recognized), reconstructs the payment from the typed data itself, and recomputes the commitment `sha256(network|pay_to|asset|amount|nonce)`. Only a live approval for **exactly that commitment** lets the signature happen — so "scan payment A, sign payment B" fails structurally, not by convention.
 
-Guarantees and options: approvals are verified against the **pinned** verdict key at `approve()` time (tampered/replayed/expired attestations raise), are **single-use** by default (`reusable=True` to opt out), expire with the attestation (tighten with `max_age_s`), gate on allow-only verdicts (`allow_flagged=True` to accept flags; `accept_overrides=True` to accept human-approved `override:allow` verdicts from step-up approvals — opt-in because a self-webhooked agent could approve its own flags), and can be `revoke()`d. Unrecognized typed data passes through by default; `strict_types=True` makes the signer deny-by-default. Enforcement is fully local and fail-closed — if Tollwarden is unreachable, nothing new can be approved. For flags that pause for a human (`scan["approval"]` present), `client.wait_for_approval(scan, payment=payment)` polls until the operator decides and returns the signed override.
+Guarantees and options: approvals are verified against the **pinned** verdict key at `approve()` time (tampered/replayed/expired attestations raise), are **single-use** by default (`reusable=True` to opt out), expire with the attestation (tighten with `max_age_s`), gate on allow-only verdicts (`allow_flagged=True` to accept flags; `accept_overrides=True` to accept human-approved `override:allow` verdicts from step-up approvals — opt-in because a self-webhooked agent could approve its own flags), and can be `revoke()`d. Unrecognized typed data passes through by default; `strict_types=True` makes the signer deny-by-default. Enforcement is fully local and fail-closed — if TollWarden is unreachable, nothing new can be approved. For flags that pause for a human (`scan["approval"]` present), `client.wait_for_approval(scan, payment=payment)` polls until the operator decides and returns the signed override.
 
 **Local policy: allowlist + spend caps.** The verdict gate answers "was this exact payment scanned and allowed?" — local policy answers a different question: "is this payment inside the bounds I set, no matter what any scan said?" Configure it on the enforcer and it is checked against the typed data at signature time, entirely offline and independent of approvals:
 
 ```python
-enforcer = TollwardenEnforcer(
+enforcer = TollWardenEnforcer(
     trusted_key_hex=tollwarden.verdict_key(),
     allowed_recipients=["0xKnownMerchantA…", "0xKnownMerchantB…"],  # hard allowlist (case-insensitive; [] = deny all)
     max_amount_atomic=1_000_000,   # per payment: 1 USDC (6 decimals)
@@ -114,7 +114,7 @@ Scope note: this guards the typed-data path x402 uses. If your signer also expos
 Your first 100 calls per key are free. Beyond that, pass a payment-capable `transport` — any callable `(method, url, headers, body_bytes) -> (status, headers, body_bytes)` that settles x402 challenges (e.g. wrapping an x402 Python client):
 
 ```python
-tollwarden = TollwardenClient(agent_id="my-agent", transport=my_x402_transport, auto_renew=True)
+tollwarden = TollWardenClient(agent_id="my-agent", transport=my_x402_transport, auto_renew=True)
 
 tollwarden.get_plans()        # free catalog: Starter / Pro ($4.99/30d, $0.005/scan) / Scale ($19.99/30d, $0.002/scan)
 tollwarden.subscribe("pro")   # pays $4.99 over x402, upgrades this key for 30 days
@@ -131,10 +131,10 @@ tollwarden.reputation("0xsomeone...")                           # report summary
 
 ## API surface
 
-`TollwardenClient` — `scan_outgoing`, `scan_incoming`, `guard_outgoing`, `guard_incoming`, `observe`, `note_planning`, `note_user_instruction`, `get_plans`, `subscribe`, `report`, `reputation`, `ensure_api_key`, `verdict_key`, plus `free_calls_remaining` / `plan` state.
+`TollWardenClient` — `scan_outgoing`, `scan_incoming`, `guard_outgoing`, `guard_incoming`, `observe`, `note_planning`, `note_user_instruction`, `get_plans`, `subscribe`, `report`, `reputation`, `ensure_api_key`, `verdict_key`, plus `free_calls_remaining` / `plan` state.
 Payment path — `wrap_transport_with_tollwarden`, `payment_from_offer`.
-Enforcement — `TollwardenEnforcer` (`approve`, `guard_signer`, `assert_approved`, `revoke`, `clear`), `payment_from_typed_data`.
+Enforcement — `TollWardenEnforcer` (`approve`, `guard_signer`, `assert_approved`, `revoke`, `clear`), `payment_from_typed_data`.
 Standalone — `verify_attestation`, `compute_payment_commitment`.
-Errors — `TollwardenError` (`.status`, `.body`), `TollwardenBlockedError` (`.scan`), `AttestationError`, `TollwardenEnforcementError` (`.commitment`, `.primary_type`).
+Errors — `TollWardenError` (`.status`, `.body`), `TollWardenBlockedError` (`.scan`), `AttestationError`, `TollWardenEnforcementError` (`.commitment`, `.primary_type`).
 
-[BUSL 1.1](../LICENSE) (source-available; using this SDK against the hosted service is expressly permitted, including in commercial products). Tollwarden is advisory and non-custodial: this SDK never touches your keys, wallet, or funds.
+[BUSL 1.1](../LICENSE) (source-available; using this SDK against the hosted service is expressly permitted, including in commercial products). TollWarden is advisory and non-custodial: this SDK never touches your keys, wallet, or funds.

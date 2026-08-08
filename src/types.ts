@@ -1,6 +1,6 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
-/** Tollwarden core types. Zero runtime dependencies. */
+/** TollWarden core types. Zero runtime dependencies. */
 
 export type Verdict = "allow" | "flag" | "block";
 export type Severity = "info" | "low" | "medium" | "high" | "critical";
@@ -112,7 +112,7 @@ export interface PinEvidence {
   corroboration: string[];
 }
 
-/** Ed25519 attestation over the verdict, so wallet policies can require a Tollwarden allow-verdict. */
+/** Ed25519 attestation over the verdict, so wallet policies can require a TollWarden allow-verdict. */
 export interface VerdictAttestation {
   alg: "ed25519";
   /** SPKI DER, hex-encoded. Also served at /.well-known/tollwarden-verdict-key */
@@ -236,7 +236,7 @@ export interface ReputationSummary {
   categories: Record<string, number>;
   first_reported?: string;
   last_reported?: string;
-  /** System-observed injection incidents: scans Tollwarden itself BLOCKED where
+  /** System-observed injection incidents: scans TollWarden itself BLOCKED where
    * this address was structurally implicated (see InjectionIncident). Weighted
    * like reports (credibility × 90-day decay); null = no incident history. */
   injection_history?: {
@@ -250,7 +250,7 @@ export interface ReputationSummary {
   } | null;
   /** Measured, commitment-bound delivery outcomes, plus the ledger's
    * DENOMINATOR (scans_seen / report_coverage) so selective outcome reporting
-   * is legible as low coverage. Null only when Tollwarden has neither outcomes
+   * is legible as low coverage. Null only when TollWarden has neither outcomes
    * nor counted scans for the address; when scans exist but no outcome was
    * ever reported, outcomes_total is 0 and only the coverage fields are
    * present. Coverage is informational only (scan counts are client-driven)

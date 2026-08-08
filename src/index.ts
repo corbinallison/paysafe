@@ -1,7 +1,7 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
- * Tollwarden — production entrypoint.
+ * TollWarden — production entrypoint.
  * Express + official x402 middleware (@x402/express) + CDP facilitator + Bazaar discovery.
  *
  * Paid routes (x402, "exact" scheme, USDC):
@@ -267,7 +267,7 @@ function buildSubscribeLayer(plan: Plan) {
   const routes: any = {
     "POST /v1/plans/subscribe": {
       accepts: [{ scheme: "exact", price: plan.price, network: x402Network, payTo: cfg.payTo }],
-      description: `Subscribe your Tollwarden API key to the ${plan.name} plan (${plan.price} / ${plan.duration_days} days): ${plan.description}`,
+      description: `Subscribe your TollWarden API key to the ${plan.name} plan (${plan.price} / ${plan.duration_days} days): ${plan.description}`,
       mimeType: "application/json",
     },
   };
@@ -316,7 +316,7 @@ if (cfg.mode === "live") {
     return paid(req, res, next); // x402: 402 → pay → retry
   });
 } else {
-  console.log("Tollwarden running in DEV mode — x402 payments disabled, all endpoints free.");
+  console.log("TollWarden running in DEV mode — x402 payments disabled, all endpoints free.");
 }
 
 // ---------------------------------------------------------------------------
@@ -382,7 +382,7 @@ app.get("/.well-known/agent-card.json", (_req, res) => {
   res.json(agentCard(cfg));
 });
 
-// ERC-8004 on-chain identity: this file is the agentURI/tokenURI of Tollwarden's
+// ERC-8004 on-chain identity: this file is the agentURI/tokenURI of TollWarden's
 // agent NFT in the IdentityRegistry on Base (minted by the PAY_TO wallet).
 app.get("/.well-known/erc8004.json", (_req, res) => {
   res.json(erc8004Registration(cfg));
@@ -406,7 +406,7 @@ const verdictKeyHandler = (_req: express.Request, res: express.Response) => {
   res.json(signer.publicKeyInfo());
 };
 app.get("/.well-known/tollwarden-verdict-key", verdictKeyHandler);
-// Legacy path from before the Tollwarden rename — deployed SDKs (< 0.6.0) pin this URL.
+// Legacy path from before the TollWarden rename — deployed SDKs (< 0.6.0) pin this URL.
 app.get("/.well-known/paysafe-verdict-key", verdictKeyHandler);
 
 app.post("/v1/keys", (req, res) => {
@@ -647,7 +647,7 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
 });
 
 const serverInstance = app.listen(cfg.port, () => {
-  console.log(`Tollwarden listening on :${cfg.port} (${cfg.mode} mode, network ${cfg.network}, facilitator ${cfg.facilitator})`);
+  console.log(`TollWarden listening on :${cfg.port} (${cfg.mode} mode, network ${cfg.network}, facilitator ${cfg.facilitator})`);
 });
 
 process.on("SIGTERM", () => {

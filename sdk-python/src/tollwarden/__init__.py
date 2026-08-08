@@ -1,20 +1,20 @@
-# Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+# Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 # SPDX-License-Identifier: BUSL-1.1
 """
-tollwarden — official Python SDK for Tollwarden, the payment security firewall
+tollwarden — official Python SDK for TollWarden, the payment security firewall
 for x402 micropayments (https://tollwarden.com).
 
 Single dependency: `cryptography` (Ed25519 attestation verification).
 Python 3.9+.
 
 Quick start:
-    from tollwarden import TollwardenClient, TollwardenBlockedError
+    from tollwarden import TollWardenClient, TollWardenBlockedError
 
-    tollwarden = TollwardenClient(agent_id="my-agent")   # free API key auto-minted, 100 free scans
+    tollwarden = TollWardenClient(agent_id="my-agent")   # free API key auto-minted, 100 free scans
     tollwarden.observe(tool_result_text, source_url="https://api.example.com")
     try:
         scan = tollwarden.guard_outgoing(payment, expected_price_usd=0.01)
-    except TollwardenBlockedError as e:
+    except TollWardenBlockedError as e:
         print("blocked:", e.scan["checks"])        # machine-readable reasons
 
 Feature parity with the TypeScript SDK (@tollwarden/client):
@@ -40,12 +40,12 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.serialization import load_der_public_key
 
 __all__ = [
-    "TollwardenClient",
-    "TollwardenError",
-    "TollwardenBlockedError",
+    "TollWardenClient",
+    "TollWardenError",
+    "TollWardenBlockedError",
     "AttestationError",
-    "TollwardenEnforcer",
-    "TollwardenEnforcementError",
+    "TollWardenEnforcer",
+    "TollWardenEnforcementError",
     "payment_from_typed_data",
     "wrap_transport_with_tollwarden",
     "payment_from_offer",
@@ -64,25 +64,25 @@ Transport = Callable[[str, str, Dict[str, str], Optional[bytes]], Tuple[int, Dic
 # ---------------------------------------------------------------------------
 # Errors
 # ---------------------------------------------------------------------------
-class TollwardenError(Exception):
+class TollWardenError(Exception):
     def __init__(self, message: str, status: Optional[int] = None, body: Any = None):
         super().__init__(message)
         self.status = status
         self.body = body
 
 
-class TollwardenBlockedError(TollwardenError):
+class TollWardenBlockedError(TollWardenError):
     """Raised by guard_outgoing/guard_incoming on a block verdict (or flag when strict)."""
 
     def __init__(self, scan: Dict[str, Any]):
         reasons = "; ".join(
             f"{c.get('id')}: {c.get('reason')}" for c in scan.get("checks", []) if c.get("verdict") != "allow"
         )
-        super().__init__(f"Tollwarden verdict: {scan.get('verdict')} (risk {scan.get('risk_score')}). {reasons}")
+        super().__init__(f"TollWarden verdict: {scan.get('verdict')} (risk {scan.get('risk_score')}). {reasons}")
         self.scan = scan
 
 
-class AttestationError(TollwardenError):
+class AttestationError(TollWardenError):
     pass
 
 
@@ -251,7 +251,7 @@ class _Observation:
     at: float = field(default_factory=time.monotonic)
 
 
-class TollwardenClient:
+class TollWardenClient:
     def __init__(
         self,
         base_url: str = DEFAULT_BASE_URL,
@@ -293,7 +293,7 @@ class TollwardenClient:
     def observe(self, content: str, source_url: Optional[str] = None, kind: Optional[str] = None) -> None:
         """Record that the agent just read external content (tool result / fetched
         page). The next scan within the TTL is tagged with it — this powers
-        Tollwarden's prompt-injection-triggered-payment detection."""
+        TollWarden's prompt-injection-triggered-payment detection."""
         self._observation = _Observation(
             content=content[: self.max_content_bytes],
             source_url=source_url,
@@ -342,15 +342,15 @@ class TollwardenClient:
             parsed = None
         if status >= 400:
             if status == 402:
-                raise TollwardenError(
-                    "Payment required and this client's transport cannot pay. Construct TollwardenClient "
+                raise TollWardenError(
+                    "Payment required and this client's transport cannot pay. Construct TollWardenClient "
                     "with an x402 payment-capable transport, supply an API key with free calls remaining, "
                     "or subscribe to a plan.",
                     402,
                     parsed,
                 )
             msg = (parsed or {}).get("error") if isinstance(parsed, dict) else None
-            raise TollwardenError(msg or f"HTTP {status}", status, parsed)
+            raise TollWardenError(msg or f"HTTP {status}", status, parsed)
         return parsed
 
     def ensure_api_key(self) -> str:
@@ -358,7 +358,7 @@ class TollwardenClient:
         if self.api_key:
             return self.api_key
         if not self.auto_key:
-            raise TollwardenError("no API key set and auto_key is disabled")
+            raise TollWardenError("no API key set and auto_key is disabled")
         r = self._request("POST", "/v1/keys", {"agent_id": self.agent_id} if self.agent_id else {})
         self.api_key = r["api_key"]
         if isinstance(r.get("free_calls_remaining"), int):
@@ -385,7 +385,7 @@ class TollwardenClient:
     ) -> Dict[str, Any]:
         try:
             self.ensure_api_key()
-        except TollwardenError:
+        except TollWardenError:
             pass  # scanning without a key still works via an x402-paying transport
         self._maybe_renew()
         body: Dict[str, Any] = {
@@ -431,16 +431,16 @@ class TollwardenClient:
         return self._scan("incoming", payment, expected_price_usd, context, policy, agent_id)
 
     def guard_outgoing(self, payment: Dict[str, Any], strict: bool = False, **kwargs: Any) -> Dict[str, Any]:
-        """Scan and RAISE TollwardenBlockedError on block (and on flag when strict)."""
+        """Scan and RAISE TollWardenBlockedError on block (and on flag when strict)."""
         scan = self._scan("outgoing", payment, kwargs.get("expected_price_usd"), kwargs.get("context"), kwargs.get("policy"), kwargs.get("agent_id"))
         if scan["verdict"] == "block" or (strict and scan["verdict"] == "flag"):
-            raise TollwardenBlockedError(scan)
+            raise TollWardenBlockedError(scan)
         return scan
 
     def guard_incoming(self, payment: Dict[str, Any], strict: bool = False, **kwargs: Any) -> Dict[str, Any]:
         scan = self._scan("incoming", payment, kwargs.get("expected_price_usd"), kwargs.get("context"), kwargs.get("policy"), kwargs.get("agent_id"))
         if scan["verdict"] == "block" or (strict and scan["verdict"] == "flag"):
-            raise TollwardenBlockedError(scan)
+            raise TollWardenBlockedError(scan)
         return scan
 
     # -- human-in-the-loop approvals ---------------------------------------------
@@ -461,7 +461,7 @@ class TollwardenClient:
                 enforcer.approve(override, payment)  # needs accept_overrides=True
 
         Returns the override scan-shaped dict (verdict "override:allow", signed
-        attestation bound to the payment commitment). Raises TollwardenError on
+        attestation bound to the payment commitment). Raises TollWardenError on
         deny/expiry/timeout. When `payment` is supplied (recommended) and this
         client verifies attestations, the override is verified against the
         pinned key and that exact payment before being returned.
@@ -471,7 +471,7 @@ class TollwardenClient:
         else:
             approval_id = ((scan_or_id or {}).get("approval") or {}).get("approval_id", "")
         if not approval_id:
-            raise TollwardenError(
+            raise TollWardenError(
                 "no approval to wait for: the scan carries no `approval` (either the verdict was not "
                 "flag, or the key has no approvals config - POST /v1/approvals/config first)"
             )
@@ -489,11 +489,11 @@ class TollwardenClient:
                     override["attestation_verified"] = True
                 return override
             if status == "denied":
-                raise TollwardenError(f"approval {approval_id} was DENIED by the operator", 403, state)
+                raise TollWardenError(f"approval {approval_id} was DENIED by the operator", 403, state)
             if status == "expired":
-                raise TollwardenError(f"approval {approval_id} expired before a decision", 410, state)
+                raise TollWardenError(f"approval {approval_id} expired before a decision", 410, state)
             if time.monotonic() + interval > deadline:
-                raise TollwardenError(f"timed out waiting for approval {approval_id}", 408, state)
+                raise TollWardenError(f"timed out waiting for approval {approval_id}", 408, state)
             time.sleep(interval)
 
     def report_outcome(
@@ -521,7 +521,7 @@ class TollwardenClient:
         on-chain rather than pay twice."""
         commitment = (scan.get("attestation") or {}).get("payment_commitment")
         if not commitment:
-            raise TollwardenError(
+            raise TollWardenError(
                 "cannot report an outcome: the scan carries no attestation/payment_commitment (verdict signing disabled?)"
             )
         evidence: Dict[str, Any] = {}
@@ -549,7 +549,7 @@ class TollwardenClient:
     def configure_approvals(self, webhook_url: Optional[str], format: str = "json") -> Any:
         """Configure (or disable, with webhook_url=None) human-in-the-loop
         approvals for this key. Returns the webhook signing secret ONCE (header
-        X-Tollwarden-Signature: sha256=HMAC-SHA256(secret, body) on every
+        X-TollWarden-Signature: sha256=HMAC-SHA256(secret, body) on every
         delivery). SECURITY: the decide link each delivery carries is a bearer
         credential - point the webhook somewhere the agent itself cannot read."""
         self.ensure_api_key()
@@ -574,7 +574,7 @@ class TollwardenClient:
         """Counterparty report summary (paid / free-tier)."""
         try:
             self.ensure_api_key()
-        except TollwardenError:
+        except TollWardenError:
             pass
         from urllib.parse import quote
 
@@ -603,7 +603,7 @@ class TollwardenClient:
             return
         try:
             self.subscribe(self.plan["id"])
-        except TollwardenError as e:
+        except TollWardenError as e:
             if not self._renew_warned:
                 self._renew_warned = True
                 import warnings
@@ -616,8 +616,8 @@ class TollwardenClient:
 # enforce.py imports names defined above, so this must follow the definitions.
 # ---------------------------------------------------------------------------
 from .enforce import (  # noqa: E402
-    TollwardenEnforcementError,
-    TollwardenEnforcer,
+    TollWardenEnforcementError,
+    TollWardenEnforcer,
     payment_from_typed_data,
 )
 

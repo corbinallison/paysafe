@@ -1,4 +1,4 @@
-"""Tollwarden action provider for Coinbase AgentKit."""
+"""TollWarden action provider for Coinbase AgentKit."""
 from __future__ import annotations
 
 import json
@@ -14,7 +14,7 @@ except ImportError as e:  # pragma: no cover
         "For plain-Python integrations use the tollwarden package directly."
     ) from e
 
-from tollwarden import TollwardenClient
+from tollwarden import TollWardenClient
 
 
 # ---------------------------------------------------------------------------
@@ -55,10 +55,10 @@ _SCAN_DESC = (
 )
 
 
-class TollwardenActionProvider(ActionProvider):
-    """AgentKit action provider exposing Tollwarden's scan / reputation / report."""
+class TollWardenActionProvider(ActionProvider):
+    """AgentKit action provider exposing TollWarden's scan / reputation / report."""
 
-    def __init__(self, client: TollwardenClient):
+    def __init__(self, client: TollWardenClient):
         super().__init__("tollwarden", [])
         self._client = client
 
@@ -109,7 +109,7 @@ class TollwardenActionProvider(ActionProvider):
         )
 
     def supports_network(self, network: "Network") -> bool:
-        # Tollwarden is advisory metadata analysis — network-agnostic.
+        # TollWarden is advisory metadata analysis — network-agnostic.
         return True
 
 
@@ -117,10 +117,10 @@ def tollwarden_action_provider(
     base_url: str = "https://tollwarden.com",
     api_key: Optional[str] = None,
     agent_id: Optional[str] = None,
-    client: Optional[TollwardenClient] = None,
-) -> TollwardenActionProvider:
-    """Construct the Tollwarden action provider. A free API key (100 free scans) is
+    client: Optional[TollWardenClient] = None,
+) -> TollWardenActionProvider:
+    """Construct the TollWarden action provider. A free API key (100 free scans) is
     auto-minted on first use unless you pass `api_key` or your own `client`."""
-    return TollwardenActionProvider(
-        client or TollwardenClient(base_url=base_url, api_key=api_key, agent_id=agent_id)
+    return TollWardenActionProvider(
+        client or TollWardenClient(base_url=base_url, api_key=api_key, agent_id=agent_id)
     )

@@ -1,7 +1,7 @@
-// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
+// Copyright (c) 2026 TollWarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
- * Tollwarden usage dashboard — a single self-contained HTML page served at
+ * TollWarden usage dashboard — a single self-contained HTML page served at
  * GET /dashboard. Security posture:
  *  - Zero external resources (no CDN scripts/fonts/images): a strict CSP with
  *    default-src 'none' can be applied, so even a stored-XSS foothold has
@@ -19,7 +19,7 @@ export function dashboardHtml(): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tollwarden — Usage Dashboard</title>
+<title>TollWarden — Usage Dashboard</title>
 <style>
   :root { color-scheme: dark; --bg:#0b0e14; --card:#141a24; --line:#232c3b; --fg:#e6edf3; --muted:#8b98a9; --accent:#4c8dff; --allow:#3fb950; --flag:#d29922; --block:#f85149; }
   * { box-sizing: border-box; }
@@ -52,7 +52,7 @@ export function dashboardHtml(): string {
 </head>
 <body>
 <div class="wrap">
-  <h1>Tollwarden Usage</h1>
+  <h1>TollWarden Usage</h1>
   <p class="sub">Your scan activity, free-tier quota, and plan status. Read-only — your key stays in this browser.</p>
 
   <div class="card">

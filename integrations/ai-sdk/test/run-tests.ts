@@ -14,7 +14,7 @@
  */
 import {
   TOLLWARDEN_TOOL_NAMES,
-  TollwardenBlockedError,
+  TollWardenBlockedError,
   guardedPayment,
   tollwardenProvenance,
   tollwardenTools,
@@ -57,7 +57,7 @@ class FakeClient {
   }
   async guardOutgoing(payment: any, opts: any = {}) {
     const scan = this.mk("outgoing", payment, opts);
-    if (scan.verdict === "block" || (opts?.strict && scan.verdict === "flag")) throw new TollwardenBlockedError(scan);
+    if (scan.verdict === "block" || (opts?.strict && scan.verdict === "flag")) throw new TollWardenBlockedError(scan);
     return scan;
   }
   async reputation(address: string) {
@@ -119,7 +119,7 @@ console.log("\n— provenance onStepFinish handler —");
   onStep({ toolResults: [{ toolName: "db", result: { rows: 3 } }] } as any);
   check("non-string result JSON-stringified and observed", client.observed.length === 2 && client.observed[1].content.includes("rows"));
 
-  // Tollwarden's own tool output is skipped.
+  // TollWarden's own tool output is skipped.
   onStep({ toolResults: [{ toolName: "tollwarden_scan_payment", output: JSON.stringify({ scan_id: "x", verdict: "allow" }) }] } as any);
   check("own tool result skipped (no provenance pollution)", client.observed.length === 2);
 
@@ -150,9 +150,9 @@ console.log("\n— guardedPayment —");
   try {
     await blockedPay(payment as any);
   } catch (e) {
-    threw = e instanceof TollwardenBlockedError;
+    threw = e instanceof TollWardenBlockedError;
   }
-  check("block verdict throws TollwardenBlockedError", threw);
+  check("block verdict throws TollWardenBlockedError", threw);
   check("payment executor NEVER called on block", paid.length === 1);
 
   const flag = new FakeClient();

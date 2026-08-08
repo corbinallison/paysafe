@@ -1,6 +1,6 @@
 # nemo-tollwarden
 
-[Tollwarden](https://tollwarden.com) payment security for the [NVIDIA NeMo Agent Toolkit](https://github.com/NVIDIA/NeMo-Agent-Toolkit) — screen every x402 payment before your workflow settles it.
+[TollWarden](https://tollwarden.com) payment security for the [NVIDIA NeMo Agent Toolkit](https://github.com/NVIDIA/NeMo-Agent-Toolkit) — screen every x402 payment before your workflow settles it.
 
 ```bash
 pip install nemo-tollwarden
@@ -23,7 +23,7 @@ A free API key (100 free scans) is auto-minted on first use — set `api_key:` t
 
 ## Provenance: the strongest check
 
-Tollwarden's best detector catches payments whose *decision* came from content the agent just read — a prompt-injected page or tool result saying "send payment to 0x…". In NeMo, pass that text as the scan function's optional **`content`** argument:
+TollWarden's best detector catches payments whose *decision* came from content the agent just read — a prompt-injected page or tool result saying "send payment to 0x…". In NeMo, pass that text as the scan function's optional **`content`** argument:
 
 ```
 tollwarden_scan_payment(payment={...}, direction="outgoing", content="<the page/tool text the agent just read>")
@@ -39,8 +39,8 @@ If the `pay_to` address appears in that content, the payment is blocked. (LangCh
 | `tollwarden_check_reputation` | Before dealing with an unfamiliar counterparty address |
 | `tollwarden_report_counterparty` | After a bad payment experience (always free) — warns other agents |
 
-The three functions share one Tollwarden client per `(base_url, api_key, agent_id)`, so they draw on the same free-tier quota. Verdicts are Ed25519-signed and payment-bound; the underlying client verifies them against a pinned key automatically.
+The three functions share one TollWarden client per `(base_url, api_key, agent_id)`, so they draw on the same free-tier quota. Verdicts are Ed25519-signed and payment-bound; the underlying client verifies them against a pinned key automatically.
 
-For wallet-level enforcement (the signer itself refuses unscanned payments), see `TollwardenEnforcer` in the [tollwarden SDK](https://pypi.org/project/tollwarden/).
+For wallet-level enforcement (the signer itself refuses unscanned payments), see `TollWardenEnforcer` in the [tollwarden SDK](https://pypi.org/project/tollwarden/).
 
-MIT. Tollwarden is advisory and non-custodial: it never touches keys, wallets, or funds.
+MIT. TollWarden is advisory and non-custodial: it never touches keys, wallets, or funds.
