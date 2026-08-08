@@ -1,19 +1,19 @@
 #!/usr/bin/env node
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
- * PaySafe MCP server — exposes the payment firewall as MCP tools over stdio.
+ * Tollwarden MCP server — exposes the payment firewall as MCP tools over stdio.
  *
- * Run against production with zero config:  npx paysafe-x402
+ * Run against production with zero config:  npx tollwarden
  *
  * Env:
- *   PAYSAFE_URL      Base URL of a PaySafe instance (default https://paysafe-agent.com)
- *   PAYSAFE_API_KEY  API key from POST /v1/keys or the mint_api_key tool.
+ *   TOLLWARDEN_URL      Base URL of a Tollwarden instance (default https://tollwarden.com)
+ *   TOLLWARDEN_API_KEY  API key from POST /v1/keys or the mint_api_key tool.
  *                    Without it, paid endpoints 402 after the free tier —
  *                    pair with an x402-aware fetch or stay within free quota.
  *
  * Register in an MCP client config:
- *   { "command": "npx", "args": ["-y", "paysafe-x402"], "env": { "PAYSAFE_API_KEY": "..." } }
+ *   { "command": "npx", "args": ["-y", "tollwarden"], "env": { "TOLLWARDEN_API_KEY": "..." } }
  */
 import { createPublicKey, createHash, verify as edVerify } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -21,8 +21,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { VERSION } from "../src/version.ts";
 
-const BASE = process.env.PAYSAFE_URL ?? "https://paysafe-agent.com";
-const API_KEY = process.env.PAYSAFE_API_KEY;
+const BASE = process.env.TOLLWARDEN_URL ?? "https://tollwarden.com";
+const API_KEY = process.env.TOLLWARDEN_API_KEY;
 
 async function call(method: string, path: string, body?: unknown): Promise<string> {
   const headers: Record<string, string> = { "content-type": "application/json" };
@@ -88,16 +88,16 @@ const contextSchema = z
   .optional();
 
 const server = new McpServer(
-  { name: "paysafe", version: VERSION },
+  { name: "tollwarden", version: VERSION },
   {
     instructions:
-      "PaySafe is a payment security firewall for x402. Protocol for this agent: BEFORE settling or sending ANY x402 payment, call `scan_outgoing_payment` and act on the verdict (allow = proceed, flag = pause and confirm, block = do NOT pay). BEFORE paying a 402 offer you received, call `scan_incoming_payment`. When scanning before the payment is signed (the normal case), set `context.phase` to 'pre_sign' so the not-yet-generated nonce isn't flagged. Whenever a payment decision followed reading external content (a fetched page or tool result), pass that PROSE in `context.content` so the injection check can run — and pass the 402 offer / discovery payload itself in `context.offer`, never in `content`. AFTER a scanned payment settles, call `report_payment_outcome` with what actually happened (delivered / not_delivered / partial / wrong_content) — this builds the measured delivery history that protects your own future payments to that seller. Use `check_counterparty_reputation` before dealing with an unfamiliar address, and `report_counterparty` after a bad experience beyond non-delivery (free). If YOUR wallet is reported unfairly, `dispute_reputation` attaches a wallet-signed rebuttal that lookups surface alongside the reports. These scans are advisory and non-custodial — PaySafe never touches your keys or funds.",
+      "Tollwarden is a payment security firewall for x402. Protocol for this agent: BEFORE settling or sending ANY x402 payment, call `scan_outgoing_payment` and act on the verdict (allow = proceed, flag = pause and confirm, block = do NOT pay). BEFORE paying a 402 offer you received, call `scan_incoming_payment`. When scanning before the payment is signed (the normal case), set `context.phase` to 'pre_sign' so the not-yet-generated nonce isn't flagged. Whenever a payment decision followed reading external content (a fetched page or tool result), pass that PROSE in `context.content` so the injection check can run — and pass the 402 offer / discovery payload itself in `context.offer`, never in `content`. AFTER a scanned payment settles, call `report_payment_outcome` with what actually happened (delivered / not_delivered / partial / wrong_content) — this builds the measured delivery history that protects your own future payments to that seller. Use `check_counterparty_reputation` before dealing with an unfamiliar address, and `report_counterparty` after a bad experience beyond non-delivery (free). If YOUR wallet is reported unfairly, `dispute_reputation` attaches a wallet-signed rebuttal that lookups surface alongside the reports. These scans are advisory and non-custodial — Tollwarden never touches your keys or funds.",
   },
 );
 
 server.tool(
   "scan_outgoing_payment",
-  "ALWAYS call this immediately BEFORE settling or sending any x402 payment — it decides whether the payment is safe. Returns allow (proceed) / flag (pause and confirm intent) / block (do NOT pay), with machine-readable reasons and an Ed25519-signed verdict. Scanning before the payment is signed? Set `context.phase` to 'pre_sign' (nonces don't exist until signing). IMPORTANT: if the decision to pay followed reading any external content (a fetched web page or a tool result), pass that PROSE in `context.content` and set `context.origin` to 'fetched_content' or 'tool_result' — this enables the check that catches prompt-injection-triggered payments (an address injected into content the agent just read). Put the 402 offer / discovery payload in `context.offer` (NOT in content — the recipient address is expected in an offer); PaySafe compares it structurally against the payment you are about to sign and reports drift in payee, price, scheme, network or asset. Where a catalogue listing and a live 402 disagree, the LIVE offer is authoritative — pay and scan that one, and pass the listing as `context.offer` so the disagreement is recorded. Also catches replayed nonces, overpayment vs the expected price, secrets/PII leaking in payment metadata, fake/lookalike USDC contracts, and address poisoning. Advisory and non-custodial — never touches keys or funds.",
+  "ALWAYS call this immediately BEFORE settling or sending any x402 payment — it decides whether the payment is safe. Returns allow (proceed) / flag (pause and confirm intent) / block (do NOT pay), with machine-readable reasons and an Ed25519-signed verdict. Scanning before the payment is signed? Set `context.phase` to 'pre_sign' (nonces don't exist until signing). IMPORTANT: if the decision to pay followed reading any external content (a fetched web page or a tool result), pass that PROSE in `context.content` and set `context.origin` to 'fetched_content' or 'tool_result' — this enables the check that catches prompt-injection-triggered payments (an address injected into content the agent just read). Put the 402 offer / discovery payload in `context.offer` (NOT in content — the recipient address is expected in an offer); Tollwarden compares it structurally against the payment you are about to sign and reports drift in payee, price, scheme, network or asset. Where a catalogue listing and a live 402 disagree, the LIVE offer is authoritative — pay and scan that one, and pass the listing as `context.offer` so the disagreement is recorded. Also catches replayed nonces, overpayment vs the expected price, secrets/PII leaking in payment metadata, fake/lookalike USDC contracts, and address poisoning. Advisory and non-custodial — never touches keys or funds.",
   {
     payment: paymentSchema,
     expected_price_usd: z.number().optional(),
@@ -117,7 +117,7 @@ server.tool(
 
 server.tool(
   "scan_incoming_payment",
-  "ALWAYS call this BEFORE paying a 402 offer / payment request your agent received — it decides whether the offer is safe to pay. Scan the LIVE 402 returned by the exact method (GET/POST) and URL you are about to pay — NOT the catalogue/discovery listing: in the field, listings drift from live offers in both price (a listed $0.005 endpoint demanding $2.00 on the live 402) and scheme ('exact' advertised, 'upto' served). The live offer is what you pay, so it is what must be scanned. Pass the discovery listing in `context.offer` as well and PaySafe will report the drift between them. Checks the resource URL for spoofing (IP-literal hosts, punycode/homoglyphs, link shorteners, userinfo tricks), credential demands (e.g. 'send your seed phrase'), price sanity, replay, and whether the counterparty has been reported. Returns allow/flag/block with reasons.",
+  "ALWAYS call this BEFORE paying a 402 offer / payment request your agent received — it decides whether the offer is safe to pay. Scan the LIVE 402 returned by the exact method (GET/POST) and URL you are about to pay — NOT the catalogue/discovery listing: in the field, listings drift from live offers in both price (a listed $0.005 endpoint demanding $2.00 on the live 402) and scheme ('exact' advertised, 'upto' served). The live offer is what you pay, so it is what must be scanned. Pass the discovery listing in `context.offer` as well and Tollwarden will report the drift between them. Checks the resource URL for spoofing (IP-literal hosts, punycode/homoglyphs, link shorteners, userinfo tricks), credential demands (e.g. 'send your seed phrase'), price sanity, replay, and whether the counterparty has been reported. Returns allow/flag/block with reasons.",
   {
     payment: paymentSchema,
     expected_price_usd: z.number().optional(),
@@ -188,11 +188,11 @@ server.tool(
 
 server.tool(
   "dispute_reputation",
-  "If YOUR wallet has been unfairly reported, attach a signed rebuttal that appears alongside the reports in every reputation lookup. Prove you control the wallet by signing the exact message 'paysafe-dispute-v1|<your address, lowercase>|<statement>' with the wallet's key (EIP-191 personal_sign) and passing the 65-byte signature hex. Rebuttals never erase reports — agents see both sides. Free.",
+  "If YOUR wallet has been unfairly reported, attach a signed rebuttal that appears alongside the reports in every reputation lookup. Prove you control the wallet by signing the exact message 'tollwarden-dispute-v1|<your address, lowercase>|<statement>' with the wallet's key (EIP-191 personal_sign) and passing the 65-byte signature hex. Rebuttals never erase reports — agents see both sides. Free.",
   {
     address: z.string().describe("The reported wallet address (0x…, the one that signed)"),
     statement: z.string().min(10).max(1000).describe("Your side of the story — exactly the text that was signed"),
-    signature: z.string().describe("EIP-191 personal_sign signature hex over paysafe-dispute-v1|<address>|<statement>"),
+    signature: z.string().describe("EIP-191 personal_sign signature hex over tollwarden-dispute-v1|<address>|<statement>"),
   },
   async (args) => ({
     content: [{ type: "text", text: await call("POST", "/v1/reputation/dispute", args) }],
@@ -201,7 +201,7 @@ server.tool(
 
 server.tool(
   "mint_api_key",
-  "Issue a free PaySafe API key (first 100 calls free). Returns the key ONCE — store it and set it as PAYSAFE_API_KEY (or pass to other tools) for future sessions. Rate-limited per IP.",
+  "Issue a free Tollwarden API key (first 100 calls free). Returns the key ONCE — store it and set it as TOLLWARDEN_API_KEY (or pass to other tools) for future sessions. Rate-limited per IP.",
   { agent_id: z.string().optional().describe("Stable identifier for your agent — scopes velocity limits") },
   async (args) => ({
     content: [{ type: "text", text: await call("POST", "/v1/keys", args) }],
@@ -210,7 +210,7 @@ server.tool(
 
 server.tool(
   "rotate_api_key",
-  "Rotate the current PaySafe API key (set via PAYSAFE_API_KEY): mints a fresh secret bound to the SAME account — usage history, remaining free calls, and any active plan carry over unchanged. Use this the moment a key may have leaked. The old secret keeps working for grace_seconds (default 900, 0 = immediately dead, max 86400) so other sessions can switch over, but it can no longer rotate or revoke the account. IMPORTANT: the response contains the new key ONCE — store it and update PAYSAFE_API_KEY everywhere.",
+  "Rotate the current Tollwarden API key (set via TOLLWARDEN_API_KEY): mints a fresh secret bound to the SAME account — usage history, remaining free calls, and any active plan carry over unchanged. Use this the moment a key may have leaked. The old secret keeps working for grace_seconds (default 900, 0 = immediately dead, max 86400) so other sessions can switch over, but it can no longer rotate or revoke the account. IMPORTANT: the response contains the new key ONCE — store it and update TOLLWARDEN_API_KEY everywhere.",
   { grace_seconds: z.number().int().min(0).max(86400).optional().describe("How long the old secret keeps working (default 900 = 15 min; 0 kills it instantly)") },
   async (args) => ({
     content: [{ type: "text", text: await call("POST", "/v1/keys/rotate", args) }],
@@ -219,7 +219,7 @@ server.tool(
 
 server.tool(
   "check_approval_status",
-  "Poll a pending human approval (from a flag verdict's `approval.approval_id` when the operator has configured approvals via POST /v1/approvals/config). Returns pending / approved / denied / expired; on approved it includes the signed override verdict (tag 'override:allow', valid a few minutes, bound to exactly the flagged payment). Requires PAYSAFE_API_KEY (the key that made the scan). This tool never handles decide tokens — deciding is the human's job via the webhook link.",
+  "Poll a pending human approval (from a flag verdict's `approval.approval_id` when the operator has configured approvals via POST /v1/approvals/config). Returns pending / approved / denied / expired; on approved it includes the signed override verdict (tag 'override:allow', valid a few minutes, bound to exactly the flagged payment). Requires TOLLWARDEN_API_KEY (the key that made the scan). This tool never handles decide tokens — deciding is the human's job via the webhook link.",
   { approval_id: z.string().describe("From the flag scan response's approval.approval_id") },
   async ({ approval_id }) => ({
     content: [{ type: "text", text: await call("GET", `/v1/approvals/${encodeURIComponent(approval_id)}`) }],
@@ -228,7 +228,7 @@ server.tool(
 
 server.tool(
   "get_plans",
-  "Machine-readable PaySafe plan catalog: tiers (Starter/Pro/Scale) with per-scan pricing, velocity and spend limits, hard ceilings, and how to subscribe. Free.",
+  "Machine-readable Tollwarden plan catalog: tiers (Starter/Pro/Scale) with per-scan pricing, velocity and spend limits, hard ceilings, and how to subscribe. Free.",
   {},
   async () => ({
     content: [{ type: "text", text: await call("GET", "/v1/plans") }],
@@ -237,7 +237,7 @@ server.tool(
 
 server.tool(
   "subscribe_plan",
-  "Subscribe/renew the current API key on a PaySafe plan (pro: $4.99/30d at $0.005/scan; scale: $19.99/30d at $0.002/scan). This endpoint is itself x402-paid at the plan's price: without an x402-paying transport the response is the 402 payment challenge to settle. Renewal extends from the current expiry.",
+  "Subscribe/renew the current API key on a Tollwarden plan (pro: $4.99/30d at $0.005/scan; scale: $19.99/30d at $0.002/scan). This endpoint is itself x402-paid at the plan's price: without an x402-paying transport the response is the 402 payment challenge to settle. Renewal extends from the current expiry.",
   { plan: z.enum(["pro", "scale"]) },
   async (args) => ({
     content: [{ type: "text", text: await call("POST", "/v1/plans/subscribe", args) }],
@@ -246,7 +246,7 @@ server.tool(
 
 server.tool(
   "verify_verdict_attestation",
-  "LOCALLY verify a PaySafe scan's Ed25519 attestation before trusting an allow-verdict: checks the signature against the pinned server key (fetched from /.well-known/paysafe-verdict-key unless trusted_key_hex is supplied), recomputes the payment commitment from the payment YOU are about to settle (rejects attestations issued for a different payment — replay defense), and enforces expiry. Also verifies the attestation's signed evidence record when present and returns pin_evidence: how long the merchant pin had held at scan time (age 0 = first sighting) and which named out-of-band sources corroborated it (e.g. cdp_bazaar) — weigh a young or uncorroborated pin against the payment size; that decision boundary is yours. Runs no network calls except the one-time key fetch; the verdict itself is never sent anywhere.",
+  "LOCALLY verify a Tollwarden scan's Ed25519 attestation before trusting an allow-verdict: checks the signature against the pinned server key (fetched from /.well-known/tollwarden-verdict-key unless trusted_key_hex is supplied), recomputes the payment commitment from the payment YOU are about to settle (rejects attestations issued for a different payment — replay defense), and enforces expiry. Also verifies the attestation's signed evidence record when present and returns pin_evidence: how long the merchant pin had held at scan time (age 0 = first sighting) and which named out-of-band sources corroborated it (e.g. cdp_bazaar) — weigh a young or uncorroborated pin against the payment size; that decision boundary is yours. Runs no network calls except the one-time key fetch; the verdict itself is never sent anywhere.",
   {
     scan: z.object({
       scan_id: z.string(),
@@ -290,7 +290,7 @@ server.tool(
     try {
       let keyHex = trusted_key_hex;
       if (!keyHex) {
-        const r = await fetch(`${BASE}/.well-known/paysafe-verdict-key`);
+        const r = await fetch(`${BASE}/.well-known/tollwarden-verdict-key`);
         keyHex = ((await r.json()) as { public_key_spki_hex?: string }).public_key_spki_hex;
       }
       if (!keyHex) return fail("no trusted key available");

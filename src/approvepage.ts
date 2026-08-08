@@ -1,7 +1,7 @@
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
- * PaySafe approval page — the human side of step-up approvals, served at
+ * Tollwarden approval page — the human side of step-up approvals, served at
  * GET /approve. The webhook's decide link lands here with `#id=..&token=..`
  * in the URL FRAGMENT (fragments never reach any server, so the one-time
  * decide token stays out of every request log).
@@ -21,7 +21,7 @@ export function approvePageHtml(): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PaySafe — Payment Approval</title>
+<title>Tollwarden — Payment Approval</title>
 <style>
   :root { color-scheme: dark; --bg:#0b0e14; --card:#141a24; --line:#232c3b; --fg:#e6edf3; --muted:#8b98a9; --accent:#4c8dff; --allow:#3fb950; --flag:#d29922; --block:#f85149; }
   * { box-sizing: border-box; }
@@ -52,7 +52,7 @@ export function approvePageHtml(): string {
 <body>
 <div class="wrap">
   <h1>Payment approval</h1>
-  <p class="sub">PaySafe flagged this payment and paused it for your decision.</p>
+  <p class="sub">Tollwarden flagged this payment and paused it for your decision.</p>
 
   <div id="loading" class="card muted">Loading approval…</div>
   <div id="fail" class="card err hidden"></div>
@@ -103,7 +103,7 @@ export function approvePageHtml(): string {
   }
 
   if (!id || !token) {
-    fail("Missing approval reference. Open this page from the link in your PaySafe notification.");
+    fail("Missing approval reference. Open this page from the link in your Tollwarden notification.");
     return;
   }
 

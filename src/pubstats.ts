@@ -1,4 +1,4 @@
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Public, unauthenticated service statistics — the data behind the homepage
@@ -48,7 +48,7 @@ export interface PublicStats {
   distinct_agents: number;
   /**
    * Scans from agents that are not the operator's. This is the honest answer to
-   * "how much is PaySafe used", and it is what the homepage panel shows.
+   * "how much is Tollwarden used", and it is what the homepage panel shows.
    */
   third_party: PartyStats;
   /**

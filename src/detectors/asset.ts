@@ -1,4 +1,4 @@
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Asset verification: is the token being paid actually canonical USDC on the

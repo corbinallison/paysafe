@@ -1,9 +1,9 @@
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /** Scan orchestration: runs detectors and aggregates a verdict. */
 import { randomUUID } from "node:crypto";
 import type { CheckResult, Direction, ScanRequest, ScanResponse, Verdict } from "./types.ts";
-import type { PaySafeConfig } from "./config.ts";
+import type { TollwardenConfig } from "./config.ts";
 import type { Store } from "./store.ts";
 import { scanPii } from "./detectors/pii.ts";
 import { checkReplay } from "./detectors/replay.ts";
@@ -44,7 +44,7 @@ function aggregate(checks: CheckResult[]): { verdict: Verdict; risk: number } {
 
 function advisory(direction: Direction, verdict: Verdict): string {
   if (verdict === "allow") {
-    return "No issues detected. PaySafe is advisory — final settlement remains with your wallet/facilitator.";
+    return "No issues detected. Tollwarden is advisory — final settlement remains with your wallet/facilitator.";
   }
   if (verdict === "flag") {
     return direction === "outgoing"
@@ -59,7 +59,7 @@ function advisory(direction: Direction, verdict: Verdict): string {
 export function runScan(
   direction: Direction,
   req: ScanRequest,
-  cfg: PaySafeConfig,
+  cfg: TollwardenConfig,
   store: Store,
 ): ScanResponse {
   const scanId = randomUUID();

@@ -1,0 +1,89 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests",
+    ":dependencyDashboard",
+    ":semanticCommits"
+  ],
+  "timezone": "America/Denver",
+  "schedule": ["before 6am on monday"],
+  "prConcurrentLimit": 3,
+  "prHourlyLimit": 2,
+  "rebaseWhen": "conflicted",
+  "dependencyDashboardTitle": "Dependency dashboard",
+  "labels": ["dependencies"],
+
+  "//": "Nothing here ever merges itself. Validate-don't-mutate is deliberate; see CLAUDE.md.",
+  "automerge": false,
+
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["dependencies", "security"],
+    "schedule": ["at any time"],
+    "prPriority": 10
+  },
+
+  "packageRules": [
+    {
+      "//": "Action digests are the point of this config. Pinned SHAs never receive upstream fixes on their own, so they need a bot watching them. Highest priority, own PR, never grouped into noise.",
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions",
+      "labels": ["dependencies", "ci", "security"],
+      "prPriority": 5,
+      "schedule": ["at any time"],
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "//": "pypa/gh-action-pypi-publish holds the PyPI trusted-publishing OIDC exchange. A digest change here is a supply-chain event, not a chore. Never group it with anything.",
+      "matchManagers": ["github-actions"],
+      "matchPackageNames": ["pypa/gh-action-pypi-publish"],
+      "groupName": null,
+      "labels": ["dependencies", "ci", "security", "review-carefully"],
+      "prPriority": 8,
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "//": "Zero runtime dependencies is a design property of the server, Fleet and Revenue. Any PR that adds or bumps a production dependency is a design decision and must read as one.",
+      "matchDepTypes": ["dependencies"],
+      "labels": ["dependencies", "review-carefully"],
+      "groupName": null,
+      "minimumReleaseAge": "14 days"
+    },
+    {
+      "//": "viem stays a devDependency. Runtime crypto is @noble/curves plus @noble/hashes. If this ever appears under dependencies, that is a bug rather than an upgrade.",
+      "matchPackageNames": ["viem"],
+      "matchDepTypes": ["dependencies"],
+      "enabled": false
+    },
+    {
+      "//": "Dev tooling batches into one weekly PR. Low risk, and the test suite is the gate.",
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "dev dependencies",
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "//": "Integration packages track frameworks we do not control. Their real compatibility gate is the real-package CI job, not a version number, so a major bump is a decision for the dashboard rather than an automatic PR.",
+      "matchFileNames": ["integrations/**"],
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true,
+      "labels": ["dependencies", "integrations"]
+    },
+    {
+      "//": "Node 22 and Python 3.12 are pinned deliberately across every workflow. Moving a runtime is a decision, never a bot PR.",
+      "matchManagers": ["github-actions"],
+      "matchDepTypes": ["action"],
+      "matchPackageNames": ["actions/setup-node", "actions/setup-python"],
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    }
+  ],
+
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/vendor/**",
+    "dist/**",
+    "90-archive/**"
+  ]
+}

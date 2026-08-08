@@ -1,17 +1,17 @@
 services:
   - type: web
-    name: paysafe
+    name: tollwarden
     runtime: node
     plan: starter # free tier works too, but sleeps; nonce/replay state benefits from an always-on instance
     buildCommand: npm install && npm run build
     startCommand: node dist/src/index.js
     healthCheckPath: /health
     disk:
-      name: paysafe-data
+      name: tollwarden-data
       mountPath: /data
       sizeGB: 1
     envVars:
-      - key: PAYSAFE_MODE
+      - key: TOLLWARDEN_MODE
         value: live
       - key: PAY_TO
         sync: false # your receiving wallet address (0x...)
@@ -32,4 +32,4 @@ services:
       - key: DATA_DIR
         value: /data
       - key: PUBLIC_BASE_URL
-        sync: false # e.g. https://paysafe.onrender.com
+        sync: false # e.g. https://tollwarden.onrender.com

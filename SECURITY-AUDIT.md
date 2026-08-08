@@ -1,15 +1,15 @@
-# PaySafe — Security Audit
+# Tollwarden — Security Audit
 
-**Service:** PaySafe — non-custodial payment security firewall for x402 micropayments
-**Repository:** github.com/corbinallison/paysafe
+**Service:** Tollwarden — non-custodial payment security firewall for x402 micropayments
+**Repository:** github.com/tollwarden/tollwarden
 **Audit date:** 2026-07-14
 **Auditor:** Claude (Anthropic) — AI adversarial code review commissioned by the operator. This is not an independent third-party audit firm; treat it as a rigorous internal review, published for transparency.
 **Scope:** all application code (`src/`, `src/detectors/`, `mcp/`), the dev server, and the production deployment configuration (`render.yaml`, environment). This is a pre-go-live audit of the staging build.
 **Method:** adversarial code review plus a targeted test suite (66 automated checks at the time). Every finding was verified against the actual source with line-level citations; nothing here is speculative.
 
-> **Status update (2026-07-21).** This document is preserved as the point-in-time pre-go-live record. Since then: the §4 go-live actions were completed and the service is live at paysafe-agent.com on a persistent paid instance; the §3 retention recommendations are partially implemented (offsite append-only audit backup with daily head-hash anchoring — see [SECURITY-AUDIT-2.md](SECURITY-AUDIT-2.md) §C; WORM object-lock storage remains a planned upgrade); the residual "reputation reporter identity unverified" item has been substantially addressed by reputation v2 (reports remain capped at flag per H-2, now with 90-day time decay, reporter credibility weighting, wallet-signed disputes, and a commitment-bound delivery-outcome ledger whose coverage denominator is public); M-3 stands (single-instance by design, revisit before scale-out); and the test suite has grown from 66 to 380+ server tests plus ~100 per SDK, with a CI-gated detection eval corpus. New surface added after this audit (publishing pipeline, plans, SDKs, MCP tools) is covered by [SECURITY-AUDIT-2.md](SECURITY-AUDIT-2.md).
+> **Status update (2026-07-21).** This document is preserved as the point-in-time pre-go-live record. Since then: the §4 go-live actions were completed and the service is live at tollwarden.com on a persistent paid instance; the §3 retention recommendations are partially implemented (offsite append-only audit backup with daily head-hash anchoring — see [SECURITY-AUDIT-2.md](SECURITY-AUDIT-2.md) §C; WORM object-lock storage remains a planned upgrade); the residual "reputation reporter identity unverified" item has been substantially addressed by reputation v2 (reports remain capped at flag per H-2, now with 90-day time decay, reporter credibility weighting, wallet-signed disputes, and a commitment-bound delivery-outcome ledger whose coverage denominator is public); M-3 stands (single-instance by design, revisit before scale-out); and the test suite has grown from 66 to 380+ server tests plus ~100 per SDK, with a CI-gated detection eval corpus. New surface added after this audit (publishing pipeline, plans, SDKs, MCP tools) is covered by [SECURITY-AUDIT-2.md](SECURITY-AUDIT-2.md).
 
-> **Custody statement (read first).** PaySafe is advisory and **non-custodial**. It never holds private keys or funds, never signs or broadcasts a blockchain transaction, and never moves money. The USDC transactions it advises on settle entirely through the calling agent's own wallet and the x402 facilitator, outside PaySafe. Consequently there are **no money-movement events of the operator's to log** for money-transmission/AML purposes. What PaySafe produces — and what this audit ensures is retained defensibly — is a record of its **scan decisions**.
+> **Custody statement (read first).** Tollwarden is advisory and **non-custodial**. It never holds private keys or funds, never signs or broadcasts a blockchain transaction, and never moves money. The USDC transactions it advises on settle entirely through the calling agent's own wallet and the x402 facilitator, outside Tollwarden. Consequently there are **no money-movement events of the operator's to log** for money-transmission/AML purposes. What Tollwarden produces — and what this audit ensures is retained defensibly — is a record of its **scan decisions**.
 
 ---
 
@@ -17,7 +17,7 @@
 
 The review found **one critical**, **four high**, and several medium/low issues. All critical and high findings, and the material mediums, have been **remediated in this pass**; each is listed below with its fix and the test that now covers it. The detection core was already sound (no catastrophic-backtracking regexes, redaction of detected secrets, CSPRNG API keys, no `eval`/dynamic execution, request-body caps, stack-trace suppression).
 
-The single most important outcome: PaySafe now writes a **tamper-evident, hash-chained audit log of every scan decision** that records a cryptographic fingerprint of each payment **without storing the PII/secrets it exists to catch** — closing the retention gap directly and answering the "can we prove what happened if audited?" question.
+The single most important outcome: Tollwarden now writes a **tamper-evident, hash-chained audit log of every scan decision** that records a cryptographic fingerprint of each payment **without storing the PII/secrets it exists to catch** — closing the retention gap directly and answering the "can we prove what happened if audited?" question.
 
 | Severity | Found | Remediated | Deferred (with mitigation) |
 |---|---|---|---|
@@ -37,7 +37,7 @@ The single most important outcome: PaySafe now writes a **tamper-evident, hash-c
 
 ### H-1 — Signed verdict not bound to the payment *(High — FIXED)*
 **Was:** the Ed25519 attestation committed only to a random `scan_id` + metadata, not to the payment. A wallet could not tie an allow-attestation to a specific payment, so an attestation issued for a benign payment could be replayed alongside a malicious one.
-**Fix:** the signed message now includes `payment_commitment = sha256(network|pay_to|asset|amount|nonce)` and a short `expires_at`. Verifiers must recompute the commitment from the payment they are about to sign and confirm it matches (documented at `/.well-known/paysafe-verdict-key`). `src/verdictsign.ts`, `src/commitment.ts`, `src/types.ts`.
+**Fix:** the signed message now includes `payment_commitment = sha256(network|pay_to|asset|amount|nonce)` and a short `expires_at`. Verifiers must recompute the commitment from the payment they are about to sign and confirm it matches (documented at `/.well-known/tollwarden-verdict-key`). `src/verdictsign.ts`, `src/commitment.ts`, `src/types.ts`.
 **Verify:** tests "attestation carries the payment commitment", "message binds verdict + commitment + expiry", "commitment differs for a different payment".
 
 ### H-2 — Reputation poisoning could force a BLOCK *(High — FIXED)*
@@ -79,7 +79,7 @@ Free allowance is env-tunable (`KEYS_PER_IP_PER_DAY`, `FREE_CALLS`); with C-1 fi
 
 **What it records.** One append-only JSON line per scan decision (`<DATA_DIR>/audit.log`), containing: timestamp, `scan_id`, direction, verdict, risk score, caller `agent_id`, the transaction-level facts (`network`, `pay_to`, `amount_usd`), the ids of the checks that fired, the attestation signature, and the hash chain fields.
 
-**What it deliberately does NOT record.** The plaintext `description`, `reason`, `metadata`, or `content` — i.e. exactly the PII and secrets PaySafe exists to detect. Each payment is represented only by `payment_sha256` (a SHA-256 over the full payment). This lets you later prove *what was scanned* (by re-hashing the original payment and matching) **without** the log itself becoming a PII/secret repository. Verified: a scan whose description contained an API-key-shaped secret produced an audit record containing only the hash and the check id `pii.openai_key`, never the secret.
+**What it deliberately does NOT record.** The plaintext `description`, `reason`, `metadata`, or `content` — i.e. exactly the PII and secrets Tollwarden exists to detect. Each payment is represented only by `payment_sha256` (a SHA-256 over the full payment). This lets you later prove *what was scanned* (by re-hashing the original payment and matching) **without** the log itself becoming a PII/secret repository. Verified: a scan whose description contained an API-key-shaped secret produced an audit record containing only the hash and the check id `pii.openai_key`, never the secret.
 
 **Tamper evidence.** Each record embeds the previous record's hash (`prev_hash`) and its own `entry_hash = sha256(record)`; the chain starts at a fixed genesis. Any edit, deletion, or reordering breaks the chain and is detected by `GET /v1/audit/verify` (which returns `ok`, `count`, and the first `brokenAt` sequence number). `GET /v1/audit/head` exposes the current sequence + head hash for external monitoring. Neither endpoint exposes record contents.
 **Verified:** tests "fresh chain verifies", "head reports seq + hash", "altered record breaks the chain".

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Zero-dependency dev server (node:http only). Same API surface as index.ts
@@ -119,7 +119,7 @@ const server = createServer(async (req, res) => {
       res.end(logoSvg());
       return;
     }
-    else if (method === "GET" && path === "/.well-known/paysafe-verdict-key")
+    else if (method === "GET" && (path === "/.well-known/tollwarden-verdict-key" || path === "/.well-known/paysafe-verdict-key"))
       out = signer
         ? { status: 200, body: signer.publicKeyInfo() }
         : { status: 404, body: { error: "Verdict signing disabled (VERDICT_SIGNING=off)" } };
@@ -224,5 +224,5 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(cfg.port, () => {
-  console.log(`PaySafe DEV server (no payments) listening on :${cfg.port}`);
+  console.log(`Tollwarden DEV server (no payments) listening on :${cfg.port}`);
 });

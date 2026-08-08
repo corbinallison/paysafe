@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Bump a package's version in EVERY file that carries it, atomically.
@@ -11,7 +11,7 @@
  *   sdk       -> sdk/package.json
  *   python    -> sdk-python __init__.py only (pyproject uses hatchling
  *                dynamic versioning)
- *   langchain -> langchain-paysafe pyproject.toml + __init__.py
+ *   langchain -> langchain-tollwarden pyproject.toml + __init__.py
  *
  * Verifies the result with scripts/check-versions.mjs semantics: after
  * writing, re-reads every spot and fails loudly if anything still disagrees.
@@ -43,23 +43,23 @@ const EDITS = {
     sub("server.json", /("version":\s*")[^"]+(")/g, `$1${version}$2`); // both spots
   },
   sdk: () => sub("sdk/package.json", /("version":\s*")[^"]+(")/, `$1${version}$2`),
-  "ai-sdk": () => sub("integrations/paysafe-ai-sdk/package.json", /("version":\s*")[^"]+(")/, `$1${version}$2`),
-  python: () => sub("sdk-python/src/paysafe_x402/__init__.py", /(__version__ = ")[^"]+(")/, `$1${version}$2`),
+  "ai-sdk": () => sub("integrations/ai-sdk/package.json", /("version":\s*")[^"]+(")/, `$1${version}$2`),
+  python: () => sub("sdk-python/src/tollwarden/__init__.py", /(__version__ = ")[^"]+(")/, `$1${version}$2`),
   langchain: () => {
-    sub("integrations/langchain-paysafe/pyproject.toml", /^(version = ")[^"]+(")/m, `$1${version}$2`);
-    sub("integrations/langchain-paysafe/src/langchain_paysafe/__init__.py", /(__version__ = ")[^"]+(")/, `$1${version}$2`);
+    sub("integrations/langchain-tollwarden/pyproject.toml", /^(version = ")[^"]+(")/m, `$1${version}$2`);
+    sub("integrations/langchain-tollwarden/src/langchain_tollwarden/__init__.py", /(__version__ = ")[^"]+(")/, `$1${version}$2`);
   },
   crewai: () => {
-    sub("integrations/crewai-paysafe/pyproject.toml", /^(version = ")[^"]+(")/m, `$1${version}$2`);
-    sub("integrations/crewai-paysafe/src/crewai_paysafe/__init__.py", /(__version__ = ")[^"]+(")/, `$1${version}$2`);
+    sub("integrations/crewai-tollwarden/pyproject.toml", /^(version = ")[^"]+(")/m, `$1${version}$2`);
+    sub("integrations/crewai-tollwarden/src/crewai_tollwarden/__init__.py", /(__version__ = ")[^"]+(")/, `$1${version}$2`);
   },
   nemo: () => {
-    sub("integrations/nemo-paysafe/pyproject.toml", /^(version = ")[^"]+(")/m, `$1${version}$2`);
-    sub("integrations/nemo-paysafe/src/nemo_paysafe/__init__.py", /(__version__ = ")[^"]+(")/, `$1${version}$2`);
+    sub("integrations/nemo-tollwarden/pyproject.toml", /^(version = ")[^"]+(")/m, `$1${version}$2`);
+    sub("integrations/nemo-tollwarden/src/nemo_tollwarden/__init__.py", /(__version__ = ")[^"]+(")/, `$1${version}$2`);
   },
   agentkit: () => {
-    sub("integrations/agentkit-paysafe/pyproject.toml", /^(version = ")[^"]+(")/m, `$1${version}$2`);
-    sub("integrations/agentkit-paysafe/src/agentkit_paysafe/__init__.py", /(__version__ = ")[^"]+(")/, `$1${version}$2`);
+    sub("integrations/agentkit-tollwarden/pyproject.toml", /^(version = ")[^"]+(")/m, `$1${version}$2`);
+    sub("integrations/agentkit-tollwarden/src/agentkit_tollwarden/__init__.py", /(__version__ = ")[^"]+(")/, `$1${version}$2`);
   },
 };
 

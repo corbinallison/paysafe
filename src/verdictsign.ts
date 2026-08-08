@@ -1,9 +1,9 @@
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
- * Ed25519 verdict signing. PaySafe signs each verdict so downstream wallet
- * policies can REQUIRE a fresh PaySafe allow-verdict before signing a payment —
- * turning the firewall from advisory into enforceable without PaySafe ever
+ * Ed25519 verdict signing. Tollwarden signs each verdict so downstream wallet
+ * policies can REQUIRE a fresh Tollwarden allow-verdict before signing a payment —
+ * turning the firewall from advisory into enforceable without Tollwarden ever
  * touching funds. Sign/verify is sub-millisecond.
  *
  * Signed message format (pipe-delimited, no JSON canonicalization pitfalls):

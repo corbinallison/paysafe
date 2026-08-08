@@ -1,15 +1,15 @@
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
- * paysafe-x402-client — official client SDK for PaySafe, the payment security
- * firewall for x402 micropayments (https://paysafe-agent.com).
+ * @tollwarden/client — official client SDK for Tollwarden, the payment security
+ * firewall for x402 micropayments (https://tollwarden.com).
  *
  * Zero runtime dependencies. Node 18+ (global fetch; node:crypto for Ed25519).
  *
  * What it adds over raw HTTP:
  *  - Provenance auto-tagging: call `observe()` whenever your agent reads
  *    external content (tool results, fetched pages); scans are automatically
- *    tagged with `context.origin` + the content, which powers PaySafe's
+ *    tagged with `context.origin` + the content, which powers Tollwarden's
  *    prompt-injection-triggered-payment detection.
  *  - API key management: mints a key on first use, tracks the free-call quota.
  *  - Plans: subscribe/renew autonomously when constructed with an x402
@@ -19,17 +19,17 @@
  *    locally, and expiry is enforced — so a tampered or replayed verdict fails.
  *
  * Quick start:
- *   import { PaySafeClient } from "paysafe-x402-client";
- *   const paysafe = new PaySafeClient();
- *   paysafe.observe(toolResultText, { sourceUrl: "https://api.example.com" });
- *   const scan = await paysafe.guardOutgoing(payment, { expectedPriceUsd: 0.01 });
- *   // throws PaySafeBlockedError on a block verdict; otherwise safe to settle
+ *   import { TollwardenClient } from "@tollwarden/client";
+ *   const tollwarden = new TollwardenClient();
+ *   tollwarden.observe(toolResultText, { sourceUrl: "https://api.example.com" });
+ *   const scan = await tollwarden.guardOutgoing(payment, { expectedPriceUsd: 0.01 });
+ *   // throws TollwardenBlockedError on a block verdict; otherwise safe to settle
  */
 import { createHash, createPublicKey, verify as edVerify } from "node:crypto";
 
-// Wallet-side enforcement kit: PaySafeEnforcer, guardSigner, paymentFromTypedData.
+// Wallet-side enforcement kit: TollwardenEnforcer, guardSigner, paymentFromTypedData.
 export * from "./enforce.ts";
-// Default-payment-path wrapper: wrapFetchWithPaySafe (scan before every x402 payment).
+// Default-payment-path wrapper: wrapFetchWithTollwarden (scan before every x402 payment).
 export * from "./wrap.ts";
 
 // ---------------------------------------------------------------------------
@@ -163,13 +163,13 @@ export interface PlanInfo {
 }
 
 export interface ClientOptions {
-  /** Service base URL. Default: https://paysafe-agent.com */
+  /** Service base URL. Default: https://tollwarden.com */
   baseUrl?: string;
   /** Existing API key. If omitted and autoKey is on, one is minted on first use. */
   apiKey?: string;
   /** Mint an API key automatically on first use (100 free calls). Default: true. */
   autoKey?: boolean;
-  /** Stable agent identifier — scopes PaySafe's velocity limits to your agent. */
+  /** Stable agent identifier — scopes Tollwarden's velocity limits to your agent. */
   agentId?: string;
   /**
    * fetch implementation. Pass an x402 payment-capable fetch (e.g.
@@ -185,7 +185,7 @@ export interface ClientOptions {
   maxContentBytes?: number;
   /** Verify each scan's Ed25519 attestation against the pinned server key. Default: true. */
   verifyAttestations?: boolean;
-  /** Pin the server verdict key (hex SPKI DER). Default: fetched once from /.well-known/paysafe-verdict-key. */
+  /** Pin the server verdict key (hex SPKI DER). Default: fetched once from /.well-known/tollwarden-verdict-key. */
   verdictKeyHex?: string;
   /** Re-subscribe automatically when the active plan is within renewWindowMs of expiry. Default: false (spends money). */
   autoRenew?: boolean;
@@ -196,34 +196,34 @@ export interface ClientOptions {
 // ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
-export class PaySafeError extends Error {
+export class TollwardenError extends Error {
   readonly status?: number;
   readonly body?: unknown;
   constructor(message: string, status?: number, body?: unknown) {
     super(message);
-    this.name = "PaySafeError";
+    this.name = "TollwardenError";
     this.status = status;
     this.body = body;
   }
 }
 
 /** Thrown by guardOutgoing/guardIncoming when the verdict is block (or flag in strict mode). */
-export class PaySafeBlockedError extends PaySafeError {
+export class TollwardenBlockedError extends TollwardenError {
   readonly scan: ScanResponse;
   constructor(scan: ScanResponse) {
     super(
-      `PaySafe verdict: ${scan.verdict} (risk ${scan.risk_score}). ` +
+      `Tollwarden verdict: ${scan.verdict} (risk ${scan.risk_score}). ` +
         scan.checks
           .filter((c) => c.verdict !== "allow")
           .map((c) => `${c.id}: ${c.reason}`)
           .join("; "),
     );
-    this.name = "PaySafeBlockedError";
+    this.name = "TollwardenBlockedError";
     this.scan = scan;
   }
 }
 
-export class AttestationError extends PaySafeError {
+export class AttestationError extends TollwardenError {
   constructor(message: string) {
     super(message);
     this.name = "AttestationError";
@@ -379,7 +379,7 @@ interface Observation {
   at: number;
 }
 
-export class PaySafeClient {
+export class TollwardenClient {
   private readonly baseUrl: string;
   private readonly fetchImpl: typeof fetch;
   private readonly autoKey: boolean;
@@ -402,7 +402,7 @@ export class PaySafeClient {
   plan: { id: string; expires_at: string } | null = null;
 
   constructor(opts: ClientOptions = {}) {
-    this.baseUrl = (opts.baseUrl ?? "https://paysafe-agent.com").replace(/\/+$/, "");
+    this.baseUrl = (opts.baseUrl ?? "https://tollwarden.com").replace(/\/+$/, "");
     this.fetchImpl = opts.fetch ?? fetch;
     this.apiKey = opts.apiKey;
     this.autoKey = opts.autoKey ?? true;
@@ -481,13 +481,13 @@ export class PaySafeClient {
     if (!res.ok) {
       const msg = (parsed as { error?: string } | null)?.error ?? `HTTP ${res.status}`;
       if (res.status === 402) {
-        throw new PaySafeError(
-          "Payment required and this client's fetch cannot pay. Construct PaySafeClient with an x402 payment-capable fetch (e.g. wrapFetchWithPayment from @x402/fetch), supply an API key with free calls remaining, or subscribe to a plan.",
+        throw new TollwardenError(
+          "Payment required and this client's fetch cannot pay. Construct TollwardenClient with an x402 payment-capable fetch (e.g. wrapFetchWithPayment from @x402/fetch), supply an API key with free calls remaining, or subscribe to a plan.",
           402,
           parsed,
         );
       }
-      throw new PaySafeError(msg, res.status, parsed);
+      throw new TollwardenError(msg, res.status, parsed);
     }
     return parsed as T;
   }
@@ -495,7 +495,7 @@ export class PaySafeClient {
   /** Mint an API key if none is set (autoKey). Returns the active key. */
   async ensureApiKey(): Promise<string> {
     if (this.apiKey) return this.apiKey;
-    if (!this.autoKey) throw new PaySafeError("no API key set and autoKey is disabled");
+    if (!this.autoKey) throw new TollwardenError("no API key set and autoKey is disabled");
     const r = await this.requestJson<{ api_key: string; free_calls_remaining?: number }>(
       "POST",
       "/v1/keys",
@@ -506,10 +506,10 @@ export class PaySafeClient {
     return this.apiKey;
   }
 
-  /** The pinned verdict key (fetched once from /.well-known/paysafe-verdict-key unless supplied). */
+  /** The pinned verdict key (fetched once from /.well-known/tollwarden-verdict-key unless supplied). */
   async verdictKey(): Promise<string> {
     if (this.pinnedKeyHex) return this.pinnedKeyHex;
-    const r = await this.requestJson<{ public_key_spki_hex: string }>("GET", "/.well-known/paysafe-verdict-key");
+    const r = await this.requestJson<{ public_key_spki_hex: string }>("GET", "/.well-known/tollwarden-verdict-key");
     this.pinnedKeyHex = r.public_key_spki_hex;
     return this.pinnedKeyHex;
   }
@@ -548,17 +548,17 @@ export class PaySafeClient {
     return this.scan("incoming", payment, opts);
   }
 
-  /** Scan and THROW PaySafeBlockedError on block (and on flag when opts.strict). */
+  /** Scan and THROW TollwardenBlockedError on block (and on flag when opts.strict). */
   async guardOutgoing(payment: PaymentDetails, opts: ScanOptions = {}): Promise<ScanResponse> {
     const scan = await this.scan("outgoing", payment, opts);
-    if (scan.verdict === "block" || (opts.strict && scan.verdict === "flag")) throw new PaySafeBlockedError(scan);
+    if (scan.verdict === "block" || (opts.strict && scan.verdict === "flag")) throw new TollwardenBlockedError(scan);
     return scan;
   }
 
   /** Scan an incoming offer and THROW on block (and on flag when opts.strict). */
   async guardIncoming(payment: PaymentDetails, opts: ScanOptions = {}): Promise<ScanResponse> {
     const scan = await this.scan("incoming", payment, opts);
-    if (scan.verdict === "block" || (opts.strict && scan.verdict === "flag")) throw new PaySafeBlockedError(scan);
+    if (scan.verdict === "block" || (opts.strict && scan.verdict === "flag")) throw new TollwardenBlockedError(scan);
     return scan;
   }
 
@@ -569,14 +569,14 @@ export class PaySafeClient {
    * configured approvals via POST /v1/approvals/config). Polls until approved,
    * denied, expired, or timeout.
    *
-   *   const scan = await paysafe.scanOutgoing(payment);
+   *   const scan = await tollwarden.scanOutgoing(payment);
    *   if (scan.verdict === "flag" && scan.approval) {
-   *     const override = await paysafe.waitForApproval(scan, { payment });
+   *     const override = await tollwarden.waitForApproval(scan, { payment });
    *     enforcer.approve(override, payment); // needs acceptOverrides: true
    *   }
    *
    * Returns the override scan-shaped object (verdict "override:allow", signed
-   * attestation bound to the payment commitment). Throws PaySafeError on deny/
+   * attestation bound to the payment commitment). Throws TollwardenError on deny/
    * expiry/timeout. When opts.payment is supplied (recommended) and this client
    * verifies attestations, the override is verified against the pinned key and
    * that exact payment before being returned.
@@ -587,7 +587,7 @@ export class PaySafeClient {
   ): Promise<ScanResponse> {
     const approvalId = typeof scanOrId === "string" ? scanOrId : scanOrId.approval?.approval_id;
     if (!approvalId) {
-      throw new PaySafeError(
+      throw new TollwardenError(
         "no approval to wait for: the scan carries no `approval` (either the verdict was not flag, or the key has no approvals config — POST /v1/approvals/config first)",
       );
     }
@@ -603,9 +603,9 @@ export class PaySafeClient {
         }
         return state.override;
       }
-      if (state.status === "denied") throw new PaySafeError(`approval ${approvalId} was DENIED by the operator`, 403, state);
-      if (state.status === "expired") throw new PaySafeError(`approval ${approvalId} expired before a decision`, 410, state);
-      if (Date.now() + intervalMs > deadline) throw new PaySafeError(`timed out waiting for approval ${approvalId}`, 408, state);
+      if (state.status === "denied") throw new TollwardenError(`approval ${approvalId} was DENIED by the operator`, 403, state);
+      if (state.status === "expired") throw new TollwardenError(`approval ${approvalId} expired before a decision`, 410, state);
+      if (Date.now() + intervalMs > deadline) throw new TollwardenError(`timed out waiting for approval ${approvalId}`, 408, state);
       await new Promise((r) => setTimeout(r, intervalMs));
     }
   }
@@ -613,7 +613,7 @@ export class PaySafeClient {
   /**
    * Configure (or disable, with webhookUrl: null) human-in-the-loop approvals
    * for this key. Returns the webhook signing secret ONCE — store it; every
-   * delivery carries X-PaySafe-Signature: sha256=HMAC-SHA256(secret, body).
+   * delivery carries X-Tollwarden-Signature: sha256=HMAC-SHA256(secret, body).
    * SECURITY: the decide link each delivery carries is a bearer credential —
    * point the webhook somewhere the agent itself cannot read.
    */
@@ -628,7 +628,7 @@ export class PaySafeClient {
    * Record whether a scanned, settled payment actually DELIVERED. The report
    * is bound to the scan (scan_id + payment_commitment), so delivery history
    * can't be fabricated without real, scanned payments. One outcome per scan.
-   * The payment-path wrapper (wrapFetchWithPaySafe) calls this automatically;
+   * The payment-path wrapper (wrapFetchWithTollwarden) calls this automatically;
    * call it yourself when you settle payments some other way.
    */
   async reportOutcome(
@@ -650,7 +650,7 @@ export class PaySafeClient {
   ): Promise<unknown> {
     const commitment = scan.attestation?.payment_commitment;
     if (!commitment) {
-      throw new PaySafeError("cannot report an outcome: the scan carries no attestation/payment_commitment (verdict signing disabled?)");
+      throw new TollwardenError("cannot report an outcome: the scan carries no attestation/payment_commitment (verdict signing disabled?)");
     }
     return this.requestJson("POST", "/v1/outcomes", {
       scan_id: scan.scan_id,
@@ -676,7 +676,7 @@ export class PaySafeClient {
       address: input.address,
       category: input.category,
       reason: input.reason,
-      reporter_agent_id: input.reporterAgentId ?? this.agentId ?? "paysafe-x402-client",
+      reporter_agent_id: input.reporterAgentId ?? this.agentId ?? "@tollwarden/client",
       evidence_url: input.evidenceUrl,
     });
   }
@@ -721,7 +721,7 @@ export class PaySafeClient {
     } catch (e) {
       if (!this.renewWarned) {
         this.renewWarned = true;
-        console.warn(`paysafe-x402-client: plan auto-renewal failed (${(e as Error).message}); continuing on default tier after expiry.`);
+        console.warn(`@tollwarden/client: plan auto-renewal failed (${(e as Error).message}); continuing on default tier after expiry.`);
       }
     }
   }

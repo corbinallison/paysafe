@@ -1,11 +1,11 @@
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Framework-agnostic API handlers. Both the production Express app (index.ts)
  * and the zero-dependency dev server (devserver.ts) route into these.
  */
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import type { PaySafeConfig } from "./config.ts";
+import type { TollwardenConfig } from "./config.ts";
 import { hashApiKey, type Store } from "./store.ts";
 import type { VerdictSigner } from "./verdictsign.ts";
 import { runScan } from "./scanner.ts";
@@ -53,7 +53,7 @@ function mintKey(store: Store, agentId?: string): string {
   return key;
 }
 
-export function createApiKey(store: Store, cfg: PaySafeConfig, agentId?: string): ApiResult {
+export function createApiKey(store: Store, cfg: TollwardenConfig, agentId?: string): ApiResult {
   const key = mintKey(store, agentId);
   return {
     status: 201,
@@ -69,7 +69,7 @@ export function createApiKey(store: Store, cfg: PaySafeConfig, agentId?: string)
  * Free-tier check. Returns true if this request should bypass x402 payment
  * (valid key with remaining free quota). Increments usage on success.
  */
-export function consumeFreeCall(store: Store, cfg: PaySafeConfig, apiKey: string | undefined): boolean {
+export function consumeFreeCall(store: Store, cfg: TollwardenConfig, apiKey: string | undefined): boolean {
   const { rec } = store.resolveKey(apiKey);
   if (!rec) return false;
   if (rec.calls_used >= cfg.freeCalls) return false;
@@ -78,7 +78,7 @@ export function consumeFreeCall(store: Store, cfg: PaySafeConfig, apiKey: string
   return true;
 }
 
-export function freeCallsRemaining(store: Store, cfg: PaySafeConfig, apiKey: string | undefined): number | null {
+export function freeCallsRemaining(store: Store, cfg: TollwardenConfig, apiKey: string | undefined): number | null {
   const { rec } = store.resolveKey(apiKey);
   if (!rec) return null;
   return Math.max(0, cfg.freeCalls - rec.calls_used);
@@ -87,7 +87,7 @@ export function freeCallsRemaining(store: Store, cfg: PaySafeConfig, apiKey: str
 export function handleScan(
   direction: "outgoing" | "incoming",
   body: unknown,
-  cfg: PaySafeConfig,
+  cfg: TollwardenConfig,
   store: Store,
   signer?: VerdictSigner | null,
   apiKey?: string,
@@ -233,7 +233,7 @@ export function handleReputationDispute(body: unknown, store: Store): ApiResult 
   return { status: 201, body: { accepted: true, dispute: res.dispute } };
 }
 
-export function handlePlansCatalog(cfg: PaySafeConfig): ApiResult {
+export function handlePlansCatalog(cfg: TollwardenConfig): ApiResult {
   return { status: 200, body: plansCatalog(cfg) };
 }
 
@@ -243,7 +243,7 @@ export function handlePlansCatalog(cfg: PaySafeConfig): ApiResult {
  * price); by the time this runs, the subscription fee has settled (or the
  * server is in dev mode). If no key is supplied, one is minted and returned.
  */
-export function handlePlanSubscribe(body: unknown, cfg: PaySafeConfig, store: Store, apiKey?: string): ApiResult {
+export function handlePlanSubscribe(body: unknown, cfg: TollwardenConfig, store: Store, apiKey?: string): ApiResult {
   const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
   const planId = typeof b.plan === "string" ? b.plan : "";
   const plan = getPlan(planId);
@@ -277,7 +277,7 @@ export function handlePlanSubscribe(body: unknown, cfg: PaySafeConfig, store: St
  * there is no way to read another account's data, and no key is ever returned
  * or logged. Aggregates only; contains no payment data or PII.
  */
-export function handleUsage(cfg: PaySafeConfig, store: Store, apiKey: string | undefined): ApiResult {
+export function handleUsage(cfg: TollwardenConfig, store: Store, apiKey: string | undefined): ApiResult {
   if (!apiKey) {
     return { status: 401, body: { error: "Provide your API key in the X-API-Key header." } };
   }
@@ -363,7 +363,7 @@ const GRACE_MAX_SECONDS = 86_400; // 24 h hard cap — a leaked key must die
  * but NOT rotate/revoke (see requireLiveKey). Rotation never resets the free
  * tier, so it cannot be farmed.
  */
-export function handleKeyRotate(store: Store, cfg: PaySafeConfig, apiKey: string | undefined, body: unknown): ApiResult {
+export function handleKeyRotate(store: Store, cfg: TollwardenConfig, apiKey: string | undefined, body: unknown): ApiResult {
   const auth = requireLiveKey(store, apiKey);
   if ("err" in auth) return auth.err;
   const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
@@ -415,7 +415,7 @@ export function handleKeyRotate(store: Store, cfg: PaySafeConfig, apiKey: string
  * history, remaining free calls, and any active plan die with it. The secret's
  * tombstone persists, so the dead key keeps failing with an explanatory 401.
  */
-export function handleKeyRevoke(store: Store, cfg: PaySafeConfig, apiKey: string | undefined, body: unknown): ApiResult {
+export function handleKeyRevoke(store: Store, cfg: TollwardenConfig, apiKey: string | undefined, body: unknown): ApiResult {
   const auth = requireLiveKey(store, apiKey);
   if ("err" in auth) return auth.err;
   const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
@@ -451,7 +451,7 @@ export function handleKeyRevoke(store: Store, cfg: PaySafeConfig, apiKey: string
 /** POST /v1/approvals/config — authed by the caller's CURRENT key (in-grace
  * rotated secrets are refused: configuring the approval channel is a
  * security-sensitive operation, same policy as rotate/revoke). */
-export function handleApprovalConfig(store: Store, cfg: PaySafeConfig, apiKey: string | undefined, body: unknown): ApiResult {
+export function handleApprovalConfig(store: Store, cfg: TollwardenConfig, apiKey: string | undefined, body: unknown): ApiResult {
   const auth = requireLiveKey(store, apiKey);
   if ("err" in auth) return auth.err;
   return setApprovalConfig(store, cfg, auth.hash, body);
@@ -476,7 +476,7 @@ export function handleApprovalConfig(store: Store, cfg: PaySafeConfig, apiKey: s
  * admin access, which is the point of revocation. After rotating, update
  * ADMIN_KEY_SHA256 to the new hash (the rotate response includes it).
  */
-function requireOwner(cfg: PaySafeConfig, store: Store, apiKey: string | undefined): ApiResult | null {
+function requireOwner(cfg: TollwardenConfig, store: Store, apiKey: string | undefined): ApiResult | null {
   if (!cfg.adminKeyHash) return { status: 404, body: { error: "Not found" } };
   if (!apiKey) {
     return { status: 401, body: { error: "Provide your API key in the X-API-Key header." } };
@@ -510,7 +510,7 @@ function requireOwner(cfg: PaySafeConfig, store: Store, apiKey: string | undefin
  * the past rather than retroactively rewritten.
  */
 export function handleAdminSetFirstParty(
-  cfg: PaySafeConfig,
+  cfg: TollwardenConfig,
   store: Store,
   apiKey: string | undefined,
   body: unknown,
@@ -545,7 +545,7 @@ export function handleAdminSetFirstParty(
   };
 }
 
-export function handleAdminStats(cfg: PaySafeConfig, store: Store, apiKey: string | undefined): ApiResult {
+export function handleAdminStats(cfg: TollwardenConfig, store: Store, apiKey: string | undefined): ApiResult {
   const denied = requireOwner(cfg, store, apiKey);
   if (denied) return denied;
 
@@ -579,11 +579,11 @@ export function handleAdminStats(cfg: PaySafeConfig, store: Store, apiKey: strin
   };
 }
 
-export function serviceInfo(cfg: PaySafeConfig): ApiResult {
+export function serviceInfo(cfg: TollwardenConfig): ApiResult {
   return {
     status: 200,
     body: {
-      name: "PaySafe",
+      name: "Tollwarden",
       tagline: "Payment security firewall for x402 micropayments. Advisory, non-custodial.",
       version: VERSION,
       mode: cfg.mode,
@@ -595,7 +595,7 @@ export function serviceInfo(cfg: PaySafeConfig): ApiResult {
         "POST /v1/scan/incoming": `${cfg.priceScan} (first ${cfg.freeCalls} calls free per key). Screen a payment request / 402 offer your agent received.`,
         "GET /v1/reputation/:address": `${cfg.priceReputation} (first ${cfg.freeCalls} calls free per key). Counterparty report summary.`,
         "POST /v1/reputation/report": `Free (rate-limited: ${cfg.reportsPerIpPerHour}/IP/hour). Report a bad counterparty after the fact.`,
-        "POST /v1/reputation/dispute": `Free (rate-limited: ${cfg.reportsPerIpPerHour}/IP/hour). Attach a signed rebuttal to your wallet's report record. Sign "paysafe-dispute-v1|<address>|<statement>" with the reported wallet's key (EIP-191 personal_sign) — key ownership is the authentication.`,
+        "POST /v1/reputation/dispute": `Free (rate-limited: ${cfg.reportsPerIpPerHour}/IP/hour). Attach a signed rebuttal to your wallet's report record. Sign "tollwarden-dispute-v1|<address>|<statement>" with the reported wallet's key (EIP-191 personal_sign) — key ownership is the authentication.`,
         "GET /v1/plans": "Free. Machine-readable plan catalog (pricing tiers, limits, how to subscribe).",
         "POST /v1/trust/evaluate": `Free (rate-limited: ${cfg.trustQueriesPerIpPerHour}/IP/hour). x402 trust-provider interface: TrustQuery about a payer in, TrustEvaluation (PASS/FAIL/UNCERTAIN + evidence) out — for sellers gating settlement.`,
         "POST /v1/approvals/config": "Free (X-API-Key). Configure human-in-the-loop approvals: on a flag verdict, your webhook gets the payment facts + a one-time decide link; a human click mints a short-lived signed override verdict.",
@@ -607,7 +607,7 @@ export function serviceInfo(cfg: PaySafeConfig): ApiResult {
         "GET /.well-known/x402": "Free. x402 manifest.",
         "GET /.well-known/agent-card.json": "Free. Agent card.",
         "GET /.well-known/erc8004.json": "Free. ERC-8004 agent registration file (on-chain identity tokenURI).",
-        "GET /.well-known/paysafe-verdict-key": "Free. Ed25519 public key for verdict attestations.",
+        "GET /.well-known/tollwarden-verdict-key": "Free. Ed25519 public key for verdict attestations.",
         "GET /health": "Free. Liveness.",
         "GET /v1/stats": "Free. Public aggregate service stats with third-party and first-party (operator-owned) usage reported separately, so the operator's own agents never inflate the headline figures. Scan totals, verdict split, distinct agents, self-measured 90-day uptime. Cached ~5 min; aggregates only.",
         "GET /terms": "Free. Terms of Use (human-readable).",
@@ -630,7 +630,7 @@ export function serviceInfo(cfg: PaySafeConfig): ApiResult {
         "delivery: measured, commitment-bound delivery-outcome history per counterparty (flag-only — a clean payment to a seller who never ships still fails you)",
       ],
       attestation:
-        "Verdicts are Ed25519-signed (see /.well-known/paysafe-verdict-key). Wallet policies can require a fresh allow-verdict before signing.",
+        "Verdicts are Ed25519-signed (see /.well-known/tollwarden-verdict-key). Wallet policies can require a fresh allow-verdict before signing.",
       scan_request_schema: {
         agent_id: "string (optional, scopes velocity limits)",
         payment: {
@@ -659,7 +659,7 @@ export function serviceInfo(cfg: PaySafeConfig): ApiResult {
           skip_deep: "boolean — skip deep analysis regardless of value",
         },
       },
-      custody: "PaySafe never touches private keys, wallets, or funds. Verdicts are advisory (and signed, for wallets that choose to enforce them).",
+      custody: "Tollwarden never touches private keys, wallets, or funds. Verdicts are advisory (and signed, for wallets that choose to enforce them).",
     },
   };
 }

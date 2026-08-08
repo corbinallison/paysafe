@@ -19,6 +19,8 @@ SUBMISSIONS-TODO.md
 __pycache__/
 
 # Ecosystem scout agent workspace (holds a funded hot-wallet key) — never commit
+# (both names: the on-disk directory predates the Tollwarden rename)
+/tollwarden-agent
 /paysafe-agent
 
 # Internal project notes — never commit

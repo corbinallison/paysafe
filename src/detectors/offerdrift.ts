@@ -1,4 +1,4 @@
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Offer drift: does the payment the agent is about to make still match the
@@ -16,7 +16,7 @@
  *     Base leg and settles a materially more expensive leg on another network.
  *
  * All of these are structural inconsistencies WITHIN one scan request: the
- * client hands PaySafe both the offer it read and the payment it is about to
+ * client hands Tollwarden both the offer it read and the payment it is about to
  * sign, and the two disagree. Forging that inconsistency gains an attacker
  * nothing — it only earns them more scrutiny — so it is not a Sybil-forgeable
  * third-party claim and the pay_to case may block (same rationale as
@@ -163,7 +163,7 @@ export function checkOfferDrift(
   //
   //    Flag, not block, and deliberately so. Sellers do legitimately rotate
   //    wallets, which makes a catalogue entry stale rather than hostile — and
-  //    an agent cannot tell PaySafe whether the offer it passed is the live 402
+  //    an agent cannot tell Tollwarden whether the offer it passed is the live 402
   //    or a day-old listing. A false-positive BLOCK refuses an honest payment;
   //    a flag stops an unattended agent and asks a human, which is the right
   //    outcome for a payee mismatch either way. The domain-level version of

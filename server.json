@@ -1,20 +1,20 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "com.paysafe-agent/paysafe",
-  "title": "PaySafe",
+  "name": "com.tollwarden/tollwarden",
+  "title": "Tollwarden",
   "description": "Screens x402 payments before settlement for injected payee addresses and sellers who never deliver.",
-  "version": "1.4.2",
-  "websiteUrl": "https://paysafe-agent.com",
+  "version": "1.5.0",
+  "websiteUrl": "https://tollwarden.com",
   "repository": {
-    "url": "https://github.com/corbinallison/paysafe",
+    "url": "https://github.com/tollwarden/tollwarden",
     "source": "github"
   },
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
-      "identifier": "paysafe-x402",
-      "version": "1.4.2",
+      "identifier": "tollwarden",
+      "version": "1.5.0",
       "transport": {
         "type": "stdio"
       }

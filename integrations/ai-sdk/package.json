@@ -1,0 +1,56 @@
+{
+  "name": "@tollwarden/ai-sdk",
+  "version": "0.1.0",
+  "description": "Tollwarden payment security for the Vercel AI SDK: scan-before-you-pay tools for x402 payments, plus an onStepFinish handler that auto-tags provenance for prompt-injection detection, and guardedPayment for enforcement by construction.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "node --experimental-strip-types test/run-tests.ts",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "vercel",
+    "ai-sdk",
+    "ai",
+    "x402",
+    "payments",
+    "security",
+    "ai-agents",
+    "prompt-injection",
+    "usdc",
+    "tools"
+  ],
+  "homepage": "https://tollwarden.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tollwarden/tollwarden.git",
+    "directory": "integrations/ai-sdk"
+  },
+  "license": "MIT",
+  "peerDependencies": {
+    "ai": ">=4",
+    "zod": ">=3"
+  },
+  "dependencies": {
+    "@tollwarden/client": "^0.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}

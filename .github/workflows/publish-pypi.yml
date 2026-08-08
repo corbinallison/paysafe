@@ -1,6 +1,6 @@
 # Publishes the PyPI packages via trusted publishing (OIDC — no tokens):
-#   - paysafe-x402       (sdk-python/: client SDK + enforcement kit + payment-path wrapper)
-#   - langchain-paysafe  (integrations/langchain-paysafe/: LangChain tools + provenance callback)
+#   - tollwarden       (sdk-python/: client SDK + enforcement kit + payment-path wrapper)
+#   - langchain-tollwarden  (integrations/langchain-tollwarden/: LangChain tools + provenance callback)
 #
 # Supply-chain hardening (see SECURITY-AUDIT-2.md):
 #  - every action pinned to a full commit SHA, not a movable tag
@@ -59,7 +59,7 @@ jobs:
         run: |
           python -m pip install build
           python -m build
-      - name: Publish paysafe-x402 to PyPI (OIDC)
+      - name: Publish tollwarden to PyPI (OIDC)
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
           packages-dir: sdk-python/dist
@@ -69,9 +69,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add sdk-python/src/paysafe_x402/__init__.py
+          git add sdk-python/src/tollwarden/__init__.py
           git diff --cached --quiet && exit 0
-          git commit -m "release(python-sdk): paysafe-x402 v${{ steps.bump.outputs.version }}"
+          git commit -m "release(python-sdk): tollwarden v${{ steps.bump.outputs.version }}"
           for i in 1 2 3 4 5; do
             git push origin HEAD:"$BRANCH" && exit 0
             git fetch origin "$BRANCH" && git rebase "origin/$BRANCH"
@@ -97,28 +97,28 @@ jobs:
       - name: Version gate (consistency + not-already-published)
         run: node scripts/check-versions.mjs langchain --registry
       - name: Run integration tests against REAL langchain-core
-        working-directory: integrations/langchain-paysafe
+        working-directory: integrations/langchain-tollwarden
         run: |
           python -m pip install cryptography langchain-core
           python tests/run_tests.py
       - name: Build sdist + wheel
-        working-directory: integrations/langchain-paysafe
+        working-directory: integrations/langchain-tollwarden
         run: |
           python -m pip install build
           python -m build
-      - name: Publish langchain-paysafe to PyPI (OIDC)
+      - name: Publish langchain-tollwarden to PyPI (OIDC)
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
-          packages-dir: integrations/langchain-paysafe/dist
+          packages-dir: integrations/langchain-tollwarden/dist
       - name: Record released version back to the repo
         env:
           BRANCH: ${{ github.ref_name }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add integrations/langchain-paysafe/pyproject.toml integrations/langchain-paysafe/src/langchain_paysafe/__init__.py
+          git add integrations/langchain-tollwarden/pyproject.toml integrations/langchain-tollwarden/src/langchain_tollwarden/__init__.py
           git diff --cached --quiet && exit 0
-          git commit -m "release(langchain): langchain-paysafe v${{ steps.bump.outputs.version }}"
+          git commit -m "release(langchain): langchain-tollwarden v${{ steps.bump.outputs.version }}"
           for i in 1 2 3 4 5; do
             git push origin HEAD:"$BRANCH" && exit 0
             git fetch origin "$BRANCH" && git rebase "origin/$BRANCH"
@@ -144,28 +144,28 @@ jobs:
       - name: Version gate (consistency + not-already-published)
         run: node scripts/check-versions.mjs crewai --registry
       - name: Run integration tests against REAL crewai
-        working-directory: integrations/crewai-paysafe
+        working-directory: integrations/crewai-tollwarden
         run: |
           python -m pip install cryptography crewai
           python tests/run_tests.py
       - name: Build sdist + wheel
-        working-directory: integrations/crewai-paysafe
+        working-directory: integrations/crewai-tollwarden
         run: |
           python -m pip install build
           python -m build
-      - name: Publish crewai-paysafe to PyPI (OIDC)
+      - name: Publish crewai-tollwarden to PyPI (OIDC)
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
-          packages-dir: integrations/crewai-paysafe/dist
+          packages-dir: integrations/crewai-tollwarden/dist
       - name: Record released version back to the repo
         env:
           BRANCH: ${{ github.ref_name }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add integrations/crewai-paysafe/pyproject.toml integrations/crewai-paysafe/src/crewai_paysafe/__init__.py
+          git add integrations/crewai-tollwarden/pyproject.toml integrations/crewai-tollwarden/src/crewai_tollwarden/__init__.py
           git diff --cached --quiet && exit 0
-          git commit -m "release(crewai): crewai-paysafe v${{ steps.bump.outputs.version }}"
+          git commit -m "release(crewai): crewai-tollwarden v${{ steps.bump.outputs.version }}"
           for i in 1 2 3 4 5; do
             git push origin HEAD:"$BRANCH" && exit 0
             git fetch origin "$BRANCH" && git rebase "origin/$BRANCH"
@@ -191,28 +191,28 @@ jobs:
       - name: Version gate (consistency + not-already-published)
         run: node scripts/check-versions.mjs nemo --registry
       - name: Run integration tests against REAL nvidia-nat
-        working-directory: integrations/nemo-paysafe
+        working-directory: integrations/nemo-tollwarden
         run: |
           python -m pip install cryptography nvidia-nat
           python tests/run_tests.py
       - name: Build sdist + wheel
-        working-directory: integrations/nemo-paysafe
+        working-directory: integrations/nemo-tollwarden
         run: |
           python -m pip install build
           python -m build
-      - name: Publish nemo-paysafe to PyPI (OIDC)
+      - name: Publish nemo-tollwarden to PyPI (OIDC)
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
-          packages-dir: integrations/nemo-paysafe/dist
+          packages-dir: integrations/nemo-tollwarden/dist
       - name: Record released version back to the repo
         env:
           BRANCH: ${{ github.ref_name }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add integrations/nemo-paysafe/pyproject.toml integrations/nemo-paysafe/src/nemo_paysafe/__init__.py
+          git add integrations/nemo-tollwarden/pyproject.toml integrations/nemo-tollwarden/src/nemo_tollwarden/__init__.py
           git diff --cached --quiet && exit 0
-          git commit -m "release(nemo): nemo-paysafe v${{ steps.bump.outputs.version }}"
+          git commit -m "release(nemo): nemo-tollwarden v${{ steps.bump.outputs.version }}"
           for i in 1 2 3 4 5; do
             git push origin HEAD:"$BRANCH" && exit 0
             git fetch origin "$BRANCH" && git rebase "origin/$BRANCH"
@@ -238,28 +238,28 @@ jobs:
       - name: Version gate (consistency + not-already-published)
         run: node scripts/check-versions.mjs agentkit --registry
       - name: Run integration tests against REAL coinbase-agentkit
-        working-directory: integrations/agentkit-paysafe
+        working-directory: integrations/agentkit-tollwarden
         run: |
           python -m pip install cryptography coinbase-agentkit
           python tests/run_tests.py
       - name: Build sdist + wheel
-        working-directory: integrations/agentkit-paysafe
+        working-directory: integrations/agentkit-tollwarden
         run: |
           python -m pip install build
           python -m build
-      - name: Publish agentkit-paysafe to PyPI (OIDC)
+      - name: Publish agentkit-tollwarden to PyPI (OIDC)
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
-          packages-dir: integrations/agentkit-paysafe/dist
+          packages-dir: integrations/agentkit-tollwarden/dist
       - name: Record released version back to the repo
         env:
           BRANCH: ${{ github.ref_name }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add integrations/agentkit-paysafe/pyproject.toml integrations/agentkit-paysafe/src/agentkit_paysafe/__init__.py
+          git add integrations/agentkit-tollwarden/pyproject.toml integrations/agentkit-tollwarden/src/agentkit_tollwarden/__init__.py
           git diff --cached --quiet && exit 0
-          git commit -m "release(agentkit): agentkit-paysafe v${{ steps.bump.outputs.version }}"
+          git commit -m "release(agentkit): agentkit-tollwarden v${{ steps.bump.outputs.version }}"
           for i in 1 2 3 4 5; do
             git push origin HEAD:"$BRANCH" && exit 0
             git fetch origin "$BRANCH" && git rebase "origin/$BRANCH"

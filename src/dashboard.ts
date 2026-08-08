@@ -1,7 +1,7 @@
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
- * PaySafe usage dashboard — a single self-contained HTML page served at
+ * Tollwarden usage dashboard — a single self-contained HTML page served at
  * GET /dashboard. Security posture:
  *  - Zero external resources (no CDN scripts/fonts/images): a strict CSP with
  *    default-src 'none' can be applied, so even a stored-XSS foothold has
@@ -19,7 +19,7 @@ export function dashboardHtml(): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PaySafe — Usage Dashboard</title>
+<title>Tollwarden — Usage Dashboard</title>
 <style>
   :root { color-scheme: dark; --bg:#0b0e14; --card:#141a24; --line:#232c3b; --fg:#e6edf3; --muted:#8b98a9; --accent:#4c8dff; --allow:#3fb950; --flag:#d29922; --block:#f85149; }
   * { box-sizing: border-box; }
@@ -52,7 +52,7 @@ export function dashboardHtml(): string {
 </head>
 <body>
 <div class="wrap">
-  <h1>PaySafe Usage</h1>
+  <h1>Tollwarden Usage</h1>
   <p class="sub">Your scan activity, free-tier quota, and plan status. Read-only — your key stays in this browser.</p>
 
   <div class="card">
@@ -111,7 +111,7 @@ export function dashboardHtml(): string {
     </div>
   </div>
 
-  <p class="sub" style="margin-top:24px">No key yet? <code>curl -X POST https://paysafe-agent.com/v1/keys</code> — first 100 scans free.</p>
+  <p class="sub" style="margin-top:24px">No key yet? <code>curl -X POST https://tollwarden.com/v1/keys</code> — first 100 scans free.</p>
 </div>
 
 <script>
@@ -122,7 +122,7 @@ export function dashboardHtml(): string {
 
   // Restore a key remembered for this tab (sessionStorage clears on tab close).
   try {
-    var saved = sessionStorage.getItem("paysafe_key");
+    var saved = sessionStorage.getItem("tollwarden_key");
     if (saved) { keyInput.value = saved; remember.checked = true; load(); }
   } catch (e) {}
 
@@ -139,8 +139,8 @@ export function dashboardHtml(): string {
         go.disabled = false; go.textContent = "View";
         if (!res.ok) { out.classList.add("hidden"); err.textContent = (res.j && res.j.error) || "Request failed."; return; }
         try {
-          if (remember.checked) sessionStorage.setItem("paysafe_key", key);
-          else sessionStorage.removeItem("paysafe_key");
+          if (remember.checked) sessionStorage.setItem("tollwarden_key", key);
+          else sessionStorage.removeItem("tollwarden_key");
         } catch (e) {}
         render(res.j);
       })

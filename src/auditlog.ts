@@ -1,7 +1,7 @@
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
- * Tamper-evident audit log of scan DECISIONS (not funds — PaySafe is
+ * Tamper-evident audit log of scan DECISIONS (not funds — Tollwarden is
  * non-custodial and never moves money).
  *
  * Design goals:

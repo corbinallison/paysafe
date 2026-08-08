@@ -3,15 +3,15 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "paysafe-x402"
-# Version is single-sourced from src/paysafe_x402/__init__.py (__version__) —
+name = "tollwarden"
+# Version is single-sourced from src/tollwarden/__init__.py (__version__) —
 # bump it there only; hatchling reads it at build time (see [tool.hatch.version]).
 dynamic = ["version"]
-description = "Official Python SDK for PaySafe — the payment security firewall for x402 micropayments. Scan payments before settlement, auto-tag provenance for prompt-injection detection, verify Ed25519 verdict attestations, subscribe to plans autonomously."
+description = "Official Python SDK for Tollwarden — the payment security firewall for x402 micropayments. Scan payments before settlement, auto-tag provenance for prompt-injection detection, verify Ed25519 verdict attestations, subscribe to plans autonomously."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "BUSL-1.1" }
-authors = [{ name = "PaySafe", email = "contact@paysafe-agent.com" }]
+authors = [{ name = "Tollwarden", email = "contact@tollwarden.com" }]
 keywords = ["x402", "payments", "security", "firewall", "ai-agents", "prompt-injection", "usdc", "base", "micropayments"]
 classifiers = [
   "Development Status :: 4 - Beta",
@@ -23,12 +23,12 @@ classifiers = [
 dependencies = ["cryptography>=41"]
 
 [project.urls]
-Homepage = "https://paysafe-agent.com"
-Repository = "https://github.com/corbinallison/paysafe"
-Documentation = "https://github.com/corbinallison/paysafe/tree/main/sdk-python"
+Homepage = "https://tollwarden.com"
+Repository = "https://github.com/tollwarden/tollwarden"
+Documentation = "https://github.com/tollwarden/tollwarden/tree/main/sdk-python"
 
 [tool.hatch.version]
-path = "src/paysafe_x402/__init__.py"
+path = "src/tollwarden/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/paysafe_x402"]
+packages = ["src/tollwarden"]

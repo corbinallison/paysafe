@@ -1,4 +1,4 @@
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Generates the Ed25519 keypair for MCP registry DNS verification —
@@ -9,7 +9,7 @@
  * Prints:
  *  1. the TXT record value to add in Namecheap (public key)
  *  2. the private-key hex for `mcp-publisher login dns` — also saved to
- *     ~/paysafe-mcp-key.hex (OUTSIDE the repo, so it can't be committed).
+ *     ~/tollwarden-mcp-key.hex (OUTSIDE the repo, so it can't be committed).
  *
  * The private key is your namespace credential. Treat it like a password.
  * Running this again generates a NEW key (the old TXT record stops matching).
@@ -19,7 +19,7 @@ import { writeFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const keyFile = join(homedir(), "paysafe-mcp-key.hex");
+const keyFile = join(homedir(), "tollwarden-mcp-key.hex");
 if (existsSync(keyFile)) {
   console.error(`A key already exists at ${keyFile}.`);
   console.error("Delete it first if you really want to rotate (your DNS TXT record must be updated to match).");
@@ -40,5 +40,5 @@ console.log("");
 console.log(`2) Private key hex saved to: ${keyFile}  (keep it, don't commit it)`);
 console.log("");
 console.log("3) After the TXT record propagates (~15 min), from the repo root in PowerShell:");
-console.log('   .\\mcp-publisher.exe login dns --domain paysafe-agent.com --private-key (Get-Content ~\\paysafe-mcp-key.hex)');
+console.log('   .\\mcp-publisher.exe login dns --domain tollwarden.com --private-key (Get-Content ~\\tollwarden-mcp-key.hex)');
 console.log("   .\\mcp-publisher.exe publish");

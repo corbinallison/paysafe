@@ -1,12 +1,12 @@
 {
-  "name": "paysafe-x402",
-  "version": "1.4.2",
-  "mcpName": "com.paysafe-agent/paysafe",
-  "description": "PaySafe — a payment security firewall for x402 micropayment traffic. Advisory scanning: PII/secret leaks, replay, overpayment, prompt-injection-triggered payments, counterparty reputation. Non-custodial. Includes an MCP server: npx paysafe-x402",
+  "name": "tollwarden",
+  "version": "1.5.0",
+  "mcpName": "com.tollwarden/tollwarden",
+  "description": "Tollwarden — a payment security firewall for x402 micropayment traffic. Advisory scanning: PII/secret leaks, replay, overpayment, prompt-injection-triggered payments, counterparty reputation. Non-custodial. Includes an MCP server: npx tollwarden",
   "type": "module",
   "main": "dist/src/index.js",
   "bin": {
-    "paysafe-x402": "dist/mcp/server.js"
+    "tollwarden": "dist/mcp/server.js"
   },
   "files": [
     "dist",
@@ -17,10 +17,10 @@
     "PRIVACY.md",
     "server.json"
   ],
-  "homepage": "https://paysafe-agent.com",
+  "homepage": "https://tollwarden.com",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/corbinallison/paysafe.git"
+    "url": "git+https://github.com/tollwarden/tollwarden.git"
   },
   "keywords": [
     "x402",

@@ -1,7 +1,7 @@
 # Publishes the npm packages via trusted publishing (OIDC — no tokens):
-#   - paysafe-x402         (repo root: server + MCP server, `npx paysafe-x402`)
-#   - paysafe-x402-client  (sdk/: client SDK + wallet enforcement kit)
-#   - paysafe-ai-sdk       (integrations/paysafe-ai-sdk/: Vercel AI SDK integration)
+#   - tollwarden         (repo root: server + MCP server, `npx tollwarden`)
+#   - @tollwarden/client  (sdk/: client SDK + wallet enforcement kit)
+#   - @tollwarden/ai-sdk       (integrations/ai-sdk/: Vercel AI SDK integration)
 #
 # Supply-chain hardening (same posture as publish-pypi.yml, SECURITY-AUDIT-2.md):
 #  - every action pinned to a full commit SHA, not a movable tag
@@ -60,7 +60,7 @@ jobs:
       - name: Run SDK tests (cross-validated against the real server signer)
         working-directory: sdk
         run: npm test
-      - name: Publish paysafe-x402-client (OIDC; prepublishOnly re-runs build+test)
+      - name: Publish @tollwarden/client (OIDC; prepublishOnly re-runs build+test)
         working-directory: sdk
         run: npm publish
       - name: Record released version back to the repo
@@ -71,7 +71,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add sdk/package.json
           git diff --cached --quiet && exit 0
-          git commit -m "release(sdk): paysafe-x402-client v${{ steps.bump.outputs.version }}"
+          git commit -m "release(sdk): @tollwarden/client v${{ steps.bump.outputs.version }}"
           for i in 1 2 3 4 5; do
             git push origin HEAD:"$BRANCH" && exit 0
             git fetch origin "$BRANCH" && git rebase "origin/$BRANCH"
@@ -105,7 +105,7 @@ jobs:
         run: npm run build
       - name: Run full server test suite
         run: npm test
-      - name: Publish paysafe-x402 (OIDC)
+      - name: Publish tollwarden (OIDC)
         run: npm publish
       - name: Record released version back to the repo
         env:
@@ -115,7 +115,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json server.json
           git diff --cached --quiet && exit 0
-          git commit -m "release(server): paysafe-x402 v${{ steps.bump.outputs.version }}"
+          git commit -m "release(server): tollwarden v${{ steps.bump.outputs.version }}"
           for i in 1 2 3 4 5; do
             git push origin HEAD:"$BRANCH" && exit 0
             git fetch origin "$BRANCH" && git rebase "origin/$BRANCH"
@@ -143,14 +143,14 @@ jobs:
         run: node scripts/next-version.mjs ai-sdk "${{ inputs.bump || 'patch' }}"
       - name: Version gate (consistency + not-already-published + no downgrade)
         run: node scripts/check-versions.mjs ai-sdk --registry
-      - name: Install integration dependencies (ai + zod + paysafe-x402-client)
-        working-directory: integrations/paysafe-ai-sdk
-        run: npm install --no-save ai zod paysafe-x402-client @types/node typescript
+      - name: Install integration dependencies (ai + zod + @tollwarden/client)
+        working-directory: integrations/ai-sdk
+        run: npm install --no-save ai zod @tollwarden/client @types/node typescript
       - name: Run integration tests against the REAL ai + zod packages
-        working-directory: integrations/paysafe-ai-sdk
+        working-directory: integrations/ai-sdk
         run: npm test
-      - name: Publish paysafe-ai-sdk (OIDC; prepublishOnly re-runs build+test)
-        working-directory: integrations/paysafe-ai-sdk
+      - name: Publish @tollwarden/ai-sdk (OIDC; prepublishOnly re-runs build+test)
+        working-directory: integrations/ai-sdk
         run: npm publish --access public
       - name: Record released version back to the repo
         env:
@@ -158,9 +158,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add integrations/paysafe-ai-sdk/package.json
+          git add integrations/ai-sdk/package.json
           git diff --cached --quiet && exit 0
-          git commit -m "release(ai-sdk): paysafe-ai-sdk v${{ steps.bump.outputs.version }}"
+          git commit -m "release(ai-sdk): @tollwarden/ai-sdk v${{ steps.bump.outputs.version }}"
           for i in 1 2 3 4 5; do
             git push origin HEAD:"$BRANCH" && exit 0
             git fetch origin "$BRANCH" && git rebase "origin/$BRANCH"

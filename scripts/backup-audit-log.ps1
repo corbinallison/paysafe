@@ -1,4 +1,4 @@
-# PaySafe audit-log offsite backup.
+# Tollwarden audit-log offsite backup.
 #
 # Downloads the full tamper-evident audit log via the ADMIN_TOKEN-gated
 # /v1/audit/export endpoint and writes a timestamped copy into a backup
@@ -6,13 +6,13 @@
 # app handles the offsite upload automatically.
 #
 # Usage (PowerShell):
-#   $env:PAYSAFE_ADMIN_TOKEN = "<your token>"
-#   .\backup-audit-log.ps1 -BackupDir "C:\Users\you\MEGA\paysafe-audit"
+#   $env:TOLLWARDEN_ADMIN_TOKEN = "<your token>"
+#   .\backup-audit-log.ps1 -BackupDir "C:\Users\you\MEGA\tollwarden-audit"
 #
 # Schedule daily via Windows Task Scheduler:
 #   Program:  powershell.exe
-#   Args:     -NoProfile -ExecutionPolicy Bypass -File "C:\dev\paysafe\scripts\backup-audit-log.ps1" -BackupDir "C:\Users\you\MEGA\paysafe-audit"
-#   (Store the token machine-side:  [Environment]::SetEnvironmentVariable("PAYSAFE_ADMIN_TOKEN","<token>","User") )
+#   Args:     -NoProfile -ExecutionPolicy Bypass -File "C:\dev\tollwarden\scripts\backup-audit-log.ps1" -BackupDir "C:\Users\you\MEGA\tollwarden-audit"
+#   (Store the token machine-side:  [Environment]::SetEnvironmentVariable("TOLLWARDEN_ADMIN_TOKEN","<token>","User") )
 #
 # Safety property: files are timestamped and never overwritten, so the local
 # history preserves every version — a rewritten server log can't silently
@@ -20,14 +20,14 @@
 
 param(
   [string]$BackupDir = "$PSScriptRoot\..\audit-backups",
-  [string]$ServiceUrl = "https://paysafe-agent.com"
+  [string]$ServiceUrl = "https://tollwarden.com"
 )
 
 $ErrorActionPreference = "Stop"
 
-$token = $env:PAYSAFE_ADMIN_TOKEN
+$token = $env:TOLLWARDEN_ADMIN_TOKEN
 if (-not $token) {
-  Write-Error "PAYSAFE_ADMIN_TOKEN environment variable is not set."
+  Write-Error "TOLLWARDEN_ADMIN_TOKEN environment variable is not set."
   exit 1
 }
 

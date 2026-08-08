@@ -1,12 +1,12 @@
-# PaySafe — Privacy Policy
+# Tollwarden — Privacy Policy
 
 **Last updated: 2026-07-16**
 
-This policy explains what data the PaySafe service ("the Service," "we," "us"), operated by **PaySafe, LLC**, a Colorado limited liability company, collects and how we handle it. It should be read alongside our [Terms of Use](TERMS.md).
+This policy explains what data the Tollwarden service ("the Service," "we," "us"), operated by **Tollwarden, LLC**, a Colorado limited liability company, collects and how we handle it. It should be read alongside our [Terms of Use](TERMS.md).
 
 ## 1. Summary (the important part)
 
-PaySafe is an **advisory, non-custodial** payment-security scanner. It is designed to *avoid* retaining sensitive data:
+Tollwarden is an **advisory, non-custodial** payment-security scanner. It is designed to *avoid* retaining sensitive data:
 
 - We process the payment metadata you submit **in memory** to produce a verdict, and we **do not retain it in plaintext**.
 - Our tamper-evident audit log stores only a **cryptographic hash (SHA-256)** of each scanned payment plus a few non-sensitive transaction facts — **never** the plaintext `description`, `reason`, `metadata`, or `content` you submit.
@@ -29,7 +29,7 @@ We do **not** use tracking cookies, advertising networks, analytics pixels, or b
 
 ## 3. What we deliberately do NOT collect
 
-The plaintext of the sensitive fields PaySafe exists to detect — API keys, secrets, seed phrases, PII in `description`/`reason`/`metadata`, and the `content` you pass for injection analysis — is processed transiently and **is not written to disk**. Detected secrets are **redacted** in our responses (first 4 + last 2 characters) and are never persisted. We hold no bank, card, or wallet-credential data.
+The plaintext of the sensitive fields Tollwarden exists to detect — API keys, secrets, seed phrases, PII in `description`/`reason`/`metadata`, and the `content` you pass for injection analysis — is processed transiently and **is not written to disk**. Detected secrets are **redacted** in our responses (first 4 + last 2 characters) and are never persisted. We hold no bank, card, or wallet-credential data.
 
 ## 4. Legal basis / how we use data
 
@@ -37,14 +37,14 @@ We use the data above solely to (a) provide the scanning service you request, (b
 
 ## 5. The reputation registry
 
-Reputation reports you submit are **user-generated content**: an address, a category, your free-text reason, and your self-asserted `reporter_agent_id`. They are visible to other users who look up that address. Do not include personal data or secrets in a report. You are responsible for the content of your reports (see the Terms). To dispute or request removal of a report, contact **abuse@paysafe-agent.com**.
+Reputation reports you submit are **user-generated content**: an address, a category, your free-text reason, and your self-asserted `reporter_agent_id`. They are visible to other users who look up that address. Do not include personal data or secrets in a report. You are responsible for the content of your reports (see the Terms). To dispute or request removal of a report, contact **abuse@tollwarden.com**.
 
 ## 6. Sub-processors / third parties
 
 We rely on a small number of service providers who may process data on our behalf:
 
 - **Render** (render.com) — application hosting and storage of the audit log/state.
-- **Coinbase Developer Platform (CDP)** — the x402 facilitator that verifies and settles payments. Note: the *payment itself* is initiated by your wallet and settles on-chain; PaySafe is advisory and does not route your funds.
+- **Coinbase Developer Platform (CDP)** — the x402 facilitator that verifies and settles payments. Note: the *payment itself* is initiated by your wallet and settles on-chain; Tollwarden is advisory and does not route your funds.
 - **Zoho** — business email for our contact addresses.
 - **ScoutScore** (scoutscore.ai) — optional external trust ratings for merchant domains (only when the operator enables `SCOUTSCORE=on`). When enabled, we query ScoutScore with the **resource domain only** (e.g. `api.example.com`) from scanned payments — never wallet addresses, amounts, API keys, payload contents, or your identity. Responses are cached server-side and surfaced in scan results as a clearly labeled third-party signal.
 
@@ -52,11 +52,11 @@ We do not otherwise disclose data except where required by law, to enforce our T
 
 ## 7. Your rights
 
-Depending on your jurisdiction (e.g. GDPR/CCPA), you may have rights to access, correct, or delete personal data we hold about you. Because most of what we retain is **pseudonymous** (payment hashes, wallet addresses, self-chosen agent IDs) and not linked to a real-world identity, we may be unable to associate a request with a specific person without additional information. To make a request, contact **contact@paysafe-agent.com**. Note that audit records are retained for integrity and legal-defensibility reasons and may be exempt from deletion for their retention period.
+Depending on your jurisdiction (e.g. GDPR/CCPA), you may have rights to access, correct, or delete personal data we hold about you. Because most of what we retain is **pseudonymous** (payment hashes, wallet addresses, self-chosen agent IDs) and not linked to a real-world identity, we may be unable to associate a request with a specific person without additional information. To make a request, contact **contact@tollwarden.com**. Note that audit records are retained for integrity and legal-defensibility reasons and may be exempt from deletion for their retention period.
 
 ## 8. Security
 
-Data in transit is protected by TLS. API keys are stored hashed. The audit log is hash-chained so tampering is detectable, and (in production) shipped to write-once storage. No system is perfectly secure; we cannot guarantee absolute security. See our public security review (`SECURITY-AUDIT.md`) for our controls and known limitations, and report vulnerabilities to **security@paysafe-agent.com**.
+Data in transit is protected by TLS. API keys are stored hashed. The audit log is hash-chained so tampering is detectable, and (in production) shipped to write-once storage. No system is perfectly secure; we cannot guarantee absolute security. See our public security review (`SECURITY-AUDIT.md`) for our controls and known limitations, and report vulnerabilities to **security@tollwarden.com**.
 
 ## 9. Children
 
@@ -68,5 +68,5 @@ We may update this policy; material changes take effect when posted with a new "
 
 ## 11. Contact
 
-Privacy questions: **contact@paysafe-agent.com**
-Data controller: **PaySafe, LLC**, Colorado, USA
+Privacy questions: **contact@tollwarden.com**
+Data controller: **Tollwarden, LLC**, Colorado, USA

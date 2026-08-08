@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Zero-touch releases: compute the NEXT version for a package from the
@@ -34,14 +34,14 @@ const initVersion = (p) => {
 
 /** Registry identity + where the repo's current version is read from. */
 const PACKAGES = {
-  server: { type: "npm", name: "paysafe-x402", current: () => jsonVersion("package.json") },
-  sdk: { type: "npm", name: "paysafe-x402-client", current: () => jsonVersion("sdk/package.json") },
-  "ai-sdk": { type: "npm", name: "paysafe-ai-sdk", current: () => jsonVersion("integrations/paysafe-ai-sdk/package.json") },
-  python: { type: "pypi", name: "paysafe-x402", current: () => initVersion("sdk-python/src/paysafe_x402/__init__.py") },
-  langchain: { type: "pypi", name: "langchain-paysafe", current: () => initVersion("integrations/langchain-paysafe/src/langchain_paysafe/__init__.py") },
-  crewai: { type: "pypi", name: "crewai-paysafe", current: () => initVersion("integrations/crewai-paysafe/src/crewai_paysafe/__init__.py") },
-  nemo: { type: "pypi", name: "nemo-paysafe", current: () => initVersion("integrations/nemo-paysafe/src/nemo_paysafe/__init__.py") },
-  agentkit: { type: "pypi", name: "agentkit-paysafe", current: () => initVersion("integrations/agentkit-paysafe/src/agentkit_paysafe/__init__.py") },
+  server: { type: "npm", name: "tollwarden", current: () => jsonVersion("package.json") },
+  sdk: { type: "npm", name: "@tollwarden/client", current: () => jsonVersion("sdk/package.json") },
+  "ai-sdk": { type: "npm", name: "@tollwarden/ai-sdk", current: () => jsonVersion("integrations/ai-sdk/package.json") },
+  python: { type: "pypi", name: "tollwarden", current: () => initVersion("sdk-python/src/tollwarden/__init__.py") },
+  langchain: { type: "pypi", name: "langchain-tollwarden", current: () => initVersion("integrations/langchain-tollwarden/src/langchain_tollwarden/__init__.py") },
+  crewai: { type: "pypi", name: "crewai-tollwarden", current: () => initVersion("integrations/crewai-tollwarden/src/crewai_tollwarden/__init__.py") },
+  nemo: { type: "pypi", name: "nemo-tollwarden", current: () => initVersion("integrations/nemo-tollwarden/src/nemo_tollwarden/__init__.py") },
+  agentkit: { type: "pypi", name: "agentkit-tollwarden", current: () => initVersion("integrations/agentkit-tollwarden/src/agentkit_tollwarden/__init__.py") },
 };
 
 const [, , key, bumpKind = "patch"] = process.argv;

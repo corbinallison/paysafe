@@ -1,7 +1,7 @@
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
- * PaySafe — Base Sepolia PAID dry-run client.
+ * Tollwarden — Base Sepolia PAID dry-run client.
  *
  * Proves the full x402 flow end-to-end: an unpaid POST to /v1/scan/outgoing
  * gets a 402, this client signs a testnet-USDC payment, retries with the
@@ -21,7 +21,7 @@
  *
  * Run:
  *   EVM_PRIVATE_KEY=0xYOUR_TEST_WALLET_KEY \
- *   PAYSAFE_URL=https://paysafe-agent.com \
+ *   TOLLWARDEN_URL=https://tollwarden.com \
  *   npm run dryrun
  *
  * Expected output: "402 received → paid → retried", a verdict, and a
@@ -31,7 +31,7 @@ import { x402Client, wrapFetchWithPayment, x402HTTPClient } from "@x402/fetch";
 import { registerExactEvmScheme } from "@x402/evm/exact/client";
 import { privateKeyToAccount } from "viem/accounts";
 
-const BASE = process.env.PAYSAFE_URL ?? "https://paysafe-agent.com";
+const BASE = process.env.TOLLWARDEN_URL ?? "https://tollwarden.com";
 const KEY = process.env.EVM_PRIVATE_KEY;
 
 if (!KEY) {
@@ -53,7 +53,7 @@ registerExactEvmScheme(client, { signer });
 //    free tier and exercises the real paid x402 path.
 const fetchWithPayment = wrapFetchWithPayment(fetch, client);
 
-// The payment we're asking PaySafe to SCAN (this is advisory data, separate
+// The payment we're asking Tollwarden to SCAN (this is advisory data, separate
 // from the x402 micropayment we make to pay for the scan itself).
 const scanBody = {
   // Also unique per run: a shared agent_id would pool velocity counters

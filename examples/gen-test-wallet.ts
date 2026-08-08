@@ -1,4 +1,4 @@
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Generate a THROWAWAY test wallet for the Base Sepolia paid dry-run.
@@ -31,5 +31,5 @@ console.log("  1. Fund the ADDRESS above on Base Sepolia:");
 console.log("     - Test USDC + a little test ETH from https://portal.cdp.coinbase.com/products/faucet");
 console.log("       (pick network: Base Sepolia; request both ETH and USDC)");
 console.log("  2. Once funded, run the dry-run with the PRIVATE KEY above:");
-console.log("       EVM_PRIVATE_KEY=<private key> PAYSAFE_URL=https://paysafe-agent.com npm run dryrun");
+console.log("       EVM_PRIVATE_KEY=<private key> TOLLWARDEN_URL=https://tollwarden.com npm run dryrun");
 console.log("\n(Reminder: throwaway testnet wallet — do not reuse it for real funds.)\n");

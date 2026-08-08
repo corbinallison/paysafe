@@ -1,4 +1,4 @@
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Velocity & policy limits. These are the checks that hold even when the
@@ -8,7 +8,7 @@
  * Scope key: agent_id, falling back to the payer address. All O(1)/O(window).
  */
 import type { CheckResult, ScanRequest } from "../types.ts";
-import type { PaySafeConfig } from "../config.ts";
+import type { TollwardenConfig } from "../config.ts";
 import type { Store } from "../store.ts";
 
 const HOUR = 3600_000;
@@ -18,7 +18,7 @@ export function checkVelocity(
   req: ScanRequest,
   usd: number | null,
   store: Store,
-  cfg: PaySafeConfig,
+  cfg: TollwardenConfig,
 ): CheckResult[] {
   const key = req.agent_id ?? req.payment.payer?.toLowerCase();
   if (!key) {

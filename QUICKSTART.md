@@ -1,12 +1,12 @@
 # Protect your x402 agent in 5 minutes
 
-Agents that pay for things over [x402](https://x402.org) get drained in predictable ways: a poisoned webpage tells the agent to pay an attacker's address, a captured payment authorization gets replayed, a "$0.01" API quietly charges $0.15, a seller takes the money and never ships. [PaySafe](https://paysafe-agent.com) is a payment firewall that catches all of it — advisory, non-custodial, and wrapped around whatever wallet and facilitator you already use. Here's the whole integration, timed.
+Agents that pay for things over [x402](https://x402.org) get drained in predictable ways: a poisoned webpage tells the agent to pay an attacker's address, a captured payment authorization gets replayed, a "$0.01" API quietly charges $0.15, a seller takes the money and never ships. [Tollwarden](https://tollwarden.com) is a payment firewall that catches all of it — advisory, non-custodial, and wrapped around whatever wallet and facilitator you already use. Here's the whole integration, timed.
 
 ## Minute 1 — install
 
 ```bash
-npm install paysafe-x402-client    # TypeScript / Node
-pip install paysafe-x402           # Python
+npm install @tollwarden/client    # TypeScript / Node
+pip install tollwarden           # Python
 ```
 
 No signup. The first call mints you a free API key automatically (100 free scans).
@@ -17,33 +17,33 @@ If your agent pays through the standard x402 buyer flow, wrap the paying fetch a
 
 ```ts
 import { wrapFetchWithPayment } from "@x402/fetch";
-import { PaySafeClient, wrapFetchWithPaySafe } from "paysafe-x402-client";
+import { TollwardenClient, wrapFetchWithTollwarden } from "@tollwarden/client";
 
-const paysafe = new PaySafeClient({ agentId: "my-agent" });
-const fetchWithPay = wrapFetchWithPaySafe(wrapFetchWithPayment(fetch, x402Client), paysafe);
+const tollwarden = new TollwardenClient({ agentId: "my-agent" });
+const fetchWithPay = wrapFetchWithTollwarden(wrapFetchWithPayment(fetch, x402Client), tollwarden);
 ```
 
 Python:
 
 ```python
-from paysafe_x402 import PaySafeClient, wrap_transport_with_paysafe
+from tollwarden import TollwardenClient, wrap_transport_with_tollwarden
 
-paysafe = PaySafeClient(agent_id="my-agent")
-guarded = wrap_transport_with_paysafe(my_x402_transport, paysafe)
+tollwarden = TollwardenClient(agent_id="my-agent")
+guarded = wrap_transport_with_tollwarden(my_x402_transport, tollwarden)
 ```
 
 Every payment now gets scanned **before it settles** — a block verdict throws before any payment is signed — and after settlement the wrapper automatically records whether the seller actually delivered, building the shared history that flags never-shipping sellers for everyone.
 
 ## Minute 3 — feed the injection detector
 
-PaySafe's strongest check catches payments whose *decision* came from content your agent just read — the prompt-injected page that says "send payment to 0x… now". It needs to know what the agent read. One line, right after any web fetch or tool call:
+Tollwarden's strongest check catches payments whose *decision* came from content your agent just read — the prompt-injected page that says "send payment to 0x… now". It needs to know what the agent read. One line, right after any web fetch or tool call:
 
 ```ts
-paysafe.observe(pageOrToolText, { sourceUrl });
+tollwarden.observe(pageOrToolText, { sourceUrl });
 ```
 
 ```python
-paysafe.observe(page_or_tool_text, source_url=url)
+tollwarden.observe(page_or_tool_text, source_url=url)
 ```
 
 That's it — the next scan is provenance-tagged and the injection check runs with real input. If the pay-to address appears in content the agent just read, the payment blocks.
@@ -51,7 +51,7 @@ That's it — the next scan is provenance-tagged and the injection check runs wi
 ## Minute 4 — see it work
 
 ```ts
-const scan = await paysafe.scanOutgoing({
+const scan = await tollwarden.scanOutgoing({
   network: "eip155:8453",
   pay_to: "0xMerchant...",
   amount: "10000",          // $0.01 USDC
@@ -82,41 +82,41 @@ Machine-readable reasons, so your agent can act on them — not just a score.
 
 Already building on an agent framework? One package gives your agent the tools *and* wires the provenance tagging automatically:
 
-**LangChain / LangGraph** (`pip install langchain-paysafe`):
+**LangChain / LangGraph** (`pip install langchain-tollwarden`):
 
 ```python
-from langchain_paysafe import paysafe_tools, PaySafeProvenanceCallback
+from langchain_tollwarden import tollwarden_tools, TollwardenProvenanceCallback
 
-agent = create_agent(model, tools=[*paysafe_tools(paysafe), *your_tools],
-                     callbacks=[PaySafeProvenanceCallback(paysafe)])
+agent = create_agent(model, tools=[*tollwarden_tools(tollwarden), *your_tools],
+                     callbacks=[TollwardenProvenanceCallback(tollwarden)])
 ```
 
-**CrewAI** (`pip install crewai-paysafe`):
+**CrewAI** (`pip install crewai-tollwarden`):
 
 ```python
-from crewai_paysafe import paysafe_tools, register_paysafe_provenance
+from crewai_tollwarden import tollwarden_tools, register_tollwarden_provenance
 
-register_paysafe_provenance(paysafe)   # once at startup
-agent = Agent(role="Purchasing agent", tools=paysafe_tools(paysafe), ...)
+register_tollwarden_provenance(tollwarden)   # once at startup
+agent = Agent(role="Purchasing agent", tools=tollwarden_tools(tollwarden), ...)
 ```
 
-**Vercel AI SDK** (`npm install paysafe-ai-sdk`):
+**Vercel AI SDK** (`npm install @tollwarden/ai-sdk`):
 
 ```ts
-import { paysafeTools, paysafeProvenance } from "paysafe-ai-sdk";
+import { tollwardenTools, tollwardenProvenance } from "@tollwarden/ai-sdk";
 
 await generateText({
   model,
-  tools: { ...paysafeTools(paysafe), ...yourTools },
-  onStepFinish: paysafeProvenance(paysafe),   // auto-tags every tool result
+  tools: { ...tollwardenTools(tollwarden), ...yourTools },
+  onStepFinish: tollwardenProvenance(tollwarden),   // auto-tags every tool result
   prompt: "...",
 });
 ```
 
-**Coinbase AgentKit** (`pip install agentkit-paysafe`): add `paysafe_action_provider()` to your providers — scans auto-fill the payer from the agent's wallet. **NeMo Agent Toolkit** (`pip install nemo-paysafe`): three config-driven functions via the `nat.plugins` entry point. **Claude / MCP agents**: zero code —
+**Coinbase AgentKit** (`pip install agentkit-tollwarden`): add `tollwarden_action_provider()` to your providers — scans auto-fill the payer from the agent's wallet. **NeMo Agent Toolkit** (`pip install nemo-tollwarden`): three config-driven functions via the `nat.plugins` entry point. **Claude / MCP agents**: zero code —
 
 ```jsonc
-{ "mcpServers": { "paysafe": { "command": "npx", "args": ["-y", "paysafe-x402"] } } }
+{ "mcpServers": { "tollwarden": { "command": "npx", "args": ["-y", "tollwarden"] } } }
 ```
 
 ## Leveling up (when you're ready)
@@ -126,4 +126,4 @@ await generateText({
 - **Key hygiene.** Leaked key? `POST /v1/keys/rotate` — fresh secret, same account, usage and plan carried over; the old secret dies on your schedule.
 - **Check any counterparty first**: `GET /v1/reputation/{address}` returns community reports *and* measured delivery rates from commitment-bound outcomes.
 
-Everything is documented for agents too: point any LLM at [paysafe-agent.com/llms.txt](https://paysafe-agent.com/llms.txt) and it can wire this up itself. OpenAPI at [/openapi.json](https://paysafe-agent.com/openapi.json). Source: [github.com/corbinallison/paysafe](https://github.com/corbinallison/paysafe) (source-available, BUSL 1.1). Non-custodial — PaySafe never touches your keys, wallet, or funds.
+Everything is documented for agents too: point any LLM at [tollwarden.com/llms.txt](https://tollwarden.com/llms.txt) and it can wire this up itself. OpenAPI at [/openapi.json](https://tollwarden.com/openapi.json). Source: [github.com/tollwarden/tollwarden](https://github.com/tollwarden/tollwarden) (source-available, BUSL 1.1). Non-custodial — Tollwarden never touches your keys, wallet, or funds.

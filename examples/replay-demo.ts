@@ -1,17 +1,17 @@
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Demo: a client agent attempts an x402 payment with a REUSED NONCE and
- * PaySafe blocks the second attempt with a clear reason.
+ * Tollwarden blocks the second attempt with a clear reason.
  *
  * Run against a local instance:
  *   npm run dev            # terminal 1 (dev server, payments off)
  *   npm run demo:replay    # terminal 2
  *
  * Or against a deployed instance:
- *   PAYSAFE_URL=https://your-paysafe.onrender.com PAYSAFE_API_KEY=psk_... npm run demo:replay
+ *   TOLLWARDEN_URL=https://your-tollwarden.onrender.com TOLLWARDEN_API_KEY=psk_... npm run demo:replay
  */
-const BASE = process.env.PAYSAFE_URL ?? "http://localhost:4021";
+const BASE = process.env.TOLLWARDEN_URL ?? "http://localhost:4021";
 
 interface ScanResponse {
   scan_id: string;
@@ -23,7 +23,7 @@ interface ScanResponse {
 
 async function post(path: string, body: unknown): Promise<{ status: number; json: any }> {
   const headers: Record<string, string> = { "content-type": "application/json" };
-  if (process.env.PAYSAFE_API_KEY) headers["x-api-key"] = process.env.PAYSAFE_API_KEY;
+  if (process.env.TOLLWARDEN_API_KEY) headers["x-api-key"] = process.env.TOLLWARDEN_API_KEY;
   const res = await fetch(`${BASE}${path}`, { method: "POST", headers, body: JSON.stringify(body) });
   return { status: res.status, json: await res.json() };
 }
@@ -59,7 +59,7 @@ const scanBody = {
   context: { origin: "planning" },
 };
 
-console.log(`PaySafe replay demo → ${BASE}`);
+console.log(`Tollwarden replay demo → ${BASE}`);
 console.log(`Payment nonce: ${nonce}`);
 
 // Attempt 1: fresh nonce — should be ALLOWED.

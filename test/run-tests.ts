@@ -1,4 +1,4 @@
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Detector test-suite. Zero dependencies; runs with:
@@ -35,7 +35,7 @@ import { pinEvidenceFor } from "../src/detectors/pinning.ts";
 import { createServer as createHttpServer } from "node:http";
 import type { ScanRequest, ScanResponse } from "../src/types.ts";
 
-const cfg = loadConfig({ PAYSAFE_MODE: "dev", PAY_TO: "0xtest" });
+const cfg = loadConfig({ TOLLWARDEN_MODE: "dev", PAY_TO: "0xtest" });
 let passed = 0;
 let failed = 0;
 
@@ -1414,7 +1414,7 @@ console.log("\n— freshness-claim advisory (N1) —");
 console.log("\n— receiptless settlement (N4) —");
 {
   const store = new Store(null);
-  const cfgN4 = loadConfig({ PAYSAFE_MODE: "dev", PAY_TO: "0xtest" });
+  const cfgN4 = loadConfig({ TOLLWARDEN_MODE: "dev", PAY_TO: "0xtest" });
   const signerN4 = new VerdictSigner(null);
   const seller = "0x" + "7".repeat(40);
   const url = "https://receiptless.example.com/v1/data";
@@ -1495,7 +1495,7 @@ console.log("\n— payment_commitment binding semantics (S1) —");
   // The safety property that makes a shared commitment harmless: outcomes are
   // keyed by scan_id, so one settlement's report cannot land on another's scan.
   const store = new Store(null);
-  const cfgS1 = loadConfig({ PAYSAFE_MODE: "dev", PAY_TO: "0xtest" });
+  const cfgS1 = loadConfig({ TOLLWARDEN_MODE: "dev", PAY_TO: "0xtest" });
   const signerS1 = new VerdictSigner(null);
   const s1 = handleScan("outgoing", { payment: a, expected_price_usd: 0.01, context: { origin: "planning", phase: "pre_sign" } }, cfgS1, store, signerS1, undefined) as { body: any };
   const s2 = handleScan("outgoing", { payment: b, expected_price_usd: 0.01, context: { origin: "planning", phase: "pre_sign" } }, cfgS1, store, signerS1, undefined) as { body: any };
@@ -1610,7 +1610,7 @@ console.log("\n— reputation v2: signed disputes —");
 
   // API handler: rejection names the exact message to sign (self-serve).
   const apiBad = handleReputationDispute({ address: addr, statement: "unsigned statement of innocence", signature: "0x00" }, store);
-  check("handler 400 includes the sign_this hint", apiBad.status === 400 && String((apiBad.body as Record<string, unknown>).sign_this).startsWith("paysafe-dispute-v1|"), apiBad.body);
+  check("handler 400 includes the sign_this hint", apiBad.status === 400 && String((apiBad.body as Record<string, unknown>).sign_this).startsWith("tollwarden-dispute-v1|"), apiBad.body);
   const stmt2 = "Second channel: filing via the HTTP handler works too.";
   const apiOk = handleReputationDispute({ address: addr, statement: stmt2, signature: signDispute(stmt2) }, store);
   check("handler 201 on a valid dispute", apiOk.status === 201);
@@ -1848,7 +1848,7 @@ console.log("\n— x402 trust-provider interface (#2299) —");
   // Clean subject → PASS with the honest "not an endorsement" framing.
   const clean = handleTrustEvaluate(query("0xCleanPayer00000000000000000000000000001"), cfg, store) as { status: number; body: any };
   check("clean payer evaluates PASS", clean.status === 200 && clean.body.decision === "PASS");
-  check("evaluation carries the spec schema + provider fields", clean.body.schema === "x402-trust-evaluation-v0.1" && clean.body.provider === "PaySafe" && typeof clean.body.provider_url === "string");
+  check("evaluation carries the spec schema + provider fields", clean.body.schema === "x402-trust-evaluation-v0.1" && clean.body.provider === "Tollwarden" && typeof clean.body.provider_url === "string");
   check("clean PASS is moderate, not an endorsement", clean.body.score === 70 && clean.body.reason_code === "NO_ADVERSE_HISTORY");
   check("evidence_uri points at the public reputation lookup", String(clean.body.evidence_uri).includes("/v1/reputation/0xcleanpayer"));
 
@@ -2073,7 +2073,7 @@ console.log("\n— human-in-the-loop approvals: webhook URL validation —");
   check("live: .internal rejected", bad("https://hooks.corp.internal/x"));
   check("live: bare hostname rejected", bad("https://intranet/x"));
   check("live: credentials rejected", bad("https://user:pw@hooks.example.com/x"));
-  check("live: public https accepted", (validateWebhookUrl("https://hooks.example.com/paysafe", "live") as { ok: boolean }).ok);
+  check("live: public https accepted", (validateWebhookUrl("https://hooks.example.com/tollwarden", "live") as { ok: boolean }).ok);
   check("dev: loopback http accepted (test/dev path)", (validateWebhookUrl("http://127.0.0.1:9/x", "dev") as { ok: boolean }).ok);
 
   const priv = ["10.1.2.3", "127.0.0.1", "169.254.169.254", "172.16.0.1", "172.31.255.255", "192.168.1.1", "100.64.0.1", "0.0.0.0", "::1", "fe80::1", "fd12::1", "::ffff:10.0.0.1"];
@@ -2094,7 +2094,7 @@ console.log("\n— human-in-the-loop approvals: end-to-end —");
     let data = "";
     req.on("data", (c) => (data += c));
     req.on("end", () => {
-      deliveries.push({ body: data, sig: (req.headers["x-paysafe-signature"] as string) ?? "" });
+      deliveries.push({ body: data, sig: (req.headers["x-tollwarden-signature"] as string) ?? "" });
       res.writeHead(200);
       res.end("ok");
     });

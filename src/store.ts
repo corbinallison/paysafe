@@ -1,4 +1,4 @@
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Lightweight JSON-file-backed store. Zero dependencies.
@@ -89,8 +89,8 @@ export interface KeyRecord {
    * Operator-owned key (the ecosystem scout, internal tooling, CI). Two
    * effects, both deliberate:
    *  - Scans on this key are EXCLUDED from the third-party figures reported by
-   *    GET /v1/stats and the homepage panel, so "agents using PaySafe" never
-   *    silently counts PaySafe using PaySafe.
+   *    GET /v1/stats and the homepage panel, so "agents using Tollwarden" never
+   *    silently counts Tollwarden using Tollwarden.
    *  - It carries standing internal quota, because charging yourself moves USDC
    *    between your own wallets and manufactures settlement volume on your own
    *    route for no information gain.
@@ -133,7 +133,7 @@ export interface ResolvedKey {
 /** Per-key human-in-the-loop approvals config. `secret` signs outbound webhook
  * payloads (HMAC-SHA256) so the receiver can authenticate them. Storing it is
  * a DOCUMENTED EXCEPTION to keys-hashed-at-rest: it must be recoverable to
- * sign each delivery, and it grants no access to PaySafe itself. */
+ * sign each delivery, and it grants no access to Tollwarden itself. */
 export interface ApprovalConfig {
   webhook_url: string;
   format: "json" | "slack";
@@ -177,7 +177,7 @@ export interface ApprovalRecord {
 }
 
 /** Rolling index of recent scans: lets an outcome report be VERIFIED against a
- * scan PaySafe actually performed (scan_id + commitment must both match), and
+ * scan Tollwarden actually performed (scan_id + commitment must both match), and
  * enforces one outcome per scan. Size-capped; outcomes must be reported while
  * the entry is retained. */
 export interface ScanIndexEntry {
@@ -347,7 +347,7 @@ export class Store {
     if (limits) this.limits = { ...this.limits, ...limits };
     if (dataDir) {
       mkdirSync(dataDir, { recursive: true });
-      this.file = join(dataDir, "paysafe-store.json");
+      this.file = join(dataDir, "tollwarden-store.json");
       this.load();
       this.timer = setInterval(() => this.maintain(), 5000);
       this.timer.unref?.();

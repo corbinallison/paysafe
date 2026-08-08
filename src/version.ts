@@ -1,4 +1,4 @@
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Single source of truth for the server/MCP version: the root package.json.
@@ -18,7 +18,7 @@ export const VERSION: string = (() => {
   for (let i = 0; i < 5; i++) {
     try {
       const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as { name?: string; version?: string };
-      if (pkg.name === "paysafe-x402" && typeof pkg.version === "string") return pkg.version;
+      if (pkg.name === "tollwarden" && typeof pkg.version === "string") return pkg.version;
     } catch {
       // keep walking up
     }

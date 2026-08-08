@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
  * Version-consistency gate. Zero dependencies.
@@ -36,7 +36,7 @@ const match = (p, re, what) => {
 /** Every file that carries each package's version. Add new spots HERE. */
 const PACKAGES = {
   server: {
-    registry: { type: "npm", name: "paysafe-x402" },
+    registry: { type: "npm", name: "tollwarden" },
     // Runtime code (serviceInfo, OpenAPI, agent card, McpServer) reads the
     // version from package.json via src/version.ts — only the static files
     // carry copies, and `npm run build` syncs server.json automatically.
@@ -47,47 +47,47 @@ const PACKAGES = {
     }),
   },
   sdk: {
-    registry: { type: "npm", name: "paysafe-x402-client" },
+    registry: { type: "npm", name: "@tollwarden/client" },
     spots: () => ({ "sdk/package.json": jsonVersion("sdk/package.json") }),
   },
   "ai-sdk": {
-    registry: { type: "npm", name: "paysafe-ai-sdk" },
-    spots: () => ({ "integrations/paysafe-ai-sdk/package.json": jsonVersion("integrations/paysafe-ai-sdk/package.json") }),
+    registry: { type: "npm", name: "@tollwarden/ai-sdk" },
+    spots: () => ({ "integrations/ai-sdk/package.json": jsonVersion("integrations/ai-sdk/package.json") }),
   },
   python: {
-    registry: { type: "pypi", name: "paysafe-x402" },
+    registry: { type: "pypi", name: "tollwarden" },
     // pyproject.toml uses hatchling dynamic versioning — __init__.py is the
     // single source; there is nothing else to drift.
     spots: () => ({
-      "sdk-python __version__": match("sdk-python/src/paysafe_x402/__init__.py", /__version__ = "([^"]+)"/, "__version__"),
+      "sdk-python __version__": match("sdk-python/src/tollwarden/__init__.py", /__version__ = "([^"]+)"/, "__version__"),
     }),
   },
   langchain: {
-    registry: { type: "pypi", name: "langchain-paysafe" },
+    registry: { type: "pypi", name: "langchain-tollwarden" },
     spots: () => ({
-      "langchain pyproject.toml": match("integrations/langchain-paysafe/pyproject.toml", /^version = "([^"]+)"/m, "version"),
-      "langchain __version__": match("integrations/langchain-paysafe/src/langchain_paysafe/__init__.py", /__version__ = "([^"]+)"/, "__version__"),
+      "langchain pyproject.toml": match("integrations/langchain-tollwarden/pyproject.toml", /^version = "([^"]+)"/m, "version"),
+      "langchain __version__": match("integrations/langchain-tollwarden/src/langchain_tollwarden/__init__.py", /__version__ = "([^"]+)"/, "__version__"),
     }),
   },
   crewai: {
-    registry: { type: "pypi", name: "crewai-paysafe" },
+    registry: { type: "pypi", name: "crewai-tollwarden" },
     spots: () => ({
-      "crewai pyproject.toml": match("integrations/crewai-paysafe/pyproject.toml", /^version = "([^"]+)"/m, "version"),
-      "crewai __version__": match("integrations/crewai-paysafe/src/crewai_paysafe/__init__.py", /__version__ = "([^"]+)"/, "__version__"),
+      "crewai pyproject.toml": match("integrations/crewai-tollwarden/pyproject.toml", /^version = "([^"]+)"/m, "version"),
+      "crewai __version__": match("integrations/crewai-tollwarden/src/crewai_tollwarden/__init__.py", /__version__ = "([^"]+)"/, "__version__"),
     }),
   },
   nemo: {
-    registry: { type: "pypi", name: "nemo-paysafe" },
+    registry: { type: "pypi", name: "nemo-tollwarden" },
     spots: () => ({
-      "nemo pyproject.toml": match("integrations/nemo-paysafe/pyproject.toml", /^version = "([^"]+)"/m, "version"),
-      "nemo __version__": match("integrations/nemo-paysafe/src/nemo_paysafe/__init__.py", /__version__ = "([^"]+)"/, "__version__"),
+      "nemo pyproject.toml": match("integrations/nemo-tollwarden/pyproject.toml", /^version = "([^"]+)"/m, "version"),
+      "nemo __version__": match("integrations/nemo-tollwarden/src/nemo_tollwarden/__init__.py", /__version__ = "([^"]+)"/, "__version__"),
     }),
   },
   agentkit: {
-    registry: { type: "pypi", name: "agentkit-paysafe" },
+    registry: { type: "pypi", name: "agentkit-tollwarden" },
     spots: () => ({
-      "agentkit pyproject.toml": match("integrations/agentkit-paysafe/pyproject.toml", /^version = "([^"]+)"/m, "version"),
-      "agentkit __version__": match("integrations/agentkit-paysafe/src/agentkit_paysafe/__init__.py", /__version__ = "([^"]+)"/, "__version__"),
+      "agentkit pyproject.toml": match("integrations/agentkit-tollwarden/pyproject.toml", /^version = "([^"]+)"/m, "version"),
+      "agentkit __version__": match("integrations/agentkit-tollwarden/src/agentkit_tollwarden/__init__.py", /__version__ = "([^"]+)"/, "__version__"),
     }),
   },
 };

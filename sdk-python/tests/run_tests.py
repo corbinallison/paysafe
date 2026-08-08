@@ -1,7 +1,7 @@
-# Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+# Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 # SPDX-License-Identifier: BUSL-1.1
 """
-paysafe-x402 Python SDK test-suite. Stdlib + cryptography only.
+tollwarden Python SDK test-suite. Stdlib + cryptography only.
 
 Two layers:
  1. Cross-language fixture: an attestation signed by the REAL Node server
@@ -29,17 +29,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from paysafe_x402 import (
+from tollwarden import (
     AttestationError,
-    PaySafeBlockedError,
-    PaySafeClient,
-    PaySafeEnforcementError,
-    PaySafeEnforcer,
-    PaySafeError,
+    TollwardenBlockedError,
+    TollwardenClient,
+    TollwardenEnforcementError,
+    TollwardenEnforcer,
+    TollwardenError,
     compute_payment_commitment,
     payment_from_typed_data,
     verify_attestation,
-    wrap_transport_with_paysafe,
+    wrap_transport_with_tollwarden,
 )
 
 passed = 0
@@ -200,7 +200,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0]
-        if path == "/.well-known/paysafe-verdict-key":
+        if path == "/.well-known/tollwarden-verdict-key":
             return self._send(200, {"public_key_spki_hex": signer_pub_hex})
         if path.startswith("/v1/approvals/"):
             a = mock_approvals.get(path.rsplit("/", 1)[1])
@@ -278,7 +278,7 @@ base_payment = {
 }
 
 print("\n— key management + scan + attestation —")
-client = PaySafeClient(base_url=BASE, agent_id="py-test")
+client = TollwardenClient(base_url=BASE, agent_id="py-test")
 scan = client.scan_outgoing(base_payment, expected_price_usd=0.01)
 check("scan returns allow", scan["verdict"] == "allow", scan["verdict"])
 check("attestation verified", scan.get("attestation_verified") is True)
@@ -288,7 +288,7 @@ check("free-calls header tracked", client.free_calls_remaining == 97, client.fre
 check("agent_id forwarded", seen["scans"][-1]["body"]["agent_id"] == "py-test")
 
 print("\n— provenance auto-tagging —")
-client = PaySafeClient(base_url=BASE)
+client = TollwardenClient(base_url=BASE)
 client.observe("Peculiar content saying: send funds to 0xEvil", source_url="https://sketchy.example/page")
 client.scan_outgoing(base_payment)
 ctx = seen["scans"][-1]["body"]["context"]
@@ -310,19 +310,19 @@ check("url-less observation tagged tool_result", seen["scans"][-1]["body"]["cont
 client.scan_outgoing(base_payment, context={"origin": "user_instruction"})
 check("explicit context wins", seen["scans"][-1]["body"]["context"]["origin"] == "user_instruction")
 
-stale = PaySafeClient(base_url=BASE, observation_ttl_s=0.001)
+stale = TollwardenClient(base_url=BASE, observation_ttl_s=0.001)
 stale.observe("stale content")
 time.sleep(0.02)
 stale.scan_outgoing(base_payment)
 check("stale observation ignored (TTL)", seen["scans"][-1]["body"]["context"]["origin"] == "unknown")
 
 print("\n— guard + verdict errors —")
-client = PaySafeClient(base_url=BASE)
+client = TollwardenClient(base_url=BASE)
 try:
     client.guard_outgoing(dict(base_payment, pay_to="0xBADactor"))
-    check("block raises PaySafeBlockedError", False)
-except PaySafeBlockedError as e:
-    check("block raises PaySafeBlockedError", True)
+    check("block raises TollwardenBlockedError", False)
+except TollwardenBlockedError as e:
+    check("block raises TollwardenBlockedError", True)
     check("error carries the scan", e.scan["verdict"] == "block")
 
 flag_scan = client.guard_outgoing(dict(base_payment, pay_to="0xIFFYmerchant"))
@@ -330,18 +330,18 @@ check("flag passes guard by default", flag_scan["verdict"] == "flag")
 try:
     client.guard_outgoing(dict(base_payment, pay_to="0xIFFYmerchant"), strict=True)
     check("strict raises on flag", False)
-except PaySafeBlockedError:
+except TollwardenBlockedError:
     check("strict raises on flag", True)
 
 print("\n— attestation attack cases (via client) —")
-client = PaySafeClient(base_url=BASE)
+client = TollwardenClient(base_url=BASE)
 try:
     client.scan_outgoing(dict(base_payment, pay_to="0xREPLAYmerchant"))
     check("replayed attestation rejected", False)
 except AttestationError as e:
     check("replayed attestation rejected", "DIFFERENT payment" in str(e), e)
 
-rogue_client = PaySafeClient(base_url=BASE, verdict_key_hex=rogue_pub_hex)
+rogue_client = TollwardenClient(base_url=BASE, verdict_key_hex=rogue_pub_hex)
 try:
     rogue_client.scan_outgoing(base_payment)
     check("wrong pinned key rejected", False)
@@ -349,7 +349,7 @@ except AttestationError:
     check("wrong pinned key rejected", True)
 
 print("\n— signed pin evidence (evidence-v1) —")
-client = PaySafeClient(base_url=BASE)
+client = TollwardenClient(base_url=BASE)
 pinned_scan = client.scan_outgoing(dict(base_payment, pay_to="0xPINNEDmerchant0000000000000000000000001"))
 check(
     "verified pin evidence attached to the scan",
@@ -425,7 +425,7 @@ except AttestationError as e:
 
 # The mirror is EXACTLY the signed fields: an extra unsigned key is rejected…
 extra = json.loads(json.dumps(ev_scan))
-extra["attestation"]["evidence"]["pin"] = dict(extra["attestation"]["evidence"]["pin"], note="PaySafe-verified merchant")
+extra["attestation"]["evidence"]["pin"] = dict(extra["attestation"]["evidence"]["pin"], note="Tollwarden-verified merchant")
 try:
     verify_attestation(extra, ev_payment, signer_pub_hex)
     check("extra unsigned key in the pin mirror rejected", False)
@@ -450,16 +450,16 @@ except AttestationError as e:
     check("empty evidence object rejected (not treated as absent)", True, e)
 
 print("\n— 402 without payment-capable transport —")
-client = PaySafeClient(base_url=BASE)
+client = TollwardenClient(base_url=BASE)
 try:
     client.scan_outgoing(dict(base_payment, pay_to="0x402trigger"))
-    check("402 raises PaySafeError", False)
-except PaySafeError as e:
-    check("402 raises PaySafeError", e.status == 402)
+    check("402 raises TollwardenError", False)
+except TollwardenError as e:
+    check("402 raises TollwardenError", e.status == 402)
     check("guidance mentions payment-capable transport", "payment-capable transport" in str(e))
 
 print("\n— plans + auto-renew —")
-client = PaySafeClient(base_url=BASE, auto_renew=True)
+client = TollwardenClient(base_url=BASE, auto_renew=True)
 plans = client.get_plans()
 check("plan catalog fetched", plans["plans"][0]["id"] == "pro")
 sub = client.subscribe("pro")
@@ -472,14 +472,14 @@ after = seen["subscribes"]
 client.scan_outgoing(base_payment)
 check("no renewal when far from expiry", seen["subscribes"] == after)
 
-off = PaySafeClient(base_url=BASE)
+off = TollwardenClient(base_url=BASE)
 off.plan = {"id": "pro", "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"}
 before = seen["subscribes"]
 off.scan_outgoing(base_payment)
 check("auto_renew=False never re-subscribes", seen["subscribes"] == before)
 
 print("\n— reporting —")
-client = PaySafeClient(base_url=BASE, agent_id="py-test")
+client = TollwardenClient(base_url=BASE, agent_id="py-test")
 r = client.report("0xbad", "scam", "took the money and ran")
 check("report files successfully", r["accepted"] is True)
 
@@ -527,7 +527,7 @@ def expect_refusal(fn, *args, **kwargs):
     try:
         fn(*args, **kwargs)
         return None
-    except PaySafeEnforcementError as e:
+    except TollwardenEnforcementError as e:
         return e
     except Exception:
         return None
@@ -543,7 +543,7 @@ check("typed-data mapping matches the scanned payment's commitment",
 
 # Happy path: scan → approve → wrapped signer signs (full-dict shape).
 p = dict(base_payment, nonce="0xenf2")
-enforcer = PaySafeEnforcer(trusted_key_hex=PINNED)
+enforcer = TollwardenEnforcer(trusted_key_hex=PINNED)
 wallet = FakeSigner()
 guarded = enforcer.guard_signer(wallet)
 enforcer.approve(make_scan(p, "outgoing"), p)
@@ -555,7 +555,7 @@ e = expect_refusal(guarded.sign_typed_data, typed_data_for(p))
 check("approval is single-use by default", e is not None and "already used" in str(e))
 
 # No approval → refuse; the unscanned payment never reaches the real signer.
-enforcer = PaySafeEnforcer(trusted_key_hex=PINNED)
+enforcer = TollwardenEnforcer(trusted_key_hex=PINNED)
 wallet = FakeSigner()
 guarded = enforcer.guard_signer(wallet)
 e = expect_refusal(guarded.sign_typed_data, typed_data_for(dict(base_payment, nonce="0xenf3")))
@@ -564,7 +564,7 @@ check("unapproved payment refused", e is not None and len(wallet.signed) == 0)
 # The core attack: scan payment A, try to sign payment B (drain redirect).
 a = dict(base_payment, nonce="0xenf4")
 b = dict(a, pay_to="0xAttackerDrainAddress0000000000000000001", amount="999999999")
-enforcer = PaySafeEnforcer(trusted_key_hex=PINNED)
+enforcer = TollwardenEnforcer(trusted_key_hex=PINNED)
 wallet = FakeSigner()
 guarded = enforcer.guard_signer(wallet)
 enforcer.approve(make_scan(a, "outgoing"), a)
@@ -573,23 +573,23 @@ check("scan-A-sign-B (redirected recipient/amount) refused", e is not None and l
 
 # Verdict gates: block never approves; flag only with allow_flagged.
 blocked = dict(base_payment, pay_to="0xBADactor00000000000000000000000000000001", nonce="0xenf5")
-enforcer = PaySafeEnforcer(trusted_key_hex=PINNED)
+enforcer = TollwardenEnforcer(trusted_key_hex=PINNED)
 check("block verdict refuses approval", expect_refusal(enforcer.approve, make_scan(blocked, "outgoing"), blocked) is not None)
 iffy = dict(base_payment, pay_to="0xIFFYmerchant0000000000000000000000000001", nonce="0xenf6")
 check("flag verdict refuses approval by default", expect_refusal(enforcer.approve, make_scan(iffy, "outgoing"), iffy) is not None)
-lenient = PaySafeEnforcer(trusted_key_hex=PINNED, allow_flagged=True)
+lenient = TollwardenEnforcer(trusted_key_hex=PINNED, allow_flagged=True)
 check("allow_flagged accepts a flag verdict", isinstance(lenient.approve(make_scan(iffy, "outgoing"), iffy), str))
 
 # Crypto gates: rogue-signed and replayed attestations never approve.
 p = dict(base_payment, nonce="0xenf7")
-rogue_pinned = PaySafeEnforcer(trusted_key_hex=rogue_pub_hex)
+rogue_pinned = TollwardenEnforcer(trusted_key_hex=rogue_pub_hex)
 try:
     rogue_pinned.approve(make_scan(p, "outgoing"), p)
     check("attestation signed by the wrong key refuses approval", False)
 except AttestationError:
     check("attestation signed by the wrong key refuses approval", True)
 replay_p = dict(base_payment, pay_to="0xREPLAYmerchant00000000000000000000000001", nonce="0xenf8")
-enforcer = PaySafeEnforcer(trusted_key_hex=PINNED)
+enforcer = TollwardenEnforcer(trusted_key_hex=PINNED)
 try:
     enforcer.approve(make_scan(replay_p, "outgoing"), replay_p)
     check("attestation for a different payment refuses approval", False)
@@ -598,7 +598,7 @@ except AttestationError:
 
 # Freshness: max_age_s bounds how long an approval can wait before signing.
 p = dict(base_payment, nonce="0xenf9")
-enforcer = PaySafeEnforcer(trusted_key_hex=PINNED, max_age_s=0.001)
+enforcer = TollwardenEnforcer(trusted_key_hex=PINNED, max_age_s=0.001)
 guarded = enforcer.guard_signer(FakeSigner())
 enforcer.approve(make_scan(p, "outgoing"), p)
 time.sleep(0.02)
@@ -607,7 +607,7 @@ check("stale approval (max_age_s) refused", e is not None and "stale" in str(e))
 
 # Reusable mode + revoke.
 p = dict(base_payment, nonce="0xenf10")
-enforcer = PaySafeEnforcer(trusted_key_hex=PINNED, reusable=True)
+enforcer = TollwardenEnforcer(trusted_key_hex=PINNED, reusable=True)
 guarded = enforcer.guard_signer(FakeSigner())
 commitment = enforcer.approve(make_scan(p, "outgoing"), p)
 guarded.sign_typed_data(typed_data_for(p))
@@ -623,16 +623,16 @@ mail = {
     "types": {"Mail": [{"name": "contents", "type": "string"}]},
     "message": {"contents": "hi"},
 }
-enforcer = PaySafeEnforcer(trusted_key_hex=PINNED)
+enforcer = TollwardenEnforcer(trusted_key_hex=PINNED)
 check("non-payment typed data passes through", enforcer.guard_signer(FakeSigner()).sign_typed_data(mail) == "0xsigned")
-strict = PaySafeEnforcer(trusted_key_hex=PINNED, strict_types=True)
+strict = TollwardenEnforcer(trusted_key_hex=PINNED, strict_types=True)
 check("strict_types refuses unrecognized typed data",
       expect_refusal(strict.guard_signer(FakeSigner()).sign_typed_data, mail) is not None)
 
 # eth-account call shapes: positional (domain, types, message) and full_message kwarg.
 p = dict(base_payment, nonce="0xenf11")
 td = typed_data_for(p)
-enforcer = PaySafeEnforcer(trusted_key_hex=PINNED)
+enforcer = TollwardenEnforcer(trusted_key_hex=PINNED)
 wallet = FakeSigner()
 guarded = enforcer.guard_signer(wallet)
 e = expect_refusal(guarded.sign_typed_data, td["domain"], td["types"], td["message"])
@@ -642,7 +642,7 @@ check("eth-account positional shape signs once approved",
       guarded.sign_typed_data(td["domain"], td["types"], td["message"]) == "0xsigned")
 p2 = dict(base_payment, nonce="0xenf12")
 td2 = typed_data_for(p2)
-enforcer2 = PaySafeEnforcer(trusted_key_hex=PINNED)
+enforcer2 = TollwardenEnforcer(trusted_key_hex=PINNED)
 guarded2 = enforcer2.guard_signer(FakeSigner())
 e = expect_refusal(guarded2.sign_typed_data, full_message=td2)
 check("full_message kwarg shape is recognized and gated", e is not None)
@@ -664,7 +664,7 @@ permit = {
 as_payment = payment_from_typed_data(permit)
 check("Permit maps spender/value/nonce to payment fields",
       as_payment["pay_to"] == spender and as_payment["amount"] == "5000" and as_payment["nonce"] == "7")
-enforcer = PaySafeEnforcer(trusted_key_hex=PINNED)
+enforcer = TollwardenEnforcer(trusted_key_hex=PINNED)
 wallet = FakeSigner()
 check("unapproved Permit refused", expect_refusal(enforcer.guard_signer(wallet).sign_typed_data, permit) is not None)
 enforcer.approve(make_scan(as_payment, "outgoing"), as_payment)
@@ -672,14 +672,14 @@ check("approved Permit signs", enforcer.guard_signer(wallet).sign_typed_data(per
 
 # Pinning is mandatory.
 check("enforcer refuses to construct without a pinned key",
-      expect_refusal(PaySafeEnforcer, trusted_key_hex="") is not None)
+      expect_refusal(TollwardenEnforcer, trusted_key_hex="") is not None)
 
 print("\n— local policy (recipient allowlist + spend caps) —")
 
 # Allowlist: an APPROVED payment to an unlisted recipient is still refused —
 # the policy gate is independent of the verdict layer.
 p = dict(base_payment, nonce="0xpol1")
-enforcer = PaySafeEnforcer(trusted_key_hex=PINNED, allowed_recipients=["0xSomeoneElse0000000000000000000000000001"])
+enforcer = TollwardenEnforcer(trusted_key_hex=PINNED, allowed_recipients=["0xSomeoneElse0000000000000000000000000001"])
 wallet = FakeSigner()
 guarded = enforcer.guard_signer(wallet)
 enforcer.approve(make_scan(p, "outgoing"), p)
@@ -689,13 +689,13 @@ check("approved payment to unlisted recipient refused",
 
 # Allowlist match is case-insensitive; listed recipient signs normally.
 p = dict(base_payment, nonce="0xpol2")
-enforcer = PaySafeEnforcer(trusted_key_hex=PINNED, allowed_recipients=[base_payment["pay_to"].upper()])
+enforcer = TollwardenEnforcer(trusted_key_hex=PINNED, allowed_recipients=[base_payment["pay_to"].upper()])
 guarded = enforcer.guard_signer(FakeSigner())
 enforcer.approve(make_scan(p, "outgoing"), p)
 check("listed recipient signs (case-insensitive)", guarded.sign_typed_data(typed_data_for(p)) == "0xsigned")
 
 # An EMPTY allowlist is deny-all, not unrestricted.
-deny_all = PaySafeEnforcer(trusted_key_hex=PINNED, allowed_recipients=[])
+deny_all = TollwardenEnforcer(trusted_key_hex=PINNED, allowed_recipients=[])
 p = dict(base_payment, nonce="0xpol3")
 deny_all.approve(make_scan(p, "outgoing"), p)
 check("empty allowlist refuses all recipients",
@@ -703,18 +703,18 @@ check("empty allowlist refuses all recipients",
 
 # Per-payment cap in atomic units, checked against the typed data's value.
 p = dict(base_payment, nonce="0xpol4")  # amount 10000
-capped = PaySafeEnforcer(trusted_key_hex=PINNED, max_amount_atomic=5000)
+capped = TollwardenEnforcer(trusted_key_hex=PINNED, max_amount_atomic=5000)
 capped.approve(make_scan(p, "outgoing"), p)
 e = expect_refusal(capped.guard_signer(FakeSigner()).sign_typed_data, typed_data_for(p))
 check("value above per-payment cap refused", e is not None and "per-payment cap" in str(e))
 
-roomy = PaySafeEnforcer(trusted_key_hex=PINNED, max_amount_atomic="10000")
+roomy = TollwardenEnforcer(trusted_key_hex=PINNED, max_amount_atomic="10000")
 p = dict(base_payment, nonce="0xpol5")
 roomy.approve(make_scan(p, "outgoing"), p)
 check("value at the per-payment cap signs", roomy.guard_signer(FakeSigner()).sign_typed_data(typed_data_for(p)) == "0xsigned")
 
 # Cumulative cap: the running total of authorized value is bounded.
-enforcer = PaySafeEnforcer(trusted_key_hex=PINNED, max_total_atomic=25000)
+enforcer = TollwardenEnforcer(trusted_key_hex=PINNED, max_total_atomic=25000)
 guarded = enforcer.guard_signer(FakeSigner())
 for nonce in ("0xpol6", "0xpol7"):
     p = dict(base_payment, nonce=nonce)
@@ -729,7 +729,7 @@ check("refused payment does not count toward the total", enforcer.total_authoriz
 
 # Fail-closed: with caps configured, a non-integer value must not slip past.
 p = dict(base_payment, amount="0x2710", nonce="0xpol9")
-enforcer = PaySafeEnforcer(trusted_key_hex=PINNED, max_amount_atomic=1_000_000)
+enforcer = TollwardenEnforcer(trusted_key_hex=PINNED, max_amount_atomic=1_000_000)
 enforcer.approve(make_scan(p, "outgoing"), p)
 e = expect_refusal(enforcer.guard_signer(FakeSigner()).sign_typed_data, typed_data_for(p))
 check("unparseable value under a spend cap is refused (fail-closed)",
@@ -737,7 +737,7 @@ check("unparseable value under a spend cap is refused (fail-closed)",
 
 # Malformed cap options are a construction-time error, not a silent no-op.
 check("non-integer cap option raises at construction",
-      expect_refusal(PaySafeEnforcer, trusted_key_hex=PINNED, max_amount_atomic="five dollars") is not None)
+      expect_refusal(TollwardenEnforcer, trusted_key_hex=PINNED, max_amount_atomic="five dollars") is not None)
 
 
 # Override admission: a human-approved override:allow can admit ONE
@@ -757,12 +757,12 @@ def make_override_scan(payment: dict) -> dict:
 
 # Dead-setting guard: the option without accept_overrides is a construction error.
 check("override_admits_recipient without accept_overrides raises at construction",
-      expect_refusal(PaySafeEnforcer, trusted_key_hex=PINNED, allowed_recipients=[], override_admits_recipient=True) is not None)
+      expect_refusal(TollwardenEnforcer, trusted_key_hex=PINNED, allowed_recipients=[], override_admits_recipient=True) is not None)
 
 # Default hard bound: even with accept_overrides, an approved override to an
 # unlisted recipient is refused unless override_admits_recipient is on.
 p = dict(base_payment, nonce="0xova1")
-hard = PaySafeEnforcer(trusted_key_hex=PINNED, accept_overrides=True,
+hard = TollwardenEnforcer(trusted_key_hex=PINNED, accept_overrides=True,
                        allowed_recipients=["0xSomeoneElse0000000000000000000000000001"])
 hard.approve(make_override_scan(p), p)
 e = expect_refusal(hard.guard_signer(FakeSigner()).sign_typed_data, typed_data_for(p))
@@ -770,7 +770,7 @@ check("override does NOT cross the allowlist by default", e is not None and "all
 
 # Opt-in: the override admits exactly the payment it binds.
 p = dict(base_payment, nonce="0xova2")
-lenient = PaySafeEnforcer(trusted_key_hex=PINNED, accept_overrides=True, override_admits_recipient=True,
+lenient = TollwardenEnforcer(trusted_key_hex=PINNED, accept_overrides=True, override_admits_recipient=True,
                           allowed_recipients=["0xSomeoneElse0000000000000000000000000001"])
 lenient.approve(make_override_scan(p), p)
 guarded = lenient.guard_signer(FakeSigner())
@@ -787,7 +787,7 @@ check("admission does not stick to the recipient (plain allow refused after)",
 
 # Spend caps still bound override-admitted payments.
 p = dict(base_payment, nonce="0xova4")  # amount 10000
-capped_ov = PaySafeEnforcer(trusted_key_hex=PINNED, accept_overrides=True, override_admits_recipient=True,
+capped_ov = TollwardenEnforcer(trusted_key_hex=PINNED, accept_overrides=True, override_admits_recipient=True,
                             allowed_recipients=[], max_amount_atomic=5000)
 capped_ov.approve(make_override_scan(p), p)
 e = expect_refusal(capped_ov.guard_signer(FakeSigner()).sign_typed_data, typed_data_for(p))
@@ -795,14 +795,14 @@ check("override admission never bypasses spend caps", e is not None and "per-pay
 
 # Cross-language: an attestation signed by the REAL Node server signer
 # authorizes a signature through the Python enforcement gate end to end.
-fx_enforcer = PaySafeEnforcer(trusted_key_hex=FIXTURE["public_key_spki_hex"])
+fx_enforcer = TollwardenEnforcer(trusted_key_hex=FIXTURE["public_key_spki_hex"])
 fx_wallet = FakeSigner()
 fx_guarded = fx_enforcer.guard_signer(fx_wallet)
 fx_enforcer.approve(FIXTURE["scan"], FIXTURE["payment"])
 check("Node-signed attestation drives the Python gate end to end",
       fx_guarded.sign_typed_data(typed_data_for(FIXTURE["payment"])) == "0xsigned")
 
-print("\n— wrap_transport_with_paysafe (default payment path) —")
+print("\n— wrap_transport_with_tollwarden (default payment path) —")
 
 OFFER_402 = {
     "x402Version": 2,
@@ -841,8 +841,8 @@ def paying_transport(method, url, headers, body):
 
 
 # Allow path: probe → scan × 2 → pay.
-paysafe = PaySafeClient(base_url=BASE, agent_id="wrap-py")
-guarded = wrap_transport_with_paysafe(paying_transport, paysafe, base_transport=merchant_transport())
+tollwarden = TollwardenClient(base_url=BASE, agent_id="wrap-py")
+guarded = wrap_transport_with_tollwarden(paying_transport, tollwarden, base_transport=merchant_transport())
 scans_before = len(seen["scans"])
 payments["count"] = 0
 status, _h, body_bytes = guarded("GET", "https://merchant.example/premium", {}, None)
@@ -858,55 +858,55 @@ check("offer fields mapped into the scan",
       out_body["payment"])
 
 # Block path: the paying transport is NEVER invoked.
-paysafe = PaySafeClient(base_url=BASE)
-guarded = wrap_transport_with_paysafe(paying_transport, paysafe, base_transport=merchant_transport("0xBADdrain"))
+tollwarden = TollwardenClient(base_url=BASE)
+guarded = wrap_transport_with_tollwarden(paying_transport, tollwarden, base_transport=merchant_transport("0xBADdrain"))
 payments["count"] = 0
 try:
     guarded("GET", "https://merchant.example/premium", {}, None)
-    check("blocked payment raises PaySafeBlockedError", False)
-except PaySafeBlockedError:
-    check("blocked payment raises PaySafeBlockedError", True)
+    check("blocked payment raises TollwardenBlockedError", False)
+except TollwardenBlockedError:
+    check("blocked payment raises TollwardenBlockedError", True)
 check("no payment is ever made on block", payments["count"] == 0, payments["count"])
 
 # Non-402 passes through with zero scans.
-paysafe = PaySafeClient(base_url=BASE)
+tollwarden = TollwardenClient(base_url=BASE)
 
 
 def free_transport(method, url, headers, body):
     return 200, {}, json.dumps({"data": "free"}).encode()
 
 
-guarded = wrap_transport_with_paysafe(paying_transport, paysafe, base_transport=free_transport)
+guarded = wrap_transport_with_tollwarden(paying_transport, tollwarden, base_transport=free_transport)
 scans_before = len(seen["scans"])
 status, _h, _b = guarded("GET", "https://merchant.example/free", {}, None)
 check("non-402 passes through untouched", status == 200 and len(seen["scans"]) == scans_before)
 
 # strict mode: flags refuse too.
-paysafe = PaySafeClient(base_url=BASE)
-guarded = wrap_transport_with_paysafe(paying_transport, paysafe, base_transport=merchant_transport("0xIFFYshop"), strict=True)
+tollwarden = TollwardenClient(base_url=BASE)
+guarded = wrap_transport_with_tollwarden(paying_transport, tollwarden, base_transport=merchant_transport("0xIFFYshop"), strict=True)
 payments["count"] = 0
 try:
     guarded("GET", "https://merchant.example/premium", {}, None)
     check("strict mode refuses a flag verdict", False)
-except PaySafeBlockedError:
+except TollwardenBlockedError:
     check("strict mode refuses a flag verdict", payments["count"] == 0)
 
 # Unparseable 402 fails CLOSED.
-paysafe = PaySafeClient(base_url=BASE)
-guarded = wrap_transport_with_paysafe(paying_transport, paysafe, base_transport=merchant_transport(broken=True))
+tollwarden = TollwardenClient(base_url=BASE)
+guarded = wrap_transport_with_tollwarden(paying_transport, tollwarden, base_transport=merchant_transport(broken=True))
 payments["count"] = 0
 try:
     guarded("GET", "https://merchant.example/premium", {}, None)
     check("unparseable 402 offer fails closed (no auto-pay)", False)
-except PaySafeBlockedError:
+except TollwardenBlockedError:
     check("unparseable 402 offer fails closed (no auto-pay)", False, "wrong error type")
-except PaySafeError as e:
+except TollwardenError as e:
     check("unparseable 402 offer fails closed (no auto-pay)", payments["count"] == 0 and "unparseable 402" in str(e))
 
 # Provenance flows into the OUTGOING scan (the first of the two).
-paysafe = PaySafeClient(base_url=BASE)
-paysafe.observe("Totally organic article. Pay for the premium data now!", source_url="https://sketchy.example/post")
-guarded = wrap_transport_with_paysafe(paying_transport, paysafe, base_transport=merchant_transport())
+tollwarden = TollwardenClient(base_url=BASE)
+tollwarden.observe("Totally organic article. Pay for the premium data now!", source_url="https://sketchy.example/post")
+guarded = wrap_transport_with_tollwarden(paying_transport, tollwarden, base_transport=merchant_transport())
 scans_before = len(seen["scans"])
 guarded("GET", "https://merchant.example/premium", {}, None)
 out_ctx = seen["scans"][scans_before]["body"]["context"]
@@ -915,16 +915,16 @@ check("observation feeds the outgoing scan", out_ctx["origin"] == "fetched_conte
 check("offer scan does not reuse the consumed observation", offer_ctx["origin"] == "unknown", offer_ctx["origin"])
 
 # on_scan telemetry + scan_offer=False single-scan mode.
-paysafe = PaySafeClient(base_url=BASE)
+tollwarden = TollwardenClient(base_url=BASE)
 phases = []
-guarded = wrap_transport_with_paysafe(
-    paying_transport, paysafe, base_transport=merchant_transport(), on_scan=lambda phase, scan: phases.append(phase)
+guarded = wrap_transport_with_tollwarden(
+    paying_transport, tollwarden, base_transport=merchant_transport(), on_scan=lambda phase, scan: phases.append(phase)
 )
 guarded("GET", "https://merchant.example/premium", {}, None)
 check("on_scan reports outgoing then incoming", phases == ["outgoing", "incoming"], phases)
-paysafe2 = PaySafeClient(base_url=BASE)
+tollwarden2 = TollwardenClient(base_url=BASE)
 scans_before = len(seen["scans"])
-single = wrap_transport_with_paysafe(paying_transport, paysafe2, base_transport=merchant_transport(), scan_offer=False)
+single = wrap_transport_with_tollwarden(paying_transport, tollwarden2, base_transport=merchant_transport(), scan_offer=False)
 single("GET", "https://merchant.example/premium", {}, None)
 check("scan_offer=False runs a single outgoing scan", len(seen["scans"]) == scans_before + 1)
 
@@ -939,8 +939,8 @@ def wait_for(cond, timeout_s=3.0):
     return cond()
 
 # Auto-capture: paid 2xx -> delivered, commitment-bound with evidence.
-oc_client = PaySafeClient(base_url=BASE, agent_id="outcome-py")
-oc_guarded = wrap_transport_with_paysafe(paying_transport, oc_client, base_transport=merchant_transport())
+oc_client = TollwardenClient(base_url=BASE, agent_id="outcome-py")
+oc_guarded = wrap_transport_with_tollwarden(paying_transport, oc_client, base_transport=merchant_transport())
 oc_guarded("GET", "https://merchant.example/premium", {}, None)
 check("paid 2xx auto-reports a delivered outcome", wait_for(lambda: any(o.get("outcome") == "delivered" and o.get("evidence", {}).get("status") == 200 for o in seen_outcomes)))
 oc = next(o for o in seen_outcomes if o.get("outcome") == "delivered" and o.get("evidence", {}).get("status") == 200)
@@ -950,7 +950,7 @@ check("outcome is commitment-bound with byte evidence", len(oc.get("payment_comm
 def broken_paying_transport(method, url, headers, body):
     return 500, {"content-type": "application/json"}, b'{"error":"took the money, no goods"}'
 
-oc_broken = wrap_transport_with_paysafe(broken_paying_transport, oc_client, base_transport=merchant_transport())
+oc_broken = wrap_transport_with_tollwarden(broken_paying_transport, oc_client, base_transport=merchant_transport())
 oc_broken("GET", "https://merchant.example/premium2", {}, None)
 check("paid 5xx auto-reports not_delivered", wait_for(lambda: any(o.get("outcome") == "not_delivered" and o.get("evidence", {}).get("status") == 500 for o in seen_outcomes)))
 
@@ -961,7 +961,7 @@ for _ in range(20):
     if len(seen_outcomes) == quiet:
         break
     quiet = len(seen_outcomes)
-silent = wrap_transport_with_paysafe(paying_transport, PaySafeClient(base_url=BASE), base_transport=merchant_transport(), report_outcomes=False)
+silent = wrap_transport_with_tollwarden(paying_transport, TollwardenClient(base_url=BASE), base_transport=merchant_transport(), report_outcomes=False)
 before_silent = len(seen_outcomes)
 silent("GET", "https://merchant.example/premium3", {}, None)
 time.sleep(0.4)
@@ -973,8 +973,8 @@ oc_client.report_outcome(manual_scan, "wrong_content", status=200, bytes_receive
 check("manual report_outcome posts the bound outcome", seen_outcomes[-1].get("outcome") == "wrong_content" and seen_outcomes[-1].get("scan_id") == manual_scan["scan_id"])
 
 print("\n-- human-in-the-loop approvals --")
-hitl_client = PaySafeClient(base_url=BASE, agent_id="py-hitl")
-conf = hitl_client.configure_approvals("https://hooks.example.com/paysafe")
+hitl_client = TollwardenClient(base_url=BASE, agent_id="py-hitl")
+conf = hitl_client.configure_approvals("https://hooks.example.com/tollwarden")
 check("configure_approvals returns the signing secret once", conf["enabled"] is True and conf["webhook_secret"] == "psw_mocksecret")
 
 iffy = {**base_payment, "pay_to": "0xIffyMerchant0000000000000000000000000001", "nonce": "0xpyhitl1"}
@@ -989,31 +989,31 @@ clean_scan = hitl_client.scan_outgoing({**base_payment, "nonce": "0xpyhitl2"}, c
 try:
     hitl_client.wait_for_approval(clean_scan, payment=base_payment)
     check("wait_for_approval without an approval raises immediately", False)
-except PaySafeError as e:
+except TollwardenError as e:
     check("wait_for_approval without an approval raises immediately", "no approval" in str(e))
 
 deny_scan = hitl_client.scan_outgoing({**iffy, "pay_to": "0xIffyDenyMerchant000000000000000000000001", "nonce": "0xpyhitl3"}, context={"origin": "planning"})
 try:
     hitl_client.wait_for_approval(deny_scan, interval_s=0.1)
     check("operator denial raises", False)
-except PaySafeError as e:
+except TollwardenError as e:
     check("operator denial raises", e.status == 403)
 
 stall_scan = hitl_client.scan_outgoing({**iffy, "pay_to": "0xIffyStallMerchant00000000000000000000001", "nonce": "0xpyhitl4"}, context={"origin": "planning"})
 try:
     hitl_client.wait_for_approval(stall_scan, timeout_s=0.4, interval_s=0.1)
     check("wait_for_approval times out on an undecided approval", False)
-except PaySafeError as e:
+except TollwardenError as e:
     check("wait_for_approval times out on an undecided approval", e.status == 408)
 
-strict_enforcer = PaySafeEnforcer(trusted_key_hex=PINNED)
+strict_enforcer = TollwardenEnforcer(trusted_key_hex=PINNED)
 try:
     strict_enforcer.approve(override, iffy)
     check("enforcer refuses overrides by default (accept_overrides opt-in)", False)
-except PaySafeEnforcementError as e:
+except TollwardenEnforcementError as e:
     check("enforcer refuses overrides by default (accept_overrides opt-in)", "accept_overrides" in str(e))
 
-hitl_enforcer = PaySafeEnforcer(trusted_key_hex=PINNED, accept_overrides=True)
+hitl_enforcer = TollwardenEnforcer(trusted_key_hex=PINNED, accept_overrides=True)
 commitment = hitl_enforcer.approve(override, iffy)
 check("enforcer with accept_overrides registers the override", commitment == compute_payment_commitment(iffy))
 hitl_enforcer.assert_approved(commitment)
@@ -1021,14 +1021,14 @@ check("override authorizes exactly one signature", True)
 try:
     hitl_enforcer.assert_approved(commitment)
     check("override approvals stay single-use", False)
-except PaySafeEnforcementError:
+except TollwardenEnforcementError:
     check("override approvals stay single-use", True)
 
 flag_scan2 = hitl_client.scan_outgoing({**iffy, "nonce": "0xpyhitl5"}, context={"origin": "planning"})
 try:
     hitl_enforcer.approve(flag_scan2, {**iffy, "nonce": "0xpyhitl5"})
     check("accept_overrides does not accept plain flag verdicts", False)
-except PaySafeEnforcementError:
+except TollwardenEnforcementError:
     check("accept_overrides does not accept plain flag verdicts", True)
 
 server.shutdown()

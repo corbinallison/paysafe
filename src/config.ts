@@ -1,8 +1,8 @@
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
-/** PaySafe configuration, driven by environment variables. */
+/** Tollwarden configuration, driven by environment variables. */
 
-export interface PaySafeConfig {
+export interface TollwardenConfig {
   port: number;
   /** "live" = x402 payments enforced; "dev" = everything free (local testing) */
   mode: "live" | "dev";
@@ -20,7 +20,7 @@ export interface PaySafeConfig {
   maxPaymentUsd: number;
   nonceTtlHours: number;
   dataDir: string;
-  publicBaseUrl: string;     // e.g. https://paysafe.onrender.com
+  publicBaseUrl: string;     // e.g. https://tollwarden.onrender.com
 
   // --- zero-latency hardening tier ---
   /** Scans per agent per minute: flag at this rate, block at 2x */
@@ -43,7 +43,7 @@ export interface PaySafeConfig {
   scoutScore: boolean;
   /** ScoutScore API base URL (tests point this at a mock) */
   scoutScoreUrl: string;
-  /** Ed25519-sign verdicts so wallets can require a PaySafe allow-verdict */
+  /** Ed25519-sign verdicts so wallets can require a Tollwarden allow-verdict */
   verdictSigning: boolean;
   /** Path to a JSON array of known-bad addresses (default: <dataDir>/badlist.json) */
   badlistPath: string | null;
@@ -114,8 +114,9 @@ function num(v: string | undefined, d: number): number {
   return Number.isFinite(n) ? n : d;
 }
 
-export function loadConfig(env: Record<string, string | undefined> = process.env): PaySafeConfig {
-  const mode = env.PAYSAFE_MODE === "dev" ? "dev" : "live";
+export function loadConfig(env: Record<string, string | undefined> = process.env): TollwardenConfig {
+  // PAYSAFE_MODE is the pre-rename name — existing deployments still set it.
+  const mode = (env.TOLLWARDEN_MODE ?? env.PAYSAFE_MODE) === "dev" ? "dev" : "live";
   const dataDir = env.DATA_DIR ?? "./data";
   return {
     port: num(env.PORT, 4021),

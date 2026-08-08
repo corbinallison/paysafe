@@ -1,11 +1,11 @@
-// Copyright (c) 2026 PaySafe, LLC. All rights reserved.
+// Copyright (c) 2026 Tollwarden, LLC. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 /**
- * /llms.txt — agent- and LLM-facing description of PaySafe.
+ * /llms.txt — agent- and LLM-facing description of Tollwarden.
  *
  * This is the discovery surface written FOR machines: a plain-text page an
  * agent (or an LLM helping a developer wire one up) can read to learn what
- * PaySafe is, exactly when to call it, and the minimal integration. It is
+ * Tollwarden is, exactly when to call it, and the minimal integration. It is
  * phrased around the agent's INTENT ("before you settle a payment, check it")
  * rather than a feature list, so semantic search over it matches the questions
  * agents actually have.
@@ -13,15 +13,15 @@
  * Served at GET /llms.txt and GET /.well-known/llms.txt. Generated from config
  * so pricing/free-tier stay accurate.
  */
-import type { PaySafeConfig } from "./config.ts";
+import type { TollwardenConfig } from "./config.ts";
 
-export function llmsTxt(cfg: PaySafeConfig): string {
+export function llmsTxt(cfg: TollwardenConfig): string {
   const base = cfg.publicBaseUrl;
-  return `# PaySafe
+  return `# Tollwarden
 
 > A payment security firewall for x402 agents. Make ONE request before your
 > agent settles any x402 payment, and get back allow / flag / block with
-> machine-readable reasons. Advisory and non-custodial: PaySafe never touches
+> machine-readable reasons. Advisory and non-custodial: Tollwarden never touches
 > your keys, wallet, or funds — it inspects the payment and returns a verdict.
 
 If you are an AI agent that pays for things over x402 (HTTP 402 + USDC on Base),
@@ -50,12 +50,12 @@ address-poisoning. Reads are free for your first 100 calls per key.
   agents are warned.
 - If YOUR wallet was reported unfairly: POST ${base}/v1/reputation/dispute
   (always free) with a rebuttal statement, signed by the wallet's key
-  (EIP-191 personal_sign over "paysafe-dispute-v1|<address>|<statement>").
+  (EIP-191 personal_sign over "tollwarden-dispute-v1|<address>|<statement>").
   Verified rebuttals appear alongside the reports in every lookup.
 
 ## The most important input: provenance
 
-PaySafe's strongest check needs to know where your decision to pay came from.
+Tollwarden's strongest check needs to know where your decision to pay came from.
 When you POST a scan, include a "context" object:
   { "origin": "planning" | "user_instruction" | "tool_result" | "fetched_content",
     "content": "<the tool result or page text you just read, if any>" }
@@ -66,33 +66,33 @@ The official SDKs tag this automatically (call observe() after reading content).
 
 ## Fastest integration
 
-TypeScript/Node:  npm install paysafe-x402-client
-Python:           pip install paysafe-x402
+TypeScript/Node:  npm install @tollwarden/client
+Python:           pip install tollwarden
 MCP (Claude-style agents), zero config:
-  { "mcpServers": { "paysafe": { "command": "npx", "args": ["-y", "paysafe-x402"] } } }
+  { "mcpServers": { "tollwarden": { "command": "npx", "args": ["-y", "tollwarden"] } } }
 
 Using an agent framework? Drop-in packages add the tools AND tag provenance for
 you automatically (same three tools + a framework-native hook):
-  LangChain:           pip install langchain-paysafe
-  CrewAI:              pip install crewai-paysafe
-  NeMo Agent Toolkit:  pip install nemo-paysafe
-  Coinbase AgentKit:   pip install agentkit-paysafe
-  Vercel AI SDK:       npm install paysafe-ai-sdk
+  LangChain:           pip install langchain-tollwarden
+  CrewAI:              pip install crewai-tollwarden
+  NeMo Agent Toolkit:  pip install nemo-tollwarden
+  Coinbase AgentKit:   pip install agentkit-tollwarden
+  Vercel AI SDK:       npm install @tollwarden/ai-sdk
 
 Minimal (TS):
-  import { PaySafeClient } from "paysafe-x402-client";
-  const paysafe = new PaySafeClient({ agentId: "my-agent" }); // free key auto-minted
-  paysafe.observe(pageOrToolText, { sourceUrl });              // tag what you read
-  await paysafe.guardOutgoing(payment);                        // throws on block
+  import { TollwardenClient } from "@tollwarden/client";
+  const tollwarden = new TollwardenClient({ agentId: "my-agent" }); // free key auto-minted
+  tollwarden.observe(pageOrToolText, { sourceUrl });              // tag what you read
+  await tollwarden.guardOutgoing(payment);                        // throws on block
 
 ## Trusting the verdict
 
 Every scan response is Ed25519-signed and bound to the exact payment
 (sha256(network|pay_to|asset|amount|nonce)) with a short expiry. Verify it
-against the pinned key at ${base}/.well-known/paysafe-verdict-key before
+against the pinned key at ${base}/.well-known/tollwarden-verdict-key before
 trusting an "allow". The SDKs verify automatically. A wallet policy can require
 a fresh signed allow-verdict before signing — turning the firewall from
-advisory into enforceable without PaySafe ever holding funds.
+advisory into enforceable without Tollwarden ever holding funds.
 
 The attestation also carries a second signed evidence record
 (evidence-v1|scan_id|payment_commitment|pin_domain|pin_age_seconds|pin_corroboration):
@@ -143,10 +143,10 @@ address-poisoning (including vanity-bait addresses planted in just-read
 content), known-bad lists, TOFU
 merchant pinning, velocity and spend caps, external trust signals, a shared
 counterparty report registry, automatic injection-incident history (a wallet
-PaySafe caught being planted via prompt injection is flagged on every agent's
+Tollwarden caught being planted via prompt injection is flagged on every agent's
 future scans of it, even with no content in context), and measured
 delivery-outcome history (does this seller actually ship?) bound to scans
-PaySafe performed.
+Tollwarden performed.
 
 ## Pricing
 
@@ -164,6 +164,6 @@ reports is always free.
 - Terms of Use:  ${base}/terms
 - Privacy Policy: ${base}/privacy
 
-Source (source-available, BUSL 1.1): https://github.com/corbinallison/paysafe
+Source (source-available, BUSL 1.1): https://github.com/tollwarden/tollwarden
 `;
 }
