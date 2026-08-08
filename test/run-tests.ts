@@ -6,7 +6,7 @@
  */
 import { createHash, createHmac, createPublicKey, verify as edVerify } from "node:crypto";
 import { runScan } from "../src/scanner.ts";
-import { Store } from "../src/store.ts";
+import { APPROVAL_RING_MAX, Store } from "../src/store.ts";
 import { loadConfig } from "../src/config.ts";
 import { addDispute, addReport, checkInjectionHistory, checkReputation, disputeMessage, summarize } from "../src/reputation.ts";
 import { personalSignHash, recoverPersonalSigner, verifyPersonalSign } from "../src/evmsig.ts";
@@ -31,6 +31,7 @@ import { homePageHtml, termsPageHtml, privacyPageHtml } from "../src/pages.ts";
 import { erc8004Registration, ERC8004_IDENTITY_REGISTRY, logoSvg } from "../src/manifest.ts";
 import { computePublicStats, computeUptime, type PublicStats } from "../src/pubstats.ts";
 import { parseScoutScore, scheduleScoutScoreRefresh } from "../src/detectors/scoutscore.ts";
+import { pinEvidenceFor } from "../src/detectors/pinning.ts";
 import { createServer as createHttpServer } from "node:http";
 import type { ScanRequest, ScanResponse } from "../src/types.ts";
 
@@ -980,6 +981,91 @@ console.log("\n— signed verdicts (bound to payment, H-1) —");
   const tampered = att.message.replace("|allow|", "|block|");
   const bad = edVerify(null, Buffer.from(tampered, "utf8"), pub, Buffer.from(att.signature_hex, "hex"));
   check("tampered verdict fails verification", bad === false);
+}
+
+console.log("\n— signed pin evidence (evidence-v1) —");
+{
+  const signer = new VerdictSigner(null);
+  const pub = () => createPublicKey({ key: Buffer.from(signer.publicKeySpkiHex, "hex"), format: "der", type: "spki" });
+
+  // The verdict message stays byte-identical to the frozen 7-field format even
+  // when evidence rides along — deployed Python SDKs reject any other count.
+  const store = new Store(null);
+  const r = scan("outgoing", { payment: { ...basePayment }, expected_price_usd: 0.01, context: { origin: "planning" } }, store);
+  const commitment = paymentCommitment(basePayment);
+  const pinned = pinEvidenceFor(basePayment, store, cfg.pinning, r.scanned_at);
+  const att = signer.attest(r, commitment, undefined, pinned);
+  check("verdict message stays the frozen 7-field format", att.message.split("|").length === 7);
+  check("evidence record is always present on scan attestations", att.evidence !== undefined);
+  check(
+    "fresh pin evidence: domain, age 0, corroboration none — thin evidence reads as thin",
+    att.evidence?.message === `evidence-v1|${r.scan_id}|${commitment}|api.example.com|0|none`,
+    att.evidence?.message,
+  );
+  check("evidence pin mirror matches the signed fields", JSON.stringify(att.evidence?.pin) === JSON.stringify({ domain: "api.example.com", age_seconds: 0, corroboration: [] }));
+  check(
+    "evidence signature verifies under the same verdict key",
+    edVerify(null, Buffer.from(att.evidence!.message, "utf8"), pub(), Buffer.from(att.evidence!.signature_hex, "hex")),
+  );
+  const tamperedEv = att.evidence!.message.replace("|0|", "|15552000|");
+  check("tampered pin age fails evidence verification", !edVerify(null, Buffer.from(tamperedEv, "utf8"), pub(), Buffer.from(att.evidence!.signature_hex, "hex")));
+
+  // An aged pin publishes its true age at scan time.
+  const aged = new Store(null);
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 86400_000).toISOString();
+  aged.pins.set("api.example.com", { pay_to: basePayment.pay_to.toLowerCase(), first_seen: ninetyDaysAgo, times_seen: 12, cdp_status: "unchecked" });
+  const r2 = scan("outgoing", { payment: { ...basePayment, nonce: "0xev2" }, expected_price_usd: 0.01, context: { origin: "planning" } }, aged);
+  const agedPin = pinEvidenceFor(basePayment, aged, cfg.pinning, r2.scanned_at);
+  const expectedAge = Math.floor((Date.parse(r2.scanned_at) - Date.parse(ninetyDaysAgo)) / 1000);
+  check("aged pin publishes its true age in seconds", agedPin?.age_seconds === expectedAge, { got: agedPin?.age_seconds, expectedAge });
+
+  // Corroboration NAMES the source — never a boolean, never a score.
+  aged.pins.get("api.example.com")!.cdp_status = "verified";
+  const corroborated = pinEvidenceFor(basePayment, aged, cfg.pinning, r2.scanned_at);
+  check("CDP-verified pin names cdp_bazaar as the corroborating source", JSON.stringify(corroborated?.corroboration) === JSON.stringify(["cdp_bazaar"]));
+  const attC = signer.attest(r2, paymentCommitment({ ...basePayment, nonce: "0xev2" }), undefined, corroborated);
+  check("corroboration source is in the signed message, not just the mirror", attC.evidence!.message.endsWith("|cdp_bazaar"));
+  aged.pins.get("api.example.com")!.cdp_status = "mismatch";
+  const mismatchCdp = pinEvidenceFor(basePayment, aged, cfg.pinning, r2.scanned_at);
+  check("a cdp mismatch is NOT corroboration", mismatchCdp?.corroboration.length === 0);
+
+  // No pin in play → empty pin fields, still signed (absence is an assertion).
+  const noUrl = { ...basePayment, nonce: "0xev3" } as Record<string, unknown>;
+  delete noUrl.resource_url;
+  const store3 = new Store(null);
+  const r3 = scan("outgoing", { payment: noUrl, expected_price_usd: 0.01, context: { origin: "planning" } }, store3);
+  const noPin = pinEvidenceFor(noUrl, store3, cfg.pinning, r3.scanned_at);
+  const att3 = signer.attest(r3, paymentCommitment(noUrl), undefined, noPin);
+  check("no resource_url → empty pin fields in the signed record", att3.evidence?.message === `evidence-v1|${r3.scan_id}|${paymentCommitment(noUrl)}|||`);
+  check("no resource_url → pin mirror is null", att3.evidence?.pin === null);
+
+  // A pin held by a DIFFERENT address is not evidence about this payee.
+  const other = new Store(null);
+  other.pins.set("api.example.com", { pay_to: "0x000000000000000000000000000000000000dEaD".toLowerCase(), first_seen: ninetyDaysAgo, times_seen: 3, cdp_status: "verified" });
+  check("a pin for a different pay_to yields no evidence for this payee", pinEvidenceFor(basePayment, other, cfg.pinning, new Date().toISOString()) === null);
+
+  // Pinning disabled → nothing maintains the map, so stale pins are not evidence.
+  check("pinning disabled → no pin evidence even when a pin record exists", pinEvidenceFor(basePayment, aged, false, r2.scanned_at) === null);
+
+  // A corrupt stored timestamp must never be signed as a garbage age.
+  const corrupt = new Store(null);
+  corrupt.pins.set("api.example.com", { pay_to: basePayment.pay_to.toLowerCase(), first_seen: "not-a-date", times_seen: 1, cdp_status: "unchecked" });
+  check("corrupt first_seen → no evidence rather than NaN", pinEvidenceFor(basePayment, corrupt, cfg.pinning, new Date().toISOString()) === null);
+
+  // Override attestations carry NO evidence record (approval-time is not scan-time).
+  const ov = signer.attestOverride({ scan_id: r.scan_id, direction: "outgoing", risk_score: 40, approved_at: new Date().toISOString() }, commitment);
+  check("override attestations carry no evidence record", ov.evidence === undefined);
+
+  // End-to-end: handleScan emits the evidence record, and a blocked mismatch
+  // (whose pin belongs to someone else) shows empty pin fields.
+  const e2eStore = new Store(null);
+  const e2eSigner = new VerdictSigner(null);
+  const okScan = handleScan("outgoing", { payment: { ...basePayment, nonce: "0xe2e1" }, expected_price_usd: 0.01, context: { origin: "planning" } }, cfg, e2eStore, e2eSigner);
+  const okBody = okScan.body as ScanResponse;
+  check("handleScan response carries evidence with the fresh pin", okBody.attestation?.evidence?.pin?.domain === "api.example.com" && okBody.attestation?.evidence?.pin?.age_seconds === 0);
+  const mm = handleScan("outgoing", { payment: { ...basePayment, pay_to: "0x000000000000000000000000000000000000bEEF", nonce: "0xe2e2" }, expected_price_usd: 0.01, context: { origin: "planning" } }, cfg, e2eStore, e2eSigner);
+  const mmBody = mm.body as ScanResponse;
+  check("pin-mismatch block: evidence shows no pin for the presented payee", mmBody.verdict === "block" && mmBody.attestation?.evidence?.pin === null, mmBody.attestation?.evidence);
 }
 
 console.log("\n— tamper-evident audit log —");
@@ -2149,6 +2235,149 @@ console.log("\n— human-in-the-loop approvals: end-to-end —");
   check("APPROVALS=off: flag scans open no approvals even with a config", offScan.body.verdict === "flag" && offScan.body.approval === undefined);
   check("APPROVALS=off: per-key opt-out still honored", (handleApprovalConfig(store, cfgOff, newKey, { webhook_url: null }) as { body: any }).body.enabled === false);
   check("APPROVALS=off: in-flight approvals stay pollable", (handleApprovalPoll(store, approvalId, newKey) as { status: number }).status === 200);
+
+  mock.close();
+}
+
+console.log("\n— approval decision telemetry (owner-only) —");
+{
+  const store = new Store(null);
+  store.auditLog = new AuditLog(null);
+  const signer = new VerdictSigner(null);
+  const key = (createApiKey(store, cfg) as { body: { api_key: string } }).body.api_key;
+
+  const deliveries: Array<{ body: string }> = [];
+  const mock = createHttpServer((req, res) => {
+    let data = "";
+    req.on("data", (c) => (data += c));
+    req.on("end", () => {
+      deliveries.push({ body: data });
+      res.writeHead(200);
+      res.end("ok");
+    });
+  });
+  await new Promise<void>((resolve) => mock.listen(0, resolve));
+  const hookUrl = `http://127.0.0.1:${(mock.address() as { port: number }).port}/hook`;
+  handleApprovalConfig(store, cfg, key, { webhook_url: hookUrl });
+  const waitForDeliveries = async (n: number) => {
+    const deadline = Date.now() + 4000;
+    while (deliveries.length < n && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
+  };
+  const rawTokenFor = (approvalId: string): string => {
+    for (const d of deliveries) {
+      try {
+        const p = JSON.parse(d.body);
+        if (p.approval_id === approvalId) return (p.decide_url as string).split("&token=")[1];
+      } catch { /* ignore */ }
+    }
+    return "";
+  };
+  const flagPayment = { ...basePayment, pay_to: "0xF1a6eedAttentionMerchant0000000000000001", resource_url: "https://flagged.example.net/data" };
+  const openApproval = async (nonce: string) => {
+    const res = handleScan("outgoing", { payment: { ...flagPayment, nonce }, expected_price_usd: 0.01, context: { origin: "tool_result" } }, cfg, store, signer, key) as { body: any };
+    await waitForDeliveries(deliveries.length + 1);
+    return res.body as { scan_id: string; approval: { approval_id: string }; attestation: { payment_commitment: string } };
+  };
+
+  // Approve, with the approval backdated so the latency is measurable and
+  // provably equals decided_at - created_at (both server-stamped).
+  const s1 = await openApproval("0xtel1");
+  const rec1 = store.approvals.get(s1.approval.approval_id)!;
+  rec1.created_at = new Date(Date.now() - 8000).toISOString();
+  handleApprovalDecide(store, cfg, signer, { approval_id: rec1.approval_id, token: rawTokenFor(rec1.approval_id), decision: "approve" });
+  const keyRec = store.resolveKey(key).rec!;
+  const stats = keyRec.approval_stats!;
+  check("decision latency captured at decide time", stats.approved === 1 && stats.recent.length === 1 && stats.recent[0].latency_ms >= 7900 && stats.recent[0].latency_ms < 12000, stats.recent[0]);
+  check("latency equals decided_at - created_at", stats.recent[0].latency_ms === Date.parse(rec1.decided_at!) - Date.parse(rec1.created_at));
+  check("requested counted at approval creation", stats.requested === 1);
+  check("audit decision record carries approval_latency_ms and the chain verifies",
+    store.auditLog!.exportRaw().includes('"approval_latency_ms"') && (store.auditLog!.verify() as { ok: boolean }).ok === true);
+
+  // Deny and expire are telemetry too.
+  const s2 = await openApproval("0xtel2");
+  handleApprovalDecide(store, cfg, signer, { approval_id: s2.approval.approval_id, token: rawTokenFor(s2.approval.approval_id), decision: "deny" });
+  check("denials recorded in the ring", stats.denied === 1 && stats.recent.length === 2 && stats.recent[1].decision === "denied");
+  const s3 = await openApproval("0xtel3");
+  store.approvals.get(s3.approval.approval_id)!.expires_at = new Date(Date.now() - 1000).toISOString();
+  store.pruneApprovals();
+  check("an approval that expired undecided is counted", stats.expired === 1);
+  store.pruneApprovals();
+  check("the pending→expired transition never double-counts", stats.expired === 1);
+
+  // /v1/usage surfaces the telemetry to the owner…
+  const usage = handleUsage(cfg, store, key) as { body: any };
+  const ap = usage.body.approvals;
+  check("usage carries the approvals block", ap?.configured === true && ap.requested === 3 && ap.approved === 1 && ap.denied === 1 && ap.expired === 1, ap);
+  check("usage reports latency aggregates", ap.decision_latency_ms?.count === 2 && ap.decision_latency_ms.median > 0);
+  check("approved-but-unreported payments read as unreported", ap.approved_outcomes.unreported === 1 && ap.approved_outcomes.delivered === 0);
+
+  // …and pairs decisions with the outcome ledger once outcomes arrive.
+  const rep = handleOutcomeReport(store, cfg, key, { scan_id: s1.scan_id, payment_commitment: s1.attestation.payment_commitment, outcome: "not_delivered" }) as { status: number };
+  check("outcome report accepted for the approved scan", rep.status === 201);
+  const usage2 = handleUsage(cfg, store, key) as { body: any };
+  check("approved decision pairs with its delivery outcome", usage2.body.approvals.approved_outcomes.not_delivered === 1 && usage2.body.approvals.approved_outcomes.unreported === 0, usage2.body.approvals.approved_outcomes);
+
+  // The OTHER expiry observer: a decide attempt on an overdue pending (410)
+  // must count the expiry too — the prune timer isn't the only transition site.
+  const sLate = await openApproval("0xtelLate");
+  store.approvals.get(sLate.approval.approval_id)!.expires_at = new Date(Date.now() - 1000).toISOString();
+  const late = handleApprovalDecide(store, cfg, signer, { approval_id: sLate.approval.approval_id, token: rawTokenFor(sLate.approval.approval_id), decision: "approve" }) as { status: number };
+  check("expired-at-decide (410) counts the expiry", late.status === 410 && stats.expired === 2);
+  store.pruneApprovals();
+  check("prune after a 410-observed expiry never double-counts", stats.expired === 2);
+
+  // An outcome reported BEFORE the human decides must still pair: flags are
+  // advisory, so the agent can settle + report while the approval is pending.
+  const sEarly = await openApproval("0xtelEarly");
+  const repEarly = handleOutcomeReport(store, cfg, key, { scan_id: sEarly.scan_id, payment_commitment: sEarly.attestation.payment_commitment, outcome: "delivered" }) as { status: number };
+  check("outcome accepted while the approval is still pending", repEarly.status === 201);
+  handleApprovalDecide(store, cfg, signer, { approval_id: sEarly.approval.approval_id, token: rawTokenFor(sEarly.approval.approval_id), decision: "approve" });
+  const earlyEntry = stats.recent.find((e) => e.scan_id === sEarly.scan_id);
+  check("pre-decision outcome pairs onto the ring at decide time", earlyEntry?.outcome === "delivered", earlyEntry);
+
+  // Recent-vs-baseline split makes latency drift legible (the rubber-stamp signature).
+  stats.recent = [];
+  for (let i = 0; i < 10; i++) stats.recent.push({ scan_id: `base${i}`, decided_at: new Date().toISOString(), latency_ms: 40_000, decision: i % 2 ? "approved" : "denied" });
+  for (let i = 0; i < 20; i++) stats.recent.push({ scan_id: `fast${i}`, decided_at: new Date().toISOString(), latency_ms: 8_000, decision: "approved" });
+  const usage3 = handleUsage(cfg, store, key) as { body: any };
+  const ap3 = usage3.body.approvals;
+  check("recent window shows the fast medians", ap3.recent.count === 20 && ap3.recent.median_latency_ms === 8000 && ap3.recent.approval_rate === 1);
+  check("baseline window keeps the slower history", ap3.baseline.count === 10 && ap3.baseline.median_latency_ms === 40_000 && ap3.baseline.approval_rate === 0.5);
+
+  // Nearest-rank p90 at n=10 is the 9th value, not the maximum — floor-based
+  // index math returns p100 whenever n is a multiple of 10.
+  stats.recent = [];
+  for (let i = 0; i < 9; i++) stats.recent.push({ scan_id: `p90-${i}`, decided_at: new Date().toISOString(), latency_ms: 1000, decision: "approved" });
+  stats.recent.push({ scan_id: "p90-outlier", decided_at: new Date().toISOString(), latency_ms: 99_000, decision: "approved" });
+  const usageP90 = handleUsage(cfg, store, key) as { body: any };
+  check("p90 at n=10 is the 9th value, not the outlier max", usageP90.body.approvals.decision_latency_ms.p90 === 1000, usageP90.body.approvals.decision_latency_ms);
+
+  // The ring is capped — an operator's history is bounded per key.
+  for (let i = 0; i < 60; i++) stats.recent.push({ scan_id: `cap${i}`, decided_at: new Date().toISOString(), latency_ms: 1000, decision: "approved" });
+  const s4 = await openApproval("0xtel4");
+  handleApprovalDecide(store, cfg, signer, { approval_id: s4.approval.approval_id, token: rawTokenFor(s4.approval.approval_id), decision: "approve" });
+  check("decision ring is capped at APPROVAL_RING_MAX", stats.recent.length === APPROVAL_RING_MAX && stats.recent[stats.recent.length - 1].scan_id === s4.scan_id);
+
+  // Rotation carries the telemetry with the account.
+  const rot = handleKeyRotate(store, cfg, key, { grace_seconds: 0 }) as { body: any };
+  const usage4 = handleUsage(cfg, store, rot.body.api_key) as { body: any };
+  check("rotation carries decision telemetry to the new key", usage4.body.approvals.approved === 3 && usage4.body.approvals.requested === 6, usage4.body.approvals);
+
+  // PRIVACY: the telemetry exists NOWHERE outside the owner's own usage view.
+  // A public record of who rubber-stamps is a targeting list.
+  const repSummary = JSON.stringify(summarize(store, flagPayment.pay_to));
+  check("reputation lookups carry no approval telemetry", !repSummary.includes("latency") && !repSummary.includes("approval"));
+  const trustEval = JSON.stringify((handleTrustEvaluate({ wallet: flagPayment.pay_to }, cfg, store) as { body: unknown }).body);
+  check("trust evaluations carry no approval telemetry", !trustEval.includes("latency") && !trustEval.includes("approval_"));
+  const pubStats = JSON.stringify(computePublicStats(store, Date.now()));
+  check("public stats carry no approval telemetry", !pubStats.includes("latency") && !pubStats.includes("approval"));
+  // The audit-log AGGREGATOR that backs the admin dashboard: individual
+  // decision records carry approval_latency_ms (the operator's own token-gated
+  // log — a scoped, documented disclosure), but the derived stats must not.
+  check("audit-log stats aggregate carries no approval telemetry", !JSON.stringify(store.auditLog!.stats()).includes("latency"));
+  // Webhook deliveries reach the operator's ops channel — payment facts only,
+  // never the account's accumulated telemetry.
+  check("webhook payloads carry no approval telemetry", deliveries.length > 0 && deliveries.every((d) => !d.body.includes("latency") && !d.body.includes("approval_stats")));
 
   mock.close();
 }

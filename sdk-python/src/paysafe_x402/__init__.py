@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 import urllib.error
 import urllib.request
@@ -117,13 +118,24 @@ def verify_attestation(
     payment: Dict[str, Any],
     trusted_key_hex: str,
     now_ms: Optional[int] = None,
-) -> None:
+) -> Optional[Dict[str, Any]]:
     """Full attestation check; raises AttestationError with a specific reason on failure.
 
     Order: (1) Ed25519 signature over `message` under `trusted_key_hex` — the
     PINNED key, never the key embedded in the response; (2) message fields
     match the scan; (3) commitment matches one recomputed from `payment`;
-    (4) not expired.
+    (4) not expired; (5) when a signed evidence record is present: its
+    signature verifies under the same pinned key, it is bound to this same
+    scan_id + commitment, and the `pin` convenience mirror matches the signed
+    message.
+
+    Returns the verified evidence ``{"pin": {...} | None}`` — merchant-pin age
+    in seconds (0 = first sighting) and the NAMED out-of-band sources that
+    corroborated the pin (e.g. "cdp_bazaar"; deliberately never a boolean or a
+    score). Returns None when the attestation carries no evidence record this
+    SDK version can parse (older server, override attestation, or a future
+    evidence version). Whether a young or uncorroborated pin is acceptable is
+    the caller's decision boundary — weigh it against the payment size.
     """
     att = scan.get("attestation")
     if not att:
@@ -160,6 +172,50 @@ def verify_attestation(
     now = now_ms if now_ms is not None else int(time.time() * 1000)
     if _parse_iso_ms(expires_at) <= now:
         raise AttestationError(f"attestation expired at {expires_at}")
+
+    # --- signed evidence record (pin age + named corroboration sources) ---
+    # Only a MISSING/None record means "absent" (older server or an override
+    # attestation). An empty dict is malformed and fails below, exactly like
+    # the TS SDK — lockstep on rejects, not just accepts.
+    ev = att.get("evidence")
+    if ev is None:
+        return None
+    try:
+        key.verify(bytes.fromhex(ev["signature_hex"]), ev["message"].encode("utf-8"))  # type: ignore[union-attr]
+    except InvalidSignature:
+        raise AttestationError("evidence signature invalid under the pinned server key") from None
+    except Exception as e:
+        raise AttestationError(f"evidence signature check failed to run: {e}") from None
+
+    ev_parts = ev["message"].split("|")
+    if ev_parts[0] != "evidence-v1":
+        return None  # authenticated but not a version this SDK parses
+    if len(ev_parts) != 6:
+        raise AttestationError("malformed evidence-v1 message")
+    _, ev_scan_id, ev_commitment, domain, age, sources = ev_parts
+    if ev_scan_id != scan.get("scan_id") or ev_commitment != commitment:
+        raise AttestationError(
+            "evidence record is bound to a DIFFERENT scan/payment (possible evidence replay)"
+        )
+    pin: Optional[Dict[str, Any]] = None
+    if domain:
+        # Explicit ASCII-digit check — str.isdigit() accepts Unicode digits.
+        if not re.fullmatch(r"[0-9]+", age):
+            raise AttestationError("malformed evidence-v1 message: pin_age_seconds is not a non-negative integer")
+        pin = {
+            "domain": domain,
+            "age_seconds": int(age),
+            "corroboration": sources.split(",") if sources and sources != "none" else [],
+        }
+    # The convenience mirror must be EXACTLY the signed-derived fields (or
+    # None): the mirror is the one unsigned part of the attestation, so an
+    # extra key here would be unsigned data riding a verified response into
+    # code that lazily reads attestation["evidence"]["pin"]. Strict by
+    # deliberate, documented choice, identically in TS/Python/MCP. Dict
+    # equality is key-order-insensitive, which is exactly right.
+    if "pin" in ev and ev["pin"] != pin:
+        raise AttestationError("evidence `pin` mirror does not match the signed evidence message")
+    return {"pin": pin}
 
 
 def _parse_iso_ms(iso: str) -> int:
@@ -343,8 +399,10 @@ class PaySafeClient:
             body["policy"] = policy
         scan = self._request("POST", f"/v1/scan/{direction}", body)
         if self.should_verify and scan.get("attestation"):
-            verify_attestation(scan, payment, self.verdict_key())  # raises on tamper/replay/expiry
+            evidence = verify_attestation(scan, payment, self.verdict_key())  # raises on tamper/replay/expiry
             scan["attestation_verified"] = True
+            if evidence is not None:
+                scan["pin_evidence"] = evidence["pin"]
         # A consumed observation must not leak provenance onto unrelated later scans.
         self._observation = None
         self._explicit_origin = None

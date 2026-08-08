@@ -94,6 +94,14 @@ trusting an "allow". The SDKs verify automatically. A wallet policy can require
 a fresh signed allow-verdict before signing — turning the firewall from
 advisory into enforceable without PaySafe ever holding funds.
 
+The attestation also carries a second signed evidence record
+(evidence-v1|scan_id|payment_commitment|pin_domain|pin_age_seconds|pin_corroboration):
+how long the merchant pin behind this payee had held at scan time (0 = first
+sighting) and which NAMED out-of-band sources corroborated it (e.g.
+cdp_bazaar) — never a boolean or a score. Whether a young or uncorroborated
+pin is acceptable is your decision boundary: weigh it against the payment
+size. The SDKs verify it and surface it as pin_evidence.
+
 ## Endpoints
 
 - POST /v1/scan/outgoing   Screen a payment before you settle it. ${cfg.priceScan}, first ${cfg.freeCalls} free/key.
@@ -107,7 +115,9 @@ advisory into enforceable without PaySafe ever holding funds.
 - POST /v1/keys/revoke            Kill switch: permanently revoke a key AND its account. Free.
 - GET  /v1/plans                  Machine-readable plan catalog. Free.
 - POST /v1/plans/subscribe        Upgrade a key to a plan; paid over x402, so you can subscribe autonomously.
-- GET  /v1/usage                  Your key's own scan/verdict counts (X-API-Key header). Free.
+- GET  /v1/usage                  Your key's own scan/verdict counts, plus approval-decision
+                                  telemetry (latency + outcomes of approved payments — visible
+                                  only to you, never shared). X-API-Key header. Free.
 - POST /v1/approvals/config       Human-in-the-loop: on a flag verdict your webhook gets the
                                   payment facts + a one-time decide link; a human click mints a
                                   signed override verdict (tag "override:allow", <=5 min). Free.

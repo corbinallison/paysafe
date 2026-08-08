@@ -11,6 +11,13 @@ SUBMISSIONS-TODO.md
 # Operator-only tools (funded keys, real-money ops) — never commit
 /admintools/
 
+# MCP registry publisher binary, downloaded into the repo root at publish time
+/mcp-publisher.exe
+/mcp-publisher
+
+# Compiled Python caches
+__pycache__/
+
 # Ecosystem scout agent workspace (holds a funded hot-wallet key) — never commit
 /paysafe-agent
 

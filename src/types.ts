@@ -89,18 +89,67 @@ export interface CheckResult {
   details?: Record<string, unknown>;
 }
 
+/** Merchant-pin facts published in the signed evidence record. The point is a
+ * DECISION BOUNDARY, not transparency: folding "young pin, corroborated" into
+ * a single allow/flag makes a risk-tolerance call that belongs to the wallet
+ * owner and depends on payment size. Separate signed fields let a wallet
+ * accept a four-minute-old corroborated pin for a cent and refuse it for
+ * fifty dollars. */
+export interface PinEvidence {
+  /** Resource domain the pin is for (lowercased hostname). */
+  domain: string;
+  /** Whole seconds this domain↔pay_to pin had held at scan time. 0 = first sighting. */
+  age_seconds: number;
+  /**
+   * Named out-of-band sources that positively corroborated the domain↔pay_to
+   * binding. Each entry NAMES the source (today: "cdp_bazaar" — the CDP Bazaar
+   * merchant index lists this domain among the pinned address's resources);
+   * a boolean would erase exactly the distinction that matters, and a
+   * composite strength score is the boolean again with decimals. Source
+   * strength is a per-merchant property — rank them yourself. Empty = no
+   * source has corroborated this pin.
+   */
+  corroboration: string[];
+}
+
 /** Ed25519 attestation over the verdict, so wallet policies can require a PaySafe allow-verdict. */
 export interface VerdictAttestation {
   alg: "ed25519";
   /** SPKI DER, hex-encoded. Also served at /.well-known/paysafe-verdict-key */
   public_key_spki_hex: string;
-  /** Signed message: scan_id|direction|verdict|risk_score|scanned_at|payment_commitment|expires_at */
+  /** Signed message: scan_id|direction|verdict|risk_score|scanned_at|payment_commitment|expires_at
+   * COMPATIBILITY: this message is FROZEN at 7 fields — deployed verifiers
+   * hard-reject any other count. New signed facts go in `evidence`, never here. */
   message: string;
   signature_hex: string;
   /** sha256(network|pay_to|asset|amount|nonce) — binds the verdict to this payment */
   payment_commitment: string;
   /** ISO time after which the attestation must be rejected */
   expires_at: string;
+  /**
+   * Second signed record carrying scan-time evidence beyond the verdict —
+   * currently merchant-pin age and named corroboration sources. Signed by the
+   * same verdict key over
+   *   evidence-v1|scan_id|payment_commitment|pin_domain|pin_age_seconds|pin_corroboration
+   * (pin fields empty when no pin applies to this payment's payee;
+   * pin_corroboration is "none" or a comma-joined source list). Bound to the
+   * same scan_id + commitment as the verdict message so it cannot be replayed
+   * onto another attestation; it shares the attestation's expiry. `pin` is a
+   * convenience mirror of EXACTLY the signed-derived fields — verifiers parse
+   * the signed message and reject a mirror with anything else (an extra key
+   * would be unsigned data riding a verified response); the mirror shape is
+   * frozen by that choice. Present on organic scan attestations; override
+   * attestations carry no evidence record — and since verifiers tolerate
+   * absence for compatibility, an ABSENT record asserts nothing (it could be
+   * an older server or stripped in transit); only the signed empty fields
+   * assert "no pin applies". Every signed field is a compatibility
+   * commitment — fields are added, never silently changed or withdrawn.
+   */
+  evidence?: {
+    message: string;
+    signature_hex: string;
+    pin: PinEvidence | null;
+  };
 }
 
 export interface ScanResponse {

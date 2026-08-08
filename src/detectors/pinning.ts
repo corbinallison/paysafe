@@ -10,7 +10,7 @@
  * Zero latency at scan time. Optionally, a non-blocking background cross-check
  * against the CDP Bazaar merchant index verifies pins out-of-band.
  */
-import type { CheckResult, PaymentDetails } from "../types.ts";
+import type { CheckResult, PaymentDetails, PinEvidence } from "../types.ts";
 import type { Store } from "../store.ts";
 
 function domainOf(resourceUrl: string | undefined): string | null {
@@ -73,6 +73,38 @@ export function checkPinning(payment: PaymentDetails, store: Store): CheckResult
     severity: "critical",
     reason: `Payment address for ${domain} CHANGED: pinned ${pin.pay_to} (since ${pin.first_seen}, seen ${pin.times_seen}×) but this payment targets ${payTo}. Address rotation on a known domain is the signature of a redirection attack. If the merchant legitimately rotated wallets, clear the pin from the data store.`,
     details: { domain, pinned: pin.pay_to, presented: payTo, pinned_since: pin.first_seen },
+  };
+}
+
+/**
+ * Pin facts for the signed evidence record — READ-ONLY, computed at
+ * attestation time (after the scanner has created/updated/rolled-back pins,
+ * so a blocked first-sighting whose pin was rolled back honestly reads as "no
+ * pin"). Returns facts only when the pin refers to THIS payment's payee
+ * (pin.pay_to === payment.pay_to): a pin held by a different address is not
+ * evidence about the presented one. Null when pinning is disabled (nothing
+ * maintains the pin map, so a stale entry must not be signed as evidence),
+ * when no pin applies, or when the stored timestamp is unusable (never sign a
+ * garbage age).
+ */
+export function pinEvidenceFor(
+  payment: PaymentDetails,
+  store: Store,
+  pinningEnabled: boolean,
+  scannedAt: string,
+): PinEvidence | null {
+  if (!pinningEnabled) return null;
+  const domain = domainOf(payment.resource_url);
+  const payTo = payment.pay_to?.toLowerCase();
+  if (!domain || !payTo) return null;
+  const pin = store.pins.get(domain);
+  if (!pin || pin.pay_to !== payTo) return null;
+  const ageMs = Date.parse(scannedAt) - Date.parse(pin.first_seen);
+  if (!Number.isFinite(ageMs)) return null;
+  return {
+    domain,
+    age_seconds: Math.max(0, Math.floor(ageMs / 1000)),
+    corroboration: pin.cdp_status === "verified" ? ["cdp_bazaar"] : [],
   };
 }
 

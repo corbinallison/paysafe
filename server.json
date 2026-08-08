@@ -1,11 +1,18 @@
 {
-  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.paysafe-agent/paysafe",
-  "description": "Payment firewall for x402: scans for replay, overpayment, PII/secret leaks, prompt-injection.",
+  "title": "PaySafe",
+  "description": "Screens x402 payments before settlement for injected payee addresses and sellers who never deliver.",
   "version": "1.4.2",
+  "websiteUrl": "https://paysafe-agent.com",
+  "repository": {
+    "url": "https://github.com/corbinallison/paysafe",
+    "source": "github"
+  },
   "packages": [
     {
       "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "paysafe-x402",
       "version": "1.4.2",
       "transport": {

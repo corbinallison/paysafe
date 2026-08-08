@@ -99,6 +99,17 @@ try:
 except AttestationError as e:
     check("expired attestation rejected", "expired" in str(e), e)
 
+# Fixture 2 (2026-08-07): same real Node signer, WITH the signed evidence-v1
+# record — proves the evidence format verifies byte-for-byte across languages.
+FIXTURE2 = json.loads(r"""
+{"public_key_spki_hex":"302a300506032b65700321000b4b7d3508a72e40abc9528028b322d503d30e72d030d3fc03c99d601968f3a0","payment":{"network":"eip155:8453","pay_to":"0xAbCdEf1234567890000000000000000000000002","asset":"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913","amount":"10000","resource_url":"https://seller.example.com/v1/data","nonce":"0xfixture2"},"scan":{"scan_id":"fixture-scan-2","direction":"outgoing","verdict":"allow","risk_score":0,"checks":[],"scanned_at":"2026-08-07T05:00:00.000Z","advisory":"ok","attestation":{"alg":"ed25519","public_key_spki_hex":"302a300506032b65700321000b4b7d3508a72e40abc9528028b322d503d30e72d030d3fc03c99d601968f3a0","message":"fixture-scan-2|outgoing|allow|0|2026-08-07T05:00:00.000Z|0001e291c0f603dbc4b48cc2cde09339856494c3430f2d70b0f7c3053699d595|2036-08-04T05:00:00.000Z","signature_hex":"31b8e29add48f10d94ba7c17d62a1735296b194cb8e29cb817c7ab04eb9ad89d408e80c420b6a1e75da53a419bba8590fee1f6845c45d167f1a36d362d63230b","payment_commitment":"0001e291c0f603dbc4b48cc2cde09339856494c3430f2d70b0f7c3053699d595","expires_at":"2036-08-04T05:00:00.000Z","evidence":{"message":"evidence-v1|fixture-scan-2|0001e291c0f603dbc4b48cc2cde09339856494c3430f2d70b0f7c3053699d595|seller.example.com|7776000|cdp_bazaar","signature_hex":"9bac959d2ca346e5b1c0d3b3d8407bd09ba1184a8d51cfb6bb0014a969cdf0bece839498d9eee1f492cfbb8ce9bf4bc0ee1c742ce23a37ebfc59fe149249ee00","pin":{"domain":"seller.example.com","age_seconds":7776000,"corroboration":["cdp_bazaar"]}}}}}
+""")
+try:
+    _ev2 = verify_attestation(FIXTURE2["scan"], FIXTURE2["payment"], FIXTURE2["public_key_spki_hex"])
+    check("Node-signed evidence record verifies in Python", _ev2 is not None and _ev2["pin"] == {"domain": "seller.example.com", "age_seconds": 7776000, "corroboration": ["cdp_bazaar"]}, _ev2)
+except AttestationError as e:
+    check("Node-signed evidence record verifies in Python", False, e)
+
 # usd-amount variant parity (vector computed with the Node implementation)
 check(
     "usd-amount commitment parity",
@@ -143,6 +154,14 @@ def make_scan(payment: dict, direction: str) -> dict:
     expires = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
     message = f"{scan['scan_id']}|{scan['direction']}|{scan['verdict']}|{scan['risk_score']}|{scan['scanned_at']}|{commitment}|{expires}"
     sig = signer_key.sign(message.encode("utf-8"))
+    # Signed evidence record, exactly as the real server emits: pin facts for
+    # the "pinned" marker, empty pin fields otherwise.
+    if "pinned" in pay_to:
+        pin = {"domain": "seller.example.com", "age_seconds": 7776000, "corroboration": ["cdp_bazaar"]}
+        ev_message = f"evidence-v1|{scan['scan_id']}|{commitment}|seller.example.com|7776000|cdp_bazaar"
+    else:
+        pin = None
+        ev_message = f"evidence-v1|{scan['scan_id']}|{commitment}|||"
     scan["attestation"] = {
         "alg": "ed25519",
         "public_key_spki_hex": signer_pub_hex,
@@ -150,6 +169,11 @@ def make_scan(payment: dict, direction: str) -> dict:
         "signature_hex": sig.hex(),
         "payment_commitment": commitment,
         "expires_at": expires,
+        "evidence": {
+            "message": ev_message,
+            "signature_hex": signer_key.sign(ev_message.encode("utf-8")).hex(),
+            "pin": pin,
+        },
     }
     return scan
 
@@ -323,6 +347,107 @@ try:
     check("wrong pinned key rejected", False)
 except AttestationError:
     check("wrong pinned key rejected", True)
+
+print("\n— signed pin evidence (evidence-v1) —")
+client = PaySafeClient(base_url=BASE)
+pinned_scan = client.scan_outgoing(dict(base_payment, pay_to="0xPINNEDmerchant0000000000000000000000001"))
+check(
+    "verified pin evidence attached to the scan",
+    pinned_scan.get("pin_evidence", {}).get("domain") == "seller.example.com"
+    and pinned_scan["pin_evidence"]["age_seconds"] == 7776000,
+    pinned_scan.get("pin_evidence"),
+)
+check("corroboration names the source, not a boolean", pinned_scan["pin_evidence"]["corroboration"] == ["cdp_bazaar"])
+
+plain_scan = client.scan_outgoing(base_payment)
+check("no-pin evidence verifies to an explicit None", "pin_evidence" in plain_scan and plain_scan["pin_evidence"] is None)
+
+# Back-compat: the frozen cross-language fixture has NO evidence record — it
+# already proved verify_attestation returns None above. Explicitly:
+check("legacy attestation without evidence returns None", verify_attestation(FIXTURE["scan"], FIXTURE["payment"], FIXTURE["public_key_spki_hex"]) is None)
+
+# Tampered evidence message: signature must fail.
+ev_scan = make_scan(dict(base_payment, pay_to="0xPINNEDmerchant0000000000000000000000001"), "outgoing")
+ev_payment = dict(base_payment, pay_to="0xPINNEDmerchant0000000000000000000000001")
+tampered_ev = json.loads(json.dumps(ev_scan))
+tampered_ev["attestation"]["evidence"]["message"] = tampered_ev["attestation"]["evidence"]["message"].replace("|7776000|", "|60|")
+try:
+    verify_attestation(tampered_ev, ev_payment, signer_pub_hex)
+    check("tampered evidence message rejected", False)
+except AttestationError as e:
+    check("tampered evidence message rejected", "evidence signature" in str(e), e)
+
+# Evidence lifted from a different scan: authentic signature, wrong binding.
+other_scan = make_scan(ev_payment, "outgoing")
+lifted = json.loads(json.dumps(other_scan))
+lifted["attestation"]["evidence"] = ev_scan["attestation"]["evidence"]
+try:
+    verify_attestation(lifted, ev_payment, signer_pub_hex)
+    check("evidence bound to a different scan rejected", False)
+except AttestationError as e:
+    check("evidence bound to a different scan rejected", "DIFFERENT scan" in str(e), e)
+
+# A spoofed convenience mirror must not survive verification.
+mirrored = json.loads(json.dumps(ev_scan))
+mirrored["attestation"]["evidence"]["pin"] = {"domain": "seller.example.com", "age_seconds": 1, "corroboration": ["cdp_bazaar"]}
+try:
+    verify_attestation(mirrored, ev_payment, signer_pub_hex)
+    check("spoofed pin mirror rejected", False)
+except AttestationError as e:
+    check("spoofed pin mirror rejected", "mirror" in str(e), e)
+
+# A future evidence version is authenticated but not parsed: no raise, None.
+future = make_scan(base_payment, "outgoing")
+fut_commitment = future["attestation"]["payment_commitment"]
+fut_msg = f"evidence-v2|{future['scan_id']}|{fut_commitment}|something|new|here"
+future["attestation"]["evidence"] = {"message": fut_msg, "signature_hex": signer_key.sign(fut_msg.encode("utf-8")).hex(), "pin": None}
+check("future evidence versions tolerated (None)", verify_attestation(future, base_payment, signer_pub_hex) is None)
+
+# A unicode-digit age must not pass the ASCII-digit gate (fail closed).
+uni = make_scan(base_payment, "outgoing")
+uni_msg = f"evidence-v1|{uni['scan_id']}|{uni['attestation']['payment_commitment']}|seller.example.com|٠١|none"
+uni["attestation"]["evidence"] = {"message": uni_msg, "signature_hex": signer_key.sign(uni_msg.encode("utf-8")).hex(), "pin": None}
+try:
+    verify_attestation(uni, base_payment, signer_pub_hex)
+    check("unicode-digit pin age rejected", False)
+except AttestationError as e:
+    check("unicode-digit pin age rejected", "not a non-negative integer" in str(e), e)
+
+# Wrong-arity evidence-v1 (7 fields) is rejected even when correctly signed.
+arity = make_scan(base_payment, "outgoing")
+arity_msg = f"evidence-v1|{arity['scan_id']}|{arity['attestation']['payment_commitment']}|seller.example.com|60|none|extra"
+arity["attestation"]["evidence"] = {"message": arity_msg, "signature_hex": signer_key.sign(arity_msg.encode("utf-8")).hex(), "pin": None}
+try:
+    verify_attestation(arity, base_payment, signer_pub_hex)
+    check("wrong-arity evidence-v1 rejected", False)
+except AttestationError as e:
+    check("wrong-arity evidence-v1 rejected", "malformed evidence-v1" in str(e), e)
+
+# The mirror is EXACTLY the signed fields: an extra unsigned key is rejected…
+extra = json.loads(json.dumps(ev_scan))
+extra["attestation"]["evidence"]["pin"] = dict(extra["attestation"]["evidence"]["pin"], note="PaySafe-verified merchant")
+try:
+    verify_attestation(extra, ev_payment, signer_pub_hex)
+    check("extra unsigned key in the pin mirror rejected", False)
+except AttestationError as e:
+    check("extra unsigned key in the pin mirror rejected", "mirror" in str(e), e)
+
+# …while key ORDER is meaningless: a reordered mirror must verify (guards
+# against regressing to a serialization comparison).
+reordered = json.loads(json.dumps(ev_scan))
+p = reordered["attestation"]["evidence"]["pin"]
+reordered["attestation"]["evidence"]["pin"] = {"corroboration": p["corroboration"], "age_seconds": p["age_seconds"], "domain": p["domain"]}
+_reordered_ev = verify_attestation(reordered, ev_payment, signer_pub_hex)
+check("reordered mirror keys still verify", _reordered_ev is not None and _reordered_ev["pin"]["age_seconds"] == 7776000)
+
+# An empty evidence object is MALFORMED, not absent — lockstep with TS.
+empty_ev = make_scan(base_payment, "outgoing")
+empty_ev["attestation"]["evidence"] = {}
+try:
+    verify_attestation(empty_ev, base_payment, signer_pub_hex)
+    check("empty evidence object rejected (not treated as absent)", False)
+except AttestationError as e:
+    check("empty evidence object rejected (not treated as absent)", True, e)
 
 print("\n— 402 without payment-capable transport —")
 client = PaySafeClient(base_url=BASE)

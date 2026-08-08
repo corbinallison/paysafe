@@ -92,6 +92,19 @@ export function dashboardHtml(): string {
       </div>
     </div>
 
+    <div class="card hidden" id="apCard">
+      <h2>Human approvals — your decision telemetry</h2>
+      <div class="grid">
+        <div class="stat"><div class="n" id="apRequested">–</div><div class="l">Requested</div></div>
+        <div class="stat"><div class="n" id="apApproved" style="color:var(--allow)">–</div><div class="l">Approved</div></div>
+        <div class="stat"><div class="n" id="apDenied" style="color:var(--block)">–</div><div class="l">Denied</div></div>
+        <div class="stat"><div class="n" id="apExpired" style="color:var(--flag)">–</div><div class="l">Expired undecided</div></div>
+      </div>
+      <p class="muted" id="apLatency" style="margin:12px 0 0"></p>
+      <p class="muted" id="apOutcomes" style="margin:6px 0 0"></p>
+      <p class="muted" style="margin:12px 0 0">Visible only to this key — never shared, never fed into a verdict. A shrinking recent median with a near-100% approval rate is the signature of drift toward rubber-stamping, especially next to not-delivered outcomes on approved payments.</p>
+    </div>
+
     <div class="card">
       <h2>Account</h2>
       <p class="muted" id="acct"></p>
@@ -158,6 +171,27 @@ export function dashboardHtml(): string {
       var empty = document.createElement("span");
       empty.style.width = "100%"; empty.style.background = "#232c3b";
       bar.appendChild(empty);
+    }
+
+    var ap = d.approvals || {};
+    var apCard = $("apCard");
+    if (ap.configured || ap.requested > 0) {
+      text("apRequested", ap.requested || 0);
+      text("apApproved", ap.approved || 0);
+      text("apDenied", ap.denied || 0);
+      text("apExpired", ap.expired || 0);
+      var lat = ap.decision_latency_ms;
+      var fmtMs = function (ms) { return ms >= 60000 ? Math.round(ms / 60000) + "m" : ms >= 1000 ? Math.round(ms / 1000) + "s" : ms + "ms"; };
+      var latLine = lat ? ("Decision latency: median " + fmtMs(lat.median) + " · p90 " + fmtMs(lat.p90) + " over " + lat.count + " decision(s)") : "No decisions recorded yet.";
+      if (ap.recent && ap.baseline) {
+        latLine += " — recent " + ap.recent.count + ": median " + fmtMs(ap.recent.median_latency_ms) + " at " + Math.round(ap.recent.approval_rate * 100) + "% approved; earlier " + ap.baseline.count + ": median " + fmtMs(ap.baseline.median_latency_ms) + " at " + Math.round(ap.baseline.approval_rate * 100) + "% approved";
+      }
+      text("apLatency", latLine);
+      var oc = ap.approved_outcomes || {};
+      text("apOutcomes", "Approved payments then reported: " + (oc.delivered || 0) + " delivered · " + (oc.not_delivered || 0) + " not delivered · " + (oc.partial || 0) + " partial · " + (oc.wrong_content || 0) + " wrong content · " + (oc.unreported || 0) + " unreported");
+      apCard.classList.remove("hidden");
+    } else {
+      apCard.classList.add("hidden");
     }
 
     var created = ac.created_at ? new Date(ac.created_at).toLocaleDateString() : "—";

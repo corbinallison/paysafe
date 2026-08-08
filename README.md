@@ -73,13 +73,15 @@ Each exposes the same three tools (scan / check reputation / report) plus a fram
 | Velocity limits | ≥N scans/min (flag; block at 2×), cumulative hourly spend cap — rate and spend are observed facts, not self-reports |
 | First-contact size cap | First payment to a never-seen counterparty above a threshold |
 | Asset verification | `asset` contract that isn't canonical USDC on the declared network (lookalike-token attack) |
-| Merchant pinning (TOFU) | `pay_to` rotation on a known resource domain → block; optional non-blocking CDP Bazaar cross-check |
+| Merchant pinning (TOFU) | `pay_to` rotation on a known resource domain → block; optional non-blocking CDP Bazaar cross-check. Pin **age** and the **named** corroboration sources ship as signed attestation fields (see below), so a wallet can tell a four-minute-old pin from a six-month-old one instead of trusting both equally |
 | Address poisoning | `pay_to` that matches a known counterparty or pinned merchant on its first + last characters but differs in the middle — the truncated-display ("0x2096…287C") vanity-address attack → block. Also catches bait: a near-copy of the recipient or a trusted address *planted in the content the agent just read*. Blocked payments are rolled back out of trust state, so repeat attempts keep detecting |
 | ScoutScore trust signal (opt-in) | Merchant domains rated LOW/VERY_LOW by [ScoutScore](https://scoutscore.ai) (spam farms, template clones, dead endpoints) → flag, clearly labeled as an external third-party signal. Lookups are async + cached (zero scan latency), share the domain only, and can never block on their own. Enable with `SCOUTSCORE=on` |
 | Known-bad list | O(1) membership against a curated/synced badlist |
 | Deep content analysis | Encoded/obfuscated injection payloads decoded and rescanned: base64 (both alphabets, line-wrapped, double-encoded), hex, percent-encoding, HTML entities, Unicode tag-character smuggling ("invisible ASCII"), and zero-width/Cyrillic-Greek-homoglyph obfuscation — bypassed below `MICRO_BYPASS_USD` (default $0.005) per payment, but drip-resistant: once cumulative scanned spend to a counterparty crosses the same threshold, the deep tier runs anyway; overridable per request via `policy.force_deep` |
 
 **Signed verdicts.** Every response carries an Ed25519 `attestation` over `scan_id|direction|verdict|risk_score|scanned_at|payment_commitment|expires_at` (public key at `/.well-known/paysafe-verdict-key`). The `payment_commitment` is `sha256(network|pay_to|asset|amount|nonce)`, so a wallet can confirm an allow-verdict belongs to *this* payment and hasn't been replayed onto another, and reject it after `expires_at`. Wallet policies can require a fresh signed allow-verdict before signing — turning the firewall from advisory into enforceable, still without PaySafe touching funds.
+
+**Signed pin evidence.** Scan attestations also carry a second signed record — `evidence-v1|scan_id|payment_commitment|pin_domain|pin_age_seconds|pin_corroboration` (same key, bound to the same scan and payment). It publishes how long the merchant pin behind this payee had held at scan time (`0` = first sighting) and which out-of-band sources corroborated it — each **named** (today: `cdp_bazaar`, the CDP Bazaar merchant index listing the domain among the pinned address's resources), never a boolean and never a composite score, because a corroboration that succeeded through a genuinely independent channel and one the attacker already controls would be the same bit, and source strength is a per-merchant judgment that belongs to you. Folding "young pin, corroborated" into a single allow/flag would make a risk-tolerance call PaySafe has no business making: with separate signed fields, a wallet can accept a four-minute-old corroborated pin for a cent and refuse it for fifty dollars. The verdict message itself stays frozen at its 7 fields — deployed verifiers are unaffected, and both SDKs verify the evidence record and surface it as `pin_evidence`. One honest limit: verifiers tolerate an *absent* evidence record (older servers, override attestations), so absence proves nothing — a stripped record is indistinguishable from an old server, and only the signed empty fields assert "no pin applies". If your policy requires pin evidence, decide explicitly what an attestation without it means to you. Every signed field is a compatibility commitment: fields get added, never quietly changed or withdrawn.
 
 **Wallet-side enforcement.** Both SDKs ship that policy turnkey: `PaySafeEnforcer.guardSigner(account)` (TS: viem accounts, ethers v6 signers) / `PaySafeEnforcer.guard_signer(account)` (Python: eth-account, all call shapes) wraps the signer in a proxy that recomputes the payment commitment *from the typed data being signed* (EIP-3009 / ERC-2612) and refuses the signature unless a fresh, pinned-key-verified allow-verdict exists for exactly that commitment. Approvals are single-use and expire with the attestation; a compromised agent that scans payment A cannot sign payment B, and one that skips scanning cannot sign at all. Optional **local policy** bounds it further: a hard recipient allowlist (`allowedRecipients`) and per-payment / cumulative spend caps (`maxAmountAtomic` / `maxTotalAtomic`), checked against the typed data at signature time with no server involved — even a payment carrying a valid allow-verdict is refused if it pays an unlisted recipient or exceeds the caps, so a subverted advisory layer can only move bounded amounts to known parties. The agent can never extend the allowlist; the one escape hatch is opt-in (`overrideAdmitsRecipient`, on top of `acceptOverrides`): a human-approved override from [step-up approvals](#human-in-the-loop-step-up-approvals) admits exactly the payment it binds — never the recipient, and never past the spend caps. Fail-closed and fully local; the two implementations are cross-validated against the same production signer — see [`sdk/README.md`](sdk/README.md#enforcement-a-wallet-that-refuses-unscanned-payments) and [`sdk-python/README.md`](sdk-python/README.md#enforcement-a-wallet-that-refuses-unscanned-payments).
 
@@ -100,7 +102,7 @@ Each exposes the same three tools (scan / check reputation / report) plus a fram
 | `GET /v1/approvals/:id` | free | Poll a pending approval; on approve, returns the signed `override:allow` verdict |
 | `POST /v1/outcomes` | free | Record whether a scanned, settled payment [actually delivered](#delivery-outcomes) (commitment-bound; the SDK wrappers do this automatically) |
 | `GET /v1/plans` | free | Machine-readable plan catalog (tiers, limits, subscribe mechanics) |
-| `GET /v1/usage` | free | Your key's own usage stats: scan/verdict counts, free-tier quota, plan status |
+| `GET /v1/usage` | free | Your key's own usage stats: scan/verdict counts, free-tier quota, plan status, and [approval-decision telemetry](#human-in-the-loop-step-up-approvals) (visible only to you) |
 | `POST /v1/trust/evaluate` | free | [x402 trust-provider interface](https://github.com/x402-foundation/x402/issues/2299) — sellers gate settlement on a payer's history (TrustQuery → PASS/FAIL/UNCERTAIN + evidence) |
 | `GET /dashboard` | free | Browser usage dashboard for your key (see [Dashboards](#dashboards)) |
 | `POST /v1/plans/subscribe` | plan price | Subscribe/renew a key on a plan — itself paid via x402, so agents upgrade autonomously |
@@ -172,14 +174,19 @@ POST /v1/scan/outgoing
     "message": "b7911f8b-...|outgoing|block|95|2026-07-14T09:33:12Z|<payment_commitment>|2026-07-14T09:38:12Z",
     "signature_hex": "...",
     "payment_commitment": "sha256(network|pay_to|asset|amount|nonce)",
-    "expires_at": "2026-07-14T09:38:12Z"
+    "expires_at": "2026-07-14T09:38:12Z",
+    "evidence": {
+      "message": "evidence-v1|b7911f8b-...|<payment_commitment>|api.example.com|7776000|cdp_bazaar",
+      "signature_hex": "...",
+      "pin": { "domain": "api.example.com", "age_seconds": 7776000, "corroboration": ["cdp_bazaar"] }
+    }
   }
 }
 ```
 
 ## Dashboard
 
-**Usage dashboard — `GET /dashboard`.** A single self-contained page where any key holder can see their own scan counts, verdict breakdown, free-tier quota, and plan status. Paste your `psk_` key and hit View; the key is sent only as an `X-API-Key` header to `GET /v1/usage` (never in a URL, so it can't leak via history, referrers, or server logs), and each key can only ever see its own account. Served with a locked-down CSP (`default-src 'none'`, zero external resources) and rendered exclusively via `textContent`. 
+**Usage dashboard — `GET /dashboard`.** A single self-contained page where any key holder can see their own scan counts, verdict breakdown, free-tier quota, plan status, and (when approvals are configured) their own [approval-decision telemetry](#human-in-the-loop-step-up-approvals). Paste your `psk_` key and hit View; the key is sent only as an `X-API-Key` header to `GET /v1/usage` (never in a URL, so it can't leak via history, referrers, or server logs), and each key can only ever see its own account. Served with a locked-down CSP (`default-src 'none'`, zero external resources) and rendered exclusively via `textContent`. 
 
 ## Human-in-the-loop step-up approvals
 
@@ -206,6 +213,8 @@ if (scan.verdict === "flag" && scan.approval) {
 (Python: `paysafe.wait_for_approval(scan, payment=payment)` / `PaySafeEnforcer(..., accept_overrides=True)`.)
 
 **Why `acceptOverrides` is opt-in:** an agent that holds its own API key could configure the approval webhook to point somewhere it can read, then "approve" its own flags — no human involved. Overrides are only trustworthy when the webhook receiver is out of the agent's reach (your ops channel, not the agent's environment). The enforcement kit therefore refuses `override:allow` unless the wallet owner explicitly opts in, exactly like `allowFlagged`.
+
+**Decision telemetry — watch yourself drift.** In most deployments, human approval decays into a compliance formality approved reflexively — and that decay is invisible in any single observation: a reviewer approving in 8 seconds after three months of 40 looks identical, in one log line, to a reviewer who got calibrated. So PaySafe records the **decision latency** of every approval (both timestamps are server-stamped) and pairs each approved payment with its later [delivery outcome](#delivery-outcomes). `GET /v1/usage` and the dashboard show your own aggregates — recent vs. baseline median latency, approval rate, and how approved payments actually delivered. Recent median shrinking while the approval rate sits near 100% is the legible signature of rubber-stamping; the outcome pairing is what separates that from "the operator got faster because the flags got predictable". Raw aggregates only, no composite score — and the data is **visible only to the key that owns it**: it never feeds a verdict and never appears in reputation lookups, trust evaluations, or public stats, because a public record of who rubber-stamps is a targeting list.
 
 **Disabling.** Per key: `POST /v1/approvals/config` with `{"webhook_url": null}` — the response carries an advisory reminding you that flags return to advisory-only (nothing pauses, no overrides are minted, and an `acceptOverrides` wallet has no flag→payment path anymore); pending approvals stay decidable until they expire. Server-wide: `APPROVALS=off` refuses new configs and opens no new approvals, with the same advisory, while in-flight approvals remain decidable so a mid-flight disable strands nothing.
 
@@ -286,7 +295,7 @@ Listed in the [official MCP registry](https://registry.modelcontextprotocol.io) 
 }
 ```
 
-Eleven tools over stdio: `scan_outgoing_payment`, `scan_incoming_payment`, `check_counterparty_reputation`, `report_counterparty`, `report_payment_outcome` (close the loop after settlement — builds measured delivery history), `mint_api_key`, `rotate_api_key` (leaked-key recovery — fresh secret, same account), `check_approval_status` (poll a human-in-the-loop approval), `get_plans`, `subscribe_plan`, and `verify_verdict_attestation` (full Ed25519 verification performed locally — pinned key, commitment recompute, expiry). Defaults to the production service; set `PAYSAFE_URL` to point elsewhere.
+Eleven tools over stdio: `scan_outgoing_payment`, `scan_incoming_payment`, `check_counterparty_reputation`, `report_counterparty`, `report_payment_outcome` (close the loop after settlement — builds measured delivery history), `mint_api_key`, `rotate_api_key` (leaked-key recovery — fresh secret, same account), `check_approval_status` (poll a human-in-the-loop approval), `get_plans`, `subscribe_plan`, and `verify_verdict_attestation` (full Ed25519 verification performed locally — pinned key, commitment recompute, expiry, plus the signed pin-evidence record: returns `pin_evidence` with pin age and named corroboration sources). Defaults to the production service; set `PAYSAFE_URL` to point elsewhere.
 
 ## Detection defaults (hosted service)
 
@@ -300,7 +309,7 @@ Published for transparency — these are the thresholds your scans are judged ag
 | Deep content analysis | bypassed below $0.005 payment value — until cumulative scanned spend to the counterparty crosses $0.005, then always on for that pair (`policy.force_deep` overrides; always on for Pro/Scale) |
 | Replay window | nonces tracked for 24 h |
 | Asset check | non-canonical USDC on the declared network → block |
-| Merchant pinning | TOFU per resource domain; rotation → block |
+| Merchant pinning | TOFU per resource domain; rotation → block; pin age + named corroboration sources published as signed attestation evidence |
 | Address poisoning | ≥4 shared hex chars on both ends of a known address (but not equal) → block; same lookalike planted in just-read content → block (untrusted origin) or flag |
 | ScoutScore signal | opt-in (`SCOUTSCORE=on`); LOW/VERY_LOW-rated domains → flag (never block); cached 24h |
 | Verdict signing | Ed25519, always on, 5-minute attestation expiry |

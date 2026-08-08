@@ -9,6 +9,7 @@
  * Run: node --experimental-strip-types sdk/test/run-tests.ts
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { generateKeyPairSync, sign as edSign } from "node:crypto";
 import { VerdictSigner } from "../../src/verdictsign.ts";
 import { paymentCommitment } from "../../src/commitment.ts";
 import {
@@ -114,7 +115,12 @@ const server = createServer(async (req: IncomingMessage, res: ServerResponse) =>
     const commitment = payTo.includes("replay")
       ? paymentCommitment({ network: "eip155:8453", pay_to: "0xattacker", amount: "1", nonce: "0xother" })
       : paymentCommitment(body.payment ?? {});
-    scan.attestation = signer.attest(scan, commitment);
+    // "pinned" marker: the attestation carries signed pin evidence, exactly as
+    // the real server emits for an established, CDP-corroborated pin.
+    const pin = payTo.includes("pinned")
+      ? { domain: "seller.example.com", age_seconds: 7_776_000, corroboration: ["cdp_bazaar"] }
+      : null;
+    scan.attestation = signer.attest(scan, commitment, undefined, pin);
     // HITL: flags carry a pending approval (behavior encoded in pay_to markers).
     if (scan.verdict === "flag") {
       const id = `apr-${mockApprovals.size + 1}`;
@@ -294,6 +300,131 @@ console.log("\n— attestation attack cases —");
   check("expired attestation rejected", ok);
   verifyAttestation(scan, basePayment, pub); // fresh: should not throw
   check("fresh attestation verifies standalone", true);
+}
+
+console.log("\n— signed pin evidence (evidence-v1) —");
+{
+  const pub = (signer.publicKeyInfo() as { public_key_spki_hex: string }).public_key_spki_hex;
+
+  // A pin-bearing scan surfaces verified pin facts on the response.
+  const client = new PaySafeClient({ baseUrl: BASE });
+  const pinnedScan = await client.scanOutgoing({ ...basePayment, pay_to: "0xPINNEDmerchant0000000000000000000000001" });
+  check("verified pin evidence attached to the scan", pinnedScan.pin_evidence?.domain === "seller.example.com" && pinnedScan.pin_evidence?.age_seconds === 7_776_000, pinnedScan.pin_evidence);
+  check("corroboration names the source, not a boolean", JSON.stringify(pinnedScan.pin_evidence?.corroboration) === JSON.stringify(["cdp_bazaar"]));
+
+  // No pin applies → verified null (distinct from "no evidence record").
+  const plainScan = await client.scanOutgoing(basePayment);
+  check("no-pin evidence verifies to an explicit null", plainScan.pin_evidence === null && plainScan.attestation_verified === true);
+
+  // Back-compat: an attestation WITHOUT an evidence record (older server /
+  // override) verifies fine and returns null.
+  const legacy = makeScan(basePayment);
+  delete legacy.attestation!.evidence;
+  check("legacy attestation without evidence still verifies", verifyAttestation(legacy, basePayment, pub) === null);
+
+  // Tampered evidence: flip the signed age → signature must fail.
+  const tampered = makeScan(basePayment);
+  tampered.attestation = signer.attest(tampered, paymentCommitment(basePayment), undefined, { domain: "seller.example.com", age_seconds: 60, corroboration: [] });
+  tampered.attestation.evidence!.message = tampered.attestation.evidence!.message.replace("|60|", "|15552000|");
+  let threw: unknown = null;
+  try { verifyAttestation(tampered, basePayment, pub); } catch (e) { threw = e; }
+  check("tampered evidence message rejected", threw instanceof AttestationError && String((threw as Error).message).includes("evidence signature"));
+
+  // Evidence lifted from a DIFFERENT scan: authentic signature, wrong binding.
+  const scanA = makeScan(basePayment);
+  scanA.attestation = signer.attest(scanA, paymentCommitment(basePayment), undefined, { domain: "seller.example.com", age_seconds: 60, corroboration: [] });
+  const scanB = makeScan(basePayment);
+  scanB.attestation!.evidence = scanA.attestation!.evidence;
+  threw = null;
+  try { verifyAttestation(scanB, basePayment, pub); } catch (e) { threw = e; }
+  check("evidence bound to a different scan rejected (replay)", threw instanceof AttestationError && String((threw as Error).message).includes("DIFFERENT scan"));
+
+  // A spoofed convenience mirror must not survive verification.
+  const mirrored = makeScan(basePayment);
+  mirrored.attestation = signer.attest(mirrored, paymentCommitment(basePayment), undefined, { domain: "seller.example.com", age_seconds: 60, corroboration: [] });
+  mirrored.attestation.evidence!.pin = { domain: "seller.example.com", age_seconds: 15_552_000, corroboration: ["cdp_bazaar"] };
+  threw = null;
+  try { verifyAttestation(mirrored, basePayment, pub); } catch (e) { threw = e; }
+  check("spoofed pin mirror rejected", threw instanceof AttestationError && String((threw as Error).message).includes("mirror"));
+
+  // A future evidence version is authenticated but not parsed — no throw, no
+  // pin. Hand-sign an evidence-v2 record under a local keypair to prove the
+  // tag gate, not just record absence.
+  const { privateKey: futPriv, publicKey: futPub } = generateKeyPairSync("ed25519");
+  const futKeyHex = (futPub.export({ format: "der", type: "spki" }) as Buffer).toString("hex");
+  const future = makeScan(basePayment);
+  const futCommitment = paymentCommitment(basePayment);
+  const futMessage = [future.scan_id, future.direction, future.verdict, future.risk_score, future.scanned_at, futCommitment, future.attestation!.expires_at].join("|");
+  const futEvMessage = `evidence-v2|${future.scan_id}|${futCommitment}|something|new|here`;
+  future.attestation = {
+    alg: "ed25519",
+    public_key_spki_hex: futKeyHex,
+    message: futMessage,
+    signature_hex: edSign(null, Buffer.from(futMessage, "utf8"), futPriv).toString("hex"),
+    payment_commitment: futCommitment,
+    expires_at: future.attestation!.expires_at,
+    evidence: { message: futEvMessage, signature_hex: edSign(null, Buffer.from(futEvMessage, "utf8"), futPriv).toString("hex"), pin: null },
+  };
+  check("future evidence versions are tolerated (returns null)", verifyAttestation(future, basePayment, futKeyHex) === null);
+
+  // Evidence for the SAME scan_id but a different payment commitment: graft
+  // evidence minted for payment P1 onto the same scan's attestation for P2 —
+  // must trip the commitment-binding branch, not just the scan_id branch.
+  const p1 = { ...basePayment, nonce: "0xevA" };
+  const p2 = { ...basePayment, nonce: "0xevB" };
+  const scanC = makeScan(p2);
+  const donor = signer.attest(scanC, paymentCommitment(p1), undefined, { domain: "seller.example.com", age_seconds: 60, corroboration: [] });
+  scanC.attestation = signer.attest(scanC, paymentCommitment(p2), undefined, null);
+  scanC.attestation.evidence = donor.evidence;
+  threw = null;
+  try { verifyAttestation(scanC, p2, pub); } catch (e) { threw = e; }
+  check("evidence bound to a different payment commitment rejected", threw instanceof AttestationError && String((threw as Error).message).includes("DIFFERENT scan"));
+
+  // Frozen grammar: a signed evidence-v1 with the wrong arity must throw, and
+  // a non-ASCII-decimal age must throw — same rejects as the Python SDK.
+  const { privateKey: localPriv, publicKey: localPub } = generateKeyPairSync("ed25519");
+  const localKeyHex = (localPub.export({ format: "der", type: "spki" }) as Buffer).toString("hex");
+  const localSignedScan = (evFields: string): ScanResponse => {
+    const s = makeScan(basePayment);
+    const c = paymentCommitment(basePayment);
+    const msg7 = [s.scan_id, s.direction, s.verdict, s.risk_score, s.scanned_at, c, s.attestation!.expires_at].join("|");
+    const evMsg = `evidence-v1|${s.scan_id}|${c}|${evFields}`;
+    s.attestation = {
+      alg: "ed25519",
+      public_key_spki_hex: localKeyHex,
+      message: msg7,
+      signature_hex: edSign(null, Buffer.from(msg7, "utf8"), localPriv).toString("hex"),
+      payment_commitment: c,
+      expires_at: s.attestation!.expires_at,
+      evidence: { message: evMsg, signature_hex: edSign(null, Buffer.from(evMsg, "utf8"), localPriv).toString("hex"), pin: null },
+    };
+    return s;
+  };
+  for (const c of [
+    { name: "wrong-arity evidence-v1 (7 fields) rejected", fields: "seller.example.com|60|none|extra", includes: "malformed evidence-v1" },
+    { name: "non-decimal pin age (1e3) rejected", fields: "seller.example.com|1e3|none", includes: "non-negative integer" },
+  ]) {
+    let err: unknown = null;
+    try { verifyAttestation(localSignedScan(c.fields), basePayment, localKeyHex); } catch (e) { err = e; }
+    check(c.name, err instanceof AttestationError && String((err as Error).message).includes(c.includes), String((err as Error)?.message));
+  }
+
+  // The mirror is EXACTLY the signed fields: an extra unsigned key must be
+  // rejected (it would be unsigned data riding a verified attestation)…
+  const extraKey = makeScan(basePayment);
+  extraKey.attestation = signer.attest(extraKey, paymentCommitment(basePayment), undefined, { domain: "seller.example.com", age_seconds: 60, corroboration: [] });
+  (extraKey.attestation.evidence!.pin as unknown as Record<string, unknown>).note = "PaySafe-verified merchant";
+  threw = null;
+  try { verifyAttestation(extraKey, basePayment, pub); } catch (e) { threw = e; }
+  check("extra unsigned key in the pin mirror rejected", threw instanceof AttestationError && String((threw as Error).message).includes("mirror"));
+
+  // …while key ORDER is meaningless: a reordered mirror must verify (guards
+  // against regressing to serialization comparison).
+  const reordered = makeScan(basePayment);
+  reordered.attestation = signer.attest(reordered, paymentCommitment(basePayment), undefined, { domain: "seller.example.com", age_seconds: 60, corroboration: ["cdp_bazaar"] });
+  const origPin = reordered.attestation.evidence!.pin!;
+  reordered.attestation.evidence!.pin = { corroboration: [...origPin.corroboration], age_seconds: origPin.age_seconds, domain: origPin.domain };
+  check("reordered mirror keys still verify", verifyAttestation(reordered, basePayment, pub)?.pin?.age_seconds === 60);
 }
 
 console.log("\n— 402 without payment-capable fetch —");

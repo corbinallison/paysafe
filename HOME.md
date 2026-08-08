@@ -20,7 +20,7 @@ PaySafe is **advisory** and **non-custodial**: it never touches your keys, your 
 
 ## From advisory to enforceable
 
-Every verdict is Ed25519-signed and bound to a hash of the exact payment, with a short expiry. The SDKs ship an enforcement kit: `guardSigner(account)` wraps your wallet's signer so it **physically refuses to sign** an x402 payment authorization unless a fresh, verified allow-verdict exists for exactly that payment. A compromised agent that scanned payment A cannot sign payment B — and one that skips scanning cannot sign at all. Flagged payments can pause for one-click human approval instead.
+Every verdict is Ed25519-signed and bound to a hash of the exact payment, with a short expiry. The attestation also carries signed evidence a wallet can weigh for itself: how long the merchant's payment address had been pinned at scan time (a four-minute-old pin and a six-month-old one are different risks), and which named out-of-band sources corroborated it. The SDKs ship an enforcement kit: `guardSigner(account)` wraps your wallet's signer so it **physically refuses to sign** an x402 payment authorization unless a fresh, verified allow-verdict exists for exactly that payment. A compromised agent that scanned payment A cannot sign payment B — and one that skips scanning cannot sign at all. Flagged payments can pause for one-click human approval instead — and PaySafe shows you (and only you) your own decision latency paired with how approved payments delivered, so approval decaying into a rubber stamp is visible before it costs you.
 
 ## Get started
 

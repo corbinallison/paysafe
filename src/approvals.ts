@@ -36,7 +36,7 @@ import { request as httpsRequest } from "node:https";
 import { request as httpRequest } from "node:http";
 import { isIP } from "node:net";
 import type { PaySafeConfig } from "./config.ts";
-import { hashApiKey, type ApprovalFacts, type ApprovalRecord, type Store } from "./store.ts";
+import { APPROVAL_RING_MAX, approvalStatsOf, hashApiKey, type ApprovalFacts, type ApprovalRecord, type KeyRecord, type Store } from "./store.ts";
 import type { VerdictSigner } from "./verdictsign.ts";
 import type { ApiResult } from "./api.ts";
 import type { ScanRequest, ScanResponse } from "./types.ts";
@@ -287,6 +287,10 @@ export function maybeCreateApproval(
     expires_at: expiresAt,
   };
   store.approvals.set(approvalId, record);
+  // Telemetry: count the request on the owning account (the approval record
+  // itself is pruned 24h after creation, so counters live on the KeyRecord).
+  const ownerRec = store.keys.get(keyHash);
+  if (ownerRec) approvalStatsOf(ownerRec).requested += 1;
   store.markDirty();
 
   // The token travels ONLY in the webhook payload (bearer credential), in the
@@ -398,6 +402,12 @@ export function handleApprovalDecide(
 
   const status = liveStatus(record);
   if (status === "expired") {
+    // Same once-only pending → expired transition as pruneApprovals; whichever
+    // observes it first counts it.
+    if (record.status === "pending") {
+      const rec = store.keys.get(record.key_hash);
+      if (rec) approvalStatsOf(rec).expired += 1;
+    }
     record.status = "expired";
     store.markDirty();
     return { status: 410, body: { approval_id: record.approval_id, status: "expired", error: "This approval expired before a decision was made. The agent must re-scan." } };
@@ -423,6 +433,35 @@ export function handleApprovalDecide(
   const decidedAt = new Date().toISOString();
   record.status = decision;
   record.decided_at = decidedAt;
+
+  // Decision latency, captured NOW: the approval record is pruned 24h after
+  // creation and the audit event carries no created_at, so this is the only
+  // moment the pair exists. Both timestamps are server-stamped — nothing here
+  // is client-supplied. Clamped non-negative; a corrupt created_at yields no
+  // ring entry rather than a garbage latency.
+  const latencyMs = Date.parse(decidedAt) - Date.parse(record.created_at);
+  const ownerRec = store.keys.get(record.key_hash);
+  if (ownerRec) {
+    const stats = approvalStatsOf(ownerRec);
+    stats[decision] += 1;
+    if (Number.isFinite(latencyMs)) {
+      // The payment may have settled and reported its outcome BEFORE the
+      // human decided (flags are advisory — the agent can proceed while the
+      // approval is pending). outcomes.ts only stamps rings at report time,
+      // so pick up an already-recorded outcome here or the pairing is lost.
+      const priorOutcome = store.scanIndex.get(record.scan_id)?.outcome;
+      stats.recent.push({
+        scan_id: record.scan_id,
+        decided_at: decidedAt,
+        latency_ms: Math.max(0, latencyMs),
+        decision,
+        ...(priorOutcome ? { outcome: priorOutcome } : {}),
+      });
+      if (stats.recent.length > APPROVAL_RING_MAX) {
+        stats.recent.splice(0, stats.recent.length - APPROVAL_RING_MAX);
+      }
+    }
+  }
 
   if (decision === "approved" && signer) {
     const attestation = signer.attestOverride(
@@ -458,6 +497,7 @@ export function handleApprovalDecide(
     amount_usd: record.facts.amount_usd ?? null,
     fired: [decision === "approved" ? "approval.approved" : "approval.denied"],
     attestation_sig: decision === "approved" ? (record.override as { attestation?: { signature_hex?: string } })?.attestation?.signature_hex : undefined,
+    ...(Number.isFinite(latencyMs) ? { approval_latency_ms: Math.max(0, latencyMs) } : {}),
   });
 
   return {
@@ -501,6 +541,84 @@ export function handleApprovalPoll(store: Store, approvalId: string, apiKey: str
       decided_at: record.decided_at ?? null,
       ...(status === "approved" && record.override ? { override: record.override } : {}),
     },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Owner-only decision telemetry (surfaced via /v1/usage)
+// ---------------------------------------------------------------------------
+
+function median(sorted: number[]): number | null {
+  if (!sorted.length) return null;
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+}
+
+function windowStats(entries: NonNullable<KeyRecord["approval_stats"]>["recent"]): {
+  count: number;
+  median_latency_ms: number | null;
+  approval_rate: number | null;
+} {
+  const latencies = entries.map((e) => e.latency_ms).sort((a, b) => a - b);
+  const approved = entries.filter((e) => e.decision === "approved").length;
+  return {
+    count: entries.length,
+    median_latency_ms: median(latencies),
+    approval_rate: entries.length ? Number((approved / entries.length).toFixed(4)) : null,
+  };
+}
+
+/** How many of the newest ring entries form the "recent" window. */
+const RECENT_WINDOW = 20;
+
+/**
+ * The /v1/usage `approvals` block: decision counts, latency aggregates split
+ * recent-vs-baseline, and delivery outcomes of approved payments. The split
+ * exists because decay to rubber-stamping is invisible in any single
+ * observation — a reviewer approving in 8 seconds after three months of 40
+ * looks identical in one log line to a reviewer who got calibrated. Median
+ * latency shrinking while the approval rate stays near 100% is the legible
+ * signature; approved payments that later report not_delivered are what
+ * separates the benign reading from the bad one. Raw aggregates only — no
+ * composite "rubber-stamp score": scoring the operator is the owner's call.
+ *
+ * PRIVACY: owner-only, by construction — callable only from handleUsage,
+ * which resolves the caller's own key. Never reachable from reputation,
+ * trust, public stats, or admin paths.
+ */
+export function approvalTelemetry(store: Store, rec: KeyRecord, keyHash: string): object {
+  const stats = rec.approval_stats ?? { requested: 0, approved: 0, denied: 0, expired: 0, recent: [] };
+  const ring = stats.recent;
+  const recent = ring.slice(-RECENT_WINDOW);
+  const baseline = ring.slice(0, Math.max(0, ring.length - RECENT_WINDOW));
+  const outcomes = { delivered: 0, not_delivered: 0, partial: 0, wrong_content: 0, unreported: 0 };
+  for (const e of ring) {
+    if (e.decision !== "approved") continue;
+    if (e.outcome && e.outcome in outcomes) outcomes[e.outcome as keyof typeof outcomes] += 1;
+    else outcomes.unreported += 1;
+  }
+  const allLatencies = ring.map((e) => e.latency_ms).sort((a, b) => a - b);
+  return {
+    configured: store.approvalConfigs.has(keyHash),
+    requested: stats.requested,
+    approved: stats.approved,
+    denied: stats.denied,
+    expired: stats.expired,
+    decision_latency_ms:
+      allLatencies.length > 0
+        ? {
+            count: allLatencies.length,
+            median: median(allLatencies),
+            // Nearest-rank p90: ceil(0.9n)-1 — floor(0.9n) would return the
+            // maximum (p100) whenever n is a multiple of 10.
+            p90: allLatencies[Math.max(0, Math.ceil(allLatencies.length * 0.9) - 1)],
+          }
+        : null,
+    recent: recent.length ? windowStats(recent) : null,
+    baseline: baseline.length ? windowStats(baseline) : null,
+    approved_outcomes: outcomes,
+    note:
+      "Visible only to this key — never shared, never fed into any verdict. Watch for: recent median latency shrinking while the approval rate stays near 100% (drift toward rubber-stamping), especially alongside not_delivered outcomes on approved payments.",
   };
 }
 

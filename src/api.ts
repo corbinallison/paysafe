@@ -13,7 +13,8 @@ import { sanitizeScanRequest } from "./sanitize.ts";
 import { paymentCommitment, paymentDigest } from "./commitment.ts";
 import { addDispute, addReport, disputeMessage, summarize } from "./reputation.ts";
 import { activatePlanOnKey, activePlan, getPlan, plansCatalog, resolveEffectiveConfig } from "./plans.ts";
-import { maybeCreateApproval, migrateApprovalsOnRotate, setApprovalConfig } from "./approvals.ts";
+import { approvalTelemetry, maybeCreateApproval, migrateApprovalsOnRotate, setApprovalConfig } from "./approvals.ts";
+import { pinEvidenceFor } from "./detectors/pinning.ts";
 import { VERSION } from "./version.ts";
 
 export interface ApiResult {
@@ -104,7 +105,13 @@ export function handleScan(
   // to hard ceilings. Safety-critical checks are not plan-configurable.
   const eff = resolveEffectiveConfig(cfg, store, apiKey);
   const scan = runScan(direction, req, eff, store);
-  if (signer) scan.attestation = signer.attest(scan, paymentCommitment(req.payment));
+  // Pin evidence is read AFTER runScan: the scanner has already created this
+  // scan's TOFU pin (age 0 on first sighting) and rolled back any pin a
+  // blocked scan created — so the signed evidence reflects post-rollback truth.
+  if (signer) {
+    const pin = pinEvidenceFor(req.payment, store, eff.pinning, scan.scanned_at);
+    scan.attestation = signer.attest(scan, paymentCommitment(req.payment), undefined, pin);
+  }
 
   // Tamper-evident audit record of the DECISION. Stores only a hash of the
   // payment — never the plaintext PII/secrets that were scanned.
@@ -307,6 +314,9 @@ export function handleUsage(cfg: PaySafeConfig, store: Store, apiKey: string | u
         block: scans.block,
         block_rate: scans.total ? Number((scans.block / scans.total).toFixed(4)) : 0,
       },
+      // Owner-only decision telemetry (never in reputation/trust/public stats
+      // — see approvalTelemetry). resolved.hash is non-null here: rec exists.
+      approvals: approvalTelemetry(store, rec, resolved.hash as string),
     },
   };
 }
@@ -592,7 +602,7 @@ export function serviceInfo(cfg: PaySafeConfig): ApiResult {
         "GET /v1/approvals/{id}": "Free (X-API-Key). Poll a pending approval; on approve you receive the signed override:allow verdict bound to that exact payment.",
         "POST /v1/outcomes": `Free (rate-limited: ${cfg.outcomesPerIpPerHour}/IP/hour). Record whether a scanned, settled payment actually DELIVERED (delivered/not_delivered/partial/wrong_content). Must present the scan_id + payment_commitment of a real scan — outcomes are commitment-bound, one per scan. Delivery rates feed reputation lookups and future scans.`,
         "POST /v1/plans/subscribe": "x402-paid at the plan's price. Upgrade your API key to a plan; renew by paying again.",
-        "GET /v1/usage": "Free. Your own key's usage stats (X-API-Key header): scan/verdict counts, free-tier quota, plan status.",
+        "GET /v1/usage": "Free. Your own key's usage stats (X-API-Key header): scan/verdict counts, free-tier quota, plan status, and approval-decision telemetry (latency + delivery outcomes of approved payments — visible only to you, never shared).",
         "GET /dashboard": "Free. Browser usage dashboard for your key — key is sent via header only, never a URL.",
         "GET /.well-known/x402": "Free. x402 manifest.",
         "GET /.well-known/agent-card.json": "Free. Agent card.",

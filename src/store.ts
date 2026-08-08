@@ -23,6 +23,20 @@ export function hashApiKey(raw: string): string {
   return createHash("sha256").update(raw, "utf8").digest("hex");
 }
 
+/** Per-key cap on retained approval decisions. Small on purpose: rings exist
+ * on every key that ever had approvals decided, so this bounds adversarial
+ * memory the same way the other per-entry arrays are capped. 50 is enough for
+ * a recent-vs-baseline latency read. */
+export const APPROVAL_RING_MAX = 50;
+
+/** Get-or-create the approval telemetry block on a key record. */
+export function approvalStatsOf(rec: KeyRecord): NonNullable<KeyRecord["approval_stats"]> {
+  if (!rec.approval_stats) {
+    rec.approval_stats = { requested: 0, approved: 0, denied: 0, expired: 0, recent: [] };
+  }
+  return rec.approval_stats;
+}
+
 export interface NonceRecord {
   first_seen: string;
   times_seen: number;
@@ -41,6 +55,36 @@ export interface KeyRecord {
   scans?: { total: number; allow: number; flag: number; block: number };
   /** ISO timestamp of the most recent scan on this key */
   last_used_at?: string;
+  /**
+   * Human-approval decision telemetry for THIS account. Recorded at decide
+   * time (approval records themselves are pruned 24h after creation, so
+   * durable aggregates must be captured when the decision happens) and stored
+   * on the KeyRecord so rotation carries it with the account.
+   *
+   * PRIVACY (the hard rule): this is evidence about the OPERATOR — fast
+   * approvals with a near-100% approval rate are the signature of drift
+   * toward rubber-stamping. It is surfaced ONLY to the key owner via
+   * /v1/usage and their dashboard. It never feeds any verdict, and it never
+   * appears in reputation lookups, trust evaluations, public stats, or the
+   * admin dashboard: a public record of who rubber-stamps is a targeting list.
+   */
+  approval_stats?: {
+    requested: number;
+    approved: number;
+    denied: number;
+    expired: number;
+    /** Newest-last ring of recent decisions, capped at APPROVAL_RING_MAX.
+     * `outcome` is stamped later if a delivery outcome is reported for the
+     * same scan — the pairing that separates "operator got calibrated" from
+     * "operator rubber-stamps and the payments don't deliver". */
+    recent: Array<{
+      scan_id: string;
+      decided_at: string;
+      latency_ms: number;
+      decision: "approved" | "denied";
+      outcome?: string;
+    }>;
+  };
   /**
    * Operator-owned key (the ecosystem scout, internal tooling, CI). Two
    * effects, both deliberate:
@@ -450,6 +494,12 @@ export class Store {
     for (const [id, a] of this.approvals) {
       if (a.status === "pending" && Date.parse(a.expires_at) <= now) {
         a.status = "expired";
+        // An approval that expired undecided is telemetry too (an operator
+        // ignoring the queue), counted on the owning account. The pending →
+        // expired transition happens exactly once (here or at decide time),
+        // so the counter can't double-count.
+        const rec = this.keys.get(a.key_hash);
+        if (rec) approvalStatsOf(rec).expired += 1;
         changed = true;
       }
       if (a.status !== "pending" && now - Date.parse(a.created_at) > 24 * 3600_000) {

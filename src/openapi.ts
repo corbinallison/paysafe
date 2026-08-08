@@ -115,10 +115,31 @@ const ScanResponse = {
       properties: {
         alg: { type: "string", enum: ["ed25519"] },
         public_key_spki_hex: { type: "string" },
-        message: { type: "string" },
+        message: {
+          type: "string",
+          description:
+            "Frozen 7-field verdict message: scan_id|direction|verdict|risk_score|scanned_at|payment_commitment|expires_at. New signed facts go in `evidence`, never here.",
+        },
         signature_hex: { type: "string" },
         payment_commitment: { type: "string", description: "sha256(network|pay_to|asset|amount|nonce)" },
         expires_at: { type: "string" },
+        evidence: {
+          type: "object",
+          description:
+            "Second signed record (same key): evidence-v1|scan_id|payment_commitment|pin_domain|pin_age_seconds|pin_corroboration. Publishes how long the merchant pin behind this payee had held at scan time (0 = first sighting; empty = no pin applies) and which NAMED out-of-band sources corroborated it (e.g. cdp_bazaar) — never a boolean or a composite score; source strength is the verifier's judgment. Bound to the same scan_id + commitment; shares the attestation's expiry. `pin` mirrors the signed fields for convenience — verifiers must parse the signed message (the SDKs cross-check the mirror). Absent on override attestations.",
+          properties: {
+            message: { type: "string" },
+            signature_hex: { type: "string" },
+            pin: {
+              type: ["object", "null"],
+              properties: {
+                domain: { type: "string" },
+                age_seconds: { type: "integer", minimum: 0 },
+                corroboration: { type: "array", items: { type: "string" } },
+              },
+            },
+          },
+        },
       },
     },
   },
@@ -502,6 +523,24 @@ export function openApiDoc(cfg: PaySafeConfig): object {
             },
             "401": { description: "Missing or invalid key" },
             "404": { description: "Unknown approval (or owned by a different key — indistinguishable)" },
+          },
+        },
+      },
+      "/v1/usage": {
+        get: {
+          operationId: "getUsage",
+          summary: "Your own key's usage stats and approval-decision telemetry (owner-only)",
+          description:
+            "Aggregates for the CALLER'S OWN key: scan/verdict counts, free-tier quota, plan status, and `approvals` — decision counts, decision-latency aggregates (median/p90, recent vs. baseline windows), and the delivery outcomes of approved payments. The approval telemetry is evidence about the operator (latency shrinking while approval rate stays near 100% is the signature of rubber-stamping), so it is visible only to the owning key: it never feeds a verdict and never appears in reputation lookups, trust evaluations, or public stats.",
+          tags: ["Keys"],
+          security: [],
+          parameters: [{ name: "X-API-Key", in: "header", required: true, schema: { type: "string" } }],
+          responses: {
+            "200": {
+              description:
+                "account {created_at, agent_id, last_used_at} · free_tier {included, used, remaining} · plan {id, name, expires_at, price_per_scan} · scans {total, allow, flag, block, block_rate} · approvals {configured, requested, approved, denied, expired, decision_latency_ms {count, median, p90} | null, recent/baseline {count, median_latency_ms, approval_rate} | null, approved_outcomes {delivered, not_delivered, partial, wrong_content, unreported}}.",
+            },
+            "401": { description: "Missing, unknown, or dead key (rotated/revoked keys get a named code)" },
           },
         },
       },

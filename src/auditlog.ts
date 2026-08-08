@@ -42,6 +42,13 @@ export interface AuditRecord {
   /** hex signature of the verdict attestation, if signing is enabled */
   attestation_sig?: string;
   /**
+   * Approval-decision records only: ms between the approval's creation and
+   * the human decision. Both timestamps are server-stamped. Omitted (never
+   * null) on scan records and on decisions with an unusable created_at, so
+   * existing record shapes and their entry hashes are untouched.
+   */
+  approval_latency_ms?: number;
+  /**
    * Set (and only set) when the scanning key is operator-owned. Absent means
    * third-party. Written from the resolved KeyRecord at scan time, never from
    * request input. Omitted rather than written false so existing records and

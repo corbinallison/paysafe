@@ -64,13 +64,41 @@ export interface CheckResult {
   details?: Record<string, unknown>;
 }
 
+/** Merchant-pin facts from the attestation's signed evidence record. Whether
+ * a young or uncorroborated pin is acceptable is YOUR decision boundary —
+ * e.g. accept a four-minute-old corroborated pin for a cent, refuse it for
+ * fifty dollars. */
+export interface PinEvidence {
+  /** Resource domain the pin is for (lowercased hostname). */
+  domain: string;
+  /** Whole seconds the domain↔pay_to pin had held at scan time. 0 = first sighting. */
+  age_seconds: number;
+  /** NAMED out-of-band sources that corroborated the pin (e.g. "cdp_bazaar").
+   * Deliberately not a boolean and never a score — source strength is a
+   * per-merchant property; rank them yourself. Empty = uncorroborated. */
+  corroboration: string[];
+}
+
 export interface VerdictAttestation {
   alg: "ed25519";
   public_key_spki_hex: string;
+  /** 7-field verdict message (frozen format):
+   * scan_id|direction|verdict|risk_score|scanned_at|payment_commitment|expires_at */
   message: string;
   signature_hex: string;
   payment_commitment: string;
   expires_at: string;
+  /** Second signed record (same key) over
+   * evidence-v1|scan_id|payment_commitment|pin_domain|pin_age_seconds|pin_corroboration
+   * — bound to this scan + commitment; shares the attestation's expiry.
+   * `pin` mirrors the signed fields for convenience; verifyAttestation
+   * cross-checks it against the message. Absent on override attestations and
+   * on servers predating the evidence record. */
+  evidence?: {
+    message: string;
+    signature_hex: string;
+    pin: PinEvidence | null;
+  };
 }
 
 export interface ScanResponse {
@@ -84,6 +112,11 @@ export interface ScanResponse {
   attestation?: VerdictAttestation;
   /** Added by the SDK: result of local attestation verification (absent when verification is disabled). */
   attestation_verified?: boolean;
+  /** Added by the SDK after verifying the attestation's signed evidence
+   * record: the merchant-pin facts, or null when no pin applies to this
+   * payment's payee. Absent (undefined) when the server sent no evidence
+   * record or verification is disabled. */
+  pin_evidence?: PinEvidence | null;
   /** Present on a flag verdict when the key has human-in-the-loop approvals
    * configured: a human is being asked to decide. Poll with waitForApproval(). */
   approval?: PendingApproval;
@@ -217,27 +250,43 @@ export function computePaymentCommitment(p: PaymentDetails): string {
   return createHash("sha256").update(canonical, "utf8").digest("hex");
 }
 
+/** Parsed, signature-verified evidence from an attestation. `pin` is null when
+ * the (verified) record states no pin applies to this payment's payee. */
+export interface VerifiedEvidence {
+  pin: PinEvidence | null;
+}
+
 /**
- * Full attestation check. Returns silently on success; throws AttestationError
- * with a specific reason on any failure. Checks, in order:
+ * Full attestation check. Throws AttestationError with a specific reason on
+ * any failure. Checks, in order:
  *  1. signature over `message` verifies under `trustedKeyHex` (the PINNED key —
  *     never the key embedded in the response, which an attacker controls);
  *  2. message fields match the scan (id, direction, verdict, risk, time);
  *  3. the commitment in the message matches one recomputed from `payment`;
- *  4. the attestation has not expired.
+ *  4. the attestation has not expired;
+ *  5. when a signed evidence record is present: its signature verifies under
+ *     the same pinned key, it is bound to this same scan_id + commitment, and
+ *     the `pin` convenience mirror matches the signed message.
+ *
+ * Returns the verified evidence ({pin: PinEvidence | null}), or null when the
+ * attestation carries no evidence record this SDK version can parse (older
+ * server, override attestation, or a future evidence version).
  */
 export function verifyAttestation(
   scan: ScanResponse,
   payment: PaymentDetails,
   trustedKeyHex: string,
   now: Date = new Date(),
-): void {
+): VerifiedEvidence | null {
   const att = scan.attestation;
   if (!att) throw new AttestationError("scan carries no attestation");
 
+  // Definite-assignment assertion: the catch below always rethrows, so every
+  // path that reaches the evidence check has an assigned key.
+  let key!: ReturnType<typeof createPublicKey>;
   let ok = false;
   try {
-    const key = createPublicKey({ key: Buffer.from(trustedKeyHex, "hex"), format: "der", type: "spki" });
+    key = createPublicKey({ key: Buffer.from(trustedKeyHex, "hex"), format: "der", type: "spki" });
     ok = edVerify(null, Buffer.from(att.message, "utf8"), key, Buffer.from(att.signature_hex, "hex"));
   } catch (e) {
     throw new AttestationError(`signature check failed to run: ${(e as Error).message}`);
@@ -258,6 +307,66 @@ export function verifyAttestation(
   if (Date.parse(expiresAt) <= now.getTime()) {
     throw new AttestationError(`attestation expired at ${expiresAt}`);
   }
+
+  // --- signed evidence record (pin age + named corroboration sources) ---
+  const ev = att.evidence;
+  if (!ev) return null; // older server or an override attestation
+  let evOk = false;
+  try {
+    evOk = edVerify(null, Buffer.from(ev.message, "utf8"), key, Buffer.from(ev.signature_hex, "hex"));
+  } catch (e) {
+    throw new AttestationError(`evidence signature check failed to run: ${(e as Error).message}`);
+  }
+  if (!evOk) throw new AttestationError("evidence signature invalid under the pinned server key");
+
+  const parts = ev.message.split("|");
+  if (parts[0] !== "evidence-v1") return null; // authenticated but not a version this SDK parses
+  if (parts.length !== 6) throw new AttestationError("malformed evidence-v1 message");
+  const [, evScanId, evCommitment, domain, age, sources] = parts;
+  if (evScanId !== scan.scan_id || evCommitment !== commitment) {
+    throw new AttestationError(
+      "evidence record is bound to a DIFFERENT scan/payment (possible evidence replay)",
+    );
+  }
+  let pin: PinEvidence | null = null;
+  if (domain) {
+    // ASCII-digit grammar, exactly like the Python SDK — Number() coercion
+    // would admit "1e3"/"0x10"/" 5" and split a mixed-language fleet.
+    if (!/^[0-9]+$/.test(age)) {
+      throw new AttestationError("malformed evidence-v1 message: pin_age_seconds is not a non-negative integer");
+    }
+    pin = {
+      domain,
+      age_seconds: Number(age),
+      corroboration: sources && sources !== "none" ? sources.split(",") : [],
+    };
+  }
+  // The convenience mirror must be EXACTLY the signed-derived fields (or null):
+  // the mirror is the one unsigned part of the attestation, so an extra key
+  // here would be unsigned data riding a verified response into code that
+  // lazily reads att.evidence.pin. Strict by deliberate, documented choice —
+  // all three verifiers (TS, Python, MCP) reject extras identically, so a
+  // future server that grew the mirror would fail its own SDK tests instead
+  // of breaking deployed fleets one language at a time. Compared field-wise,
+  // never by serialization: JSON key order is not meaningful.
+  if (ev.pin !== undefined) {
+    const m = ev.pin;
+    const mirrorMatches =
+      m === null
+        ? pin === null
+        : pin !== null &&
+          typeof m === "object" &&
+          Object.keys(m).length === 3 &&
+          m.domain === pin.domain &&
+          m.age_seconds === pin.age_seconds &&
+          Array.isArray(m.corroboration) &&
+          m.corroboration.length === pin.corroboration.length &&
+          m.corroboration.every((s, i) => s === pin!.corroboration[i]);
+    if (!mirrorMatches) {
+      throw new AttestationError("evidence `pin` mirror does not match the signed evidence message");
+    }
+  }
+  return { pin };
 }
 
 // ---------------------------------------------------------------------------
@@ -419,8 +528,9 @@ export class PaySafeClient {
     };
     const scan = await this.requestJson<ScanResponse>("POST", `/v1/scan/${direction}`, body);
     if (this.shouldVerify && scan.attestation) {
-      verifyAttestation(scan, payment, await this.verdictKey()); // throws on tamper/replay/expiry
+      const evidence = verifyAttestation(scan, payment, await this.verdictKey()); // throws on tamper/replay/expiry
       scan.attestation_verified = true;
+      if (evidence) scan.pin_evidence = evidence.pin;
     }
     // A consumed observation shouldn't leak provenance onto unrelated later scans.
     this.lastObservation = null;

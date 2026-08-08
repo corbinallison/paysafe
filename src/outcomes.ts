@@ -104,6 +104,18 @@ export function handleOutcomeReport(store: Store, cfg: PaySafeConfig, apiKey: st
   const now = new Date().toISOString();
   const reporter = entry.key_hash ?? "anon";
 
+  // Approval-pairing: if this scan's flag went through a human decision, stamp
+  // the delivery outcome onto that decision's telemetry ring entry. Recording
+  // happens AFTER the decision (never influences it) — the pairing is what
+  // separates "fast approvals because the operator got calibrated" from "fast
+  // approvals and the payments don't deliver". Owner-only data (see store.ts
+  // approval_stats). Ring lookup is O(APPROVAL_RING_MAX).
+  if (entry.key_hash) {
+    const ownerRec = store.keys.get(entry.key_hash);
+    const ringEntry = ownerRec?.approval_stats?.recent.find((e) => e.scan_id === scanId && !e.outcome);
+    if (ringEntry) ringEntry.outcome = outcome;
+  }
+
   // Aggregate against the pay_to captured AT SCAN TIME — never reporter input.
   if (entry.pay_to) {
     const agg: CounterpartyOutcomes = store.outcomes.get(entry.pay_to) ?? {

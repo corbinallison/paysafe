@@ -246,7 +246,7 @@ server.tool(
 
 server.tool(
   "verify_verdict_attestation",
-  "LOCALLY verify a PaySafe scan's Ed25519 attestation before trusting an allow-verdict: checks the signature against the pinned server key (fetched from /.well-known/paysafe-verdict-key unless trusted_key_hex is supplied), recomputes the payment commitment from the payment YOU are about to settle (rejects attestations issued for a different payment — replay defense), and enforces expiry. Runs no network calls except the one-time key fetch; the verdict itself is never sent anywhere.",
+  "LOCALLY verify a PaySafe scan's Ed25519 attestation before trusting an allow-verdict: checks the signature against the pinned server key (fetched from /.well-known/paysafe-verdict-key unless trusted_key_hex is supplied), recomputes the payment commitment from the payment YOU are about to settle (rejects attestations issued for a different payment — replay defense), and enforces expiry. Also verifies the attestation's signed evidence record when present and returns pin_evidence: how long the merchant pin had held at scan time (age 0 = first sighting) and which named out-of-band sources corroborated it (e.g. cdp_bazaar) — weigh a young or uncorroborated pin against the payment size; that decision boundary is yours. Runs no network calls except the one-time key fetch; the verdict itself is never sent anywhere.",
   {
     scan: z.object({
       scan_id: z.string(),
@@ -259,6 +259,25 @@ server.tool(
         signature_hex: z.string(),
         payment_commitment: z.string(),
         expires_at: z.string(),
+        // Second signed record (pin age + named corroboration sources). Must
+        // be declared here: zod's strip mode would silently DROP an unknown
+        // property before the handler ever saw it. The pin mirror uses
+        // passthrough so extra (unsigned) keys REACH the handler and are
+        // rejected there — stripping them would hide tampering.
+        evidence: z
+          .object({
+            message: z.string(),
+            signature_hex: z.string(),
+            pin: z
+              .union([
+                z
+                  .object({ domain: z.string(), age_seconds: z.number(), corroboration: z.array(z.string()) })
+                  .passthrough(),
+                z.null(),
+              ])
+              .optional(),
+          })
+          .optional(),
       }),
     }),
     payment: paymentSchema.describe("The payment you are about to settle — commitment is recomputed from this"),
@@ -296,8 +315,69 @@ server.tool(
         return fail("payment commitment mismatch — attestation was issued for a DIFFERENT payment (possible replay)");
       }
       if (Date.parse(expiresAt) <= Date.now()) return fail(`attestation expired at ${expiresAt}`);
+
+      // Evidence record (pin age + named corroboration): verify when present.
+      // Absent = older server (fine). Signature failure or wrong binding =
+      // tampering = the whole attestation is rejected.
+      let pinEvidence: { domain: string | null; age_seconds: number | null; corroboration: string[] } | undefined;
+      const ev = scan.attestation.evidence;
+      if (ev) {
+        if (!edVerify(null, Buffer.from(ev.message, "utf8"), key, Buffer.from(ev.signature_hex, "hex"))) {
+          return fail("evidence signature invalid under the pinned server key");
+        }
+        const parts = ev.message.split("|");
+        if (parts[0] === "evidence-v1") {
+          // Same grammar the SDKs enforce — lockstep on rejects, not just accepts.
+          if (parts.length !== 6) return fail("malformed evidence-v1 message");
+          const [, evScanId, evCommitment, domain, age, sources] = parts;
+          if (evScanId !== scanId || evCommitment !== commitment) {
+            return fail("evidence record is bound to a different scan/payment (possible replay)");
+          }
+          if (domain && !/^[0-9]+$/.test(age)) {
+            return fail("malformed evidence-v1 message: pin_age_seconds is not a non-negative integer");
+          }
+          pinEvidence = domain
+            ? {
+                domain,
+                age_seconds: Number(age),
+                corroboration: sources && sources !== "none" ? sources.split(",") : [],
+              }
+            : { domain: null, age_seconds: null, corroboration: [] };
+          // The mirror must be EXACTLY the signed-derived fields (or null) —
+          // it is the one unsigned part of the attestation, so extra keys are
+          // unsigned data riding a verified response. Field-wise, never by
+          // serialization; strict identically in TS/Python/MCP.
+          const mirror = ev.pin;
+          if (mirror !== undefined) {
+            const signed = domain ? { domain, age_seconds: Number(age), corroboration: pinEvidence.corroboration } : null;
+            const mirrorMatches =
+              mirror === null
+                ? signed === null
+                : signed !== null &&
+                  Object.keys(mirror).length === 3 &&
+                  mirror.domain === signed.domain &&
+                  mirror.age_seconds === signed.age_seconds &&
+                  mirror.corroboration.length === signed.corroboration.length &&
+                  mirror.corroboration.every((s, i) => s === signed.corroboration[i]);
+            if (!mirrorMatches) {
+              return fail("evidence `pin` mirror does not match the signed evidence message (tampered convenience copy)");
+            }
+          }
+        }
+        // Unknown evidence version: authenticated but not parseable by this
+        // tool version — surface nothing rather than guess.
+      }
+
       return {
-        content: [{ type: "text" as const, text: JSON.stringify({ valid: true, verdict: scan.verdict, expires_at: expiresAt }) }],
+        content: [{
+          type: "text" as const,
+          text: JSON.stringify({
+            valid: true,
+            verdict: scan.verdict,
+            expires_at: expiresAt,
+            ...(pinEvidence !== undefined ? { pin_evidence: pinEvidence } : {}),
+          }),
+        }],
       };
     } catch (e) {
       return fail(`verification error: ${(e as Error).message}`);
